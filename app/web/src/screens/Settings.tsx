@@ -15,6 +15,7 @@ import {
   useReveal,
 } from "../components/bits";
 import { api, type DomainStatus, type Wire } from "../lib/api";
+import { useI18n } from "../lib/i18n";
 import { Link } from "../lib/router";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../lib/toast";
@@ -114,32 +115,32 @@ function AccountCard() {
 }
 
 function ConnectionCard() {
+  const { t } = useI18n();
   const [info, setInfo] = useState<Wire | null>(null);
   useEffect(() => {
     void api.connection().then(setInfo).catch(() => {});
   }, []);
   return (
     <section id="s-connection">
-      <SectionTitle>VPN server</SectionTitle>
+      <SectionTitle>{t("VPN server")}</SectionTitle>
       <div className="card" style={{ padding: "var(--s4)", maxWidth: 560 }}>
         {!info ? (
           <LoadingBlock />
         ) : (
           <KV
             rows={[
-              ["management address", `${info.host}:${info.port}`],
-              ["state", info.configured ? "connected" : "not connected"],
+              [t("management address"), `${info.host}:${info.port}`],
+              [t("state"), info.configured ? t("connected") : t("not connected")],
             ]}
           />
         )}
         <div style={{ marginTop: "var(--s3)" }}>
           <Link to="/connect" className="btn">
-            Edit connection
+            {t("Edit connection")}
           </Link>
         </div>
         <p className="hint" style={{ marginTop: "var(--s2)" }}>
-          The SoftEther administrator password itself is changed under Server settings →
-          Encryption; changing it there keeps this connection in step automatically.
+          {t("The SoftEther administrator password itself is changed under Server settings → Encryption; changing it there keeps this connection in step automatically.")}
         </p>
       </div>
     </section>

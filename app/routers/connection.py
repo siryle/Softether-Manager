@@ -27,24 +27,33 @@ class ConnectionIn(BaseModel):
     port: int = Field(default=5555, ge=1, le=65535)
     # None keeps the stored password; a string replaces it.
     password: Optional[str] = Field(default=None, max_length=256)
+    auth: Optional[str] = Field(default=None, max_length=16)
     skip_test: bool = False
 
 
-def _test(host: str, port: int, password: str) -> dict[str, Any]:
-    client = build_client(host, port, password, timeout=10.0)
-    try:
-        info = client.call("GetServerInfo", {}).raw
-        status = client.call("GetServerStatus", {}).raw
-    except softether.SoftEtherError as exc:
-        raise to_http_error(exc) from exc
-    finally:
-        client.close()
-    return {
-        "ok": True,
-        "version": info.get("ServerVersionString_str", ""),
-        "hostname": info.get("ServerHostName_str", ""),
-        "sessions": status.get("NumSessionsTotal_u32", 0),
-    }
+def _test(host: str, port: int, password: str, auth: Optional[str] = None) -> dict[str, Any]:
+    modes = [auth] if auth in ("header", "basic", "both") else ["header", "basic", "both"]
+    last_exc: Optional[Exception] = None
+    for mode in modes:
+        client = build_client(host, port, password, timeout=10.0, auth=mode)
+        try:
+            info = client.call("GetServerInfo", {}).raw
+            status = client.call("GetServerStatus", {}).raw
+            client.close()
+            return {
+                "ok": True,
+                "auth": mode,
+                "version": info.get("ServerVersionString_str", ""),
+                "hostname": info.get("ServerHostName_str", ""),
+                "sessions": status.get("NumSessionsTotal_u32", 0),
+            }
+        except softether.SoftEtherError as exc:
+            last_exc = exc
+            client.close()
+            continue
+    if last_exc:
+        raise to_http_error(last_exc) from last_exc
+    raise HTTPException(status_code=502, detail="Connection test failed.")
 
 
 @router.get("/connection")
@@ -55,11 +64,12 @@ def get_connection(user: dict = CurrentUser) -> dict[str, Any]:
 @router.put("/connection")
 def put_connection(body: ConnectionIn, user: dict = CurrentUser) -> dict[str, Any]:
     password = body.password if body.password is not None else stored_password()
-    if not password and not body.skip_test:
-        raise HTTPException(status_code=422, detail="An administrator password is needed.")
+    auth_mode = body.auth
     if not body.skip_test:
-        _test(body.host.strip(), body.port, password)
-    set_connection(body.host, body.port, body.password)
+        test_res = _test(body.host.strip(), body.port, password or "", auth=body.auth)
+        if test_res.get("auth"):
+            auth_mode = test_res["auth"]
+    set_connection(body.host, body.port, body.password, auth=auth_mode)
     record(user, "connection.updated", "server", "", f"{body.host}:{body.port}")
     return connection()
 
@@ -68,13 +78,17 @@ class ConnectionTest(BaseModel):
     host: str = "127.0.0.1"
     port: int = 5555
     password: str = ""
+    auth: Optional[str] = None
 
 
 @router.post("/connection/test")
 def test_connection(body: ConnectionTest, user: dict = CurrentUser) -> dict[str, Any]:
     """Try credentials without saving anything. An empty password tries the
-    stored one, which is what the Settings page's Test button means."""
-    return _test(body.host.strip(), body.port, body.password or stored_password())
+    stored one if configured, or tests with blank password if unconfigured."""
+    pwd = body.password
+    if pwd == "" and stored_password():
+        pwd = stored_password()
+    return _test(body.host.strip(), body.port, pwd or "", auth=body.auth)
 
 
 @router.post("/probe")

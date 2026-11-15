@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { ConfirmSheet, Empty, KV, LoadingBlock, PageHead, usePoll } from "../components/bits";
 import { api, type Wire } from "../lib/api";
 import { useToast } from "../lib/toast";
+import { useI18n } from "../lib/i18n";
 import { formatDate, timeAgo } from "../lib/util";
 import { IconClose } from "../ui/Icon";
 import { Sheet } from "../ui/Sheet";
@@ -26,6 +27,7 @@ const CONNECTION_TYPES: Record<number, string> = {
 };
 
 export function Connections() {
+  const { t } = useI18n();
   const [connections, setConnections] = useState<Wire[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [killing, setKilling] = useState<Wire | null>(null);
@@ -38,22 +40,22 @@ export function Connections() {
 
   return (
     <div className="page">
-      <PageHead title="Connections" sub="live TCP connections into the VPN server" />
+      <PageHead title={t("Connections")} sub={t("live TCP connections into the VPN server")} />
       {connections === null ? (
         <LoadingBlock label="loading connections" />
       ) : connections.length === 0 ? (
-        <Empty title="no connections">Which would be odd, since this panel is one.</Empty>
+        <Empty title="no connections">{t("Which would be odd, since this panel is one.")}</Empty>
       ) : (
         <div className="card tcard">
           <div className="tscroll">
             <table className="dtable">
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th>Kind</th>
-                  <th>Source</th>
-                  <th>Connected</th>
-                  <th className="tact" style={{ width: 130 }} aria-label="Actions" />
+                  <th>{t("Name")}</th>
+                  <th>{t("Type")}</th>
+                  <th>{t("Source")}</th>
+                  <th>{t("Connected")}</th>
+                  <th className="tact" style={{ width: 130 }} aria-label={t("Actions")} />
                 </tr>
               </thead>
               <tbody>
@@ -74,7 +76,7 @@ export function Connections() {
                           setKilling(c);
                         }}
                       >
-                        <IconClose size={13} /> Disconnect
+                        <IconClose size={13} /> {t("Disconnect")}
                       </button>
                     </td>
                   </tr>

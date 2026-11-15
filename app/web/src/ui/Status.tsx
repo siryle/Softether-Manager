@@ -10,6 +10,8 @@
  * same value does not restart it and make the dot stutter.
  */
 
+import { useI18n } from "../lib/i18n";
+
 export type Kind = "ok" | "warn" | "err" | "busy" | "idle";
 
 /** Liveness of a managed SoftEther server, as the probe reports it. */
@@ -36,6 +38,7 @@ export function serverState(status: string): string {
 }
 
 export function Pill({ kind, label }: { kind: Kind; label: string }) {
+  const { t } = useI18n();
   const live = kind === "busy";
   return (
     <span className={`pill pill--${kind}${live ? " pill--live" : ""}`}>
@@ -51,7 +54,7 @@ export function Pill({ kind, label }: { kind: Kind; label: string }) {
       ) : (
         <span className="pill__g" aria-hidden="true" />
       )}
-      {label}
+      {t(label)}
     </span>
   );
 }

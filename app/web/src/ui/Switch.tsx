@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useToast } from "../lib/toast";
+import { useI18n } from "../lib/i18n";
 
 /**
  * A switch is a claim about the server, so it is never allowed to lie.
@@ -150,12 +151,15 @@ export function Switch({
   /** Render the state word next to the track. */
   word?: boolean;
 }) {
+  const { t } = useI18n();
   const busy = Boolean(pending);
+  const onTxt = t(onWord);
+  const offTxt = t(offWord);
   const text = busy
-    ? `turning ${target ?? !on ? onWord : offWord}…`
+    ? `${t("切换中…")}`
     : on
-      ? onWord
-      : offWord;
+      ? onTxt
+      : offTxt;
   return (
     <button
       type="button"

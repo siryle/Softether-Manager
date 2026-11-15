@@ -2549,8 +2549,8 @@ class SoftEtherClient:
     ):
         if not host:
             raise ValueError("host is required")
-        if auth not in ("header", "basic"):
-            raise ValueError("auth must be 'header' or 'basic'")
+        if auth not in ("header", "basic", "both"):
+            raise ValueError("auth must be 'header', 'basic' or 'both'")
         self.host = str(host)
         self.port = int(port)
         self.password = password or ""
@@ -2668,12 +2668,13 @@ class SoftEtherClient:
             "User-Agent": self.user_agent,
             "Connection": "keep-alive",
         }
-        if self.auth == "basic":
-            token = base64.b64encode(("%s:%s" % (self.hub, self.password)).encode("utf-8"))
-            headers["Authorization"] = "Basic " + token.decode("ascii")
-        else:
+        if self.auth in ("header", "both"):
             headers["X-VPNADMIN-HUBNAME"] = self.hub
             headers["X-VPNADMIN-PASSWORD"] = self.password
+        if self.auth in ("basic", "both"):
+            user_part = self.hub if self.hub else "administrator"
+            token = base64.b64encode(("%s:%s" % (user_part, self.password)).encode("utf-8"))
+            headers["Authorization"] = "Basic " + token.decode("ascii")
         return headers
 
     def close(self) -> None:
@@ -2776,6 +2777,16 @@ class SoftEtherClient:
         except socket.timeout as exc:
             raise TimeoutError("%s timed out after %ss" % (self.path, self.timeout)) from exc
         except (http.client.HTTPException, ssl.SSLEOFError, ConnectionError, OSError) as exc:
+            # If server sent an HTTP response (e.g. 401 Unauthorized or 403) before the pipe broke,
+            # try to read it so caller gets a proper HTTP/AuthenticationError instead of a blind Broken pipe
+            try:
+                response = conn.getresponse()
+                body = response.read()
+                self.close()
+                return response.status, response.reason, body
+            except Exception:
+                pass
+            self.close()
             raise ConnectionFailedError("request to %s:%s failed: %s" % (self.host, self.port, exc)) from exc
 
     def _parse(self, method: str, request_id: str, status: int, reason: str,

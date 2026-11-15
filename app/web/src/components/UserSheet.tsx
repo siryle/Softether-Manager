@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api, ApiError, type Quota, type Wire } from "../lib/api";
 import { AUTH_TYPE_OPTIONS, isNever, userBytes } from "../lib/se";
 import { useToast } from "../lib/toast";
+import { useI18n } from "../lib/i18n";
 import { fileToBase64 } from "../lib/util";
 import { Sheet } from "../ui/Sheet";
 import { ErrorAlert, Field } from "./bits";
@@ -54,6 +55,7 @@ export function UserSheet({
   onClose: () => void;
   onSaved: (name: string) => void;
 }) {
+  const { t } = useI18n();
   const editing = Boolean(existing);
   const [name, setName] = useState(String(existing?.Name_str ?? ""));
   const [realname, setRealname] = useState(String(existing?.Realname_utf ?? ""));
@@ -177,19 +179,19 @@ export function UserSheet({
 
   return (
     <Sheet
-      title={editing ? `Edit ${existing?.Name_str}` : "New user"}
-      subtitle={`hub ${hub}`}
+      title={editing ? `${t("Edit user")} ${existing?.Name_str}` : t("New user")}
+      subtitle={`${t("Hub")} ${hub}`}
       onClose={onClose}
       footer={
         <>
-          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn" onClick={onClose}>{t("Cancel")}</button>
           <button
             className="btn btn--primary"
             onClick={save}
             disabled={busy || (!editing && !name.trim())}
           >
             {busy && <span className="spin" />}
-            {editing ? "Save" : "Create user"}
+            {editing ? t("Save") : t("Create user")}
           </button>
         </>
       }
@@ -197,7 +199,7 @@ export function UserSheet({
       <div style={{ display: "grid", gap: "var(--s1)" }}>
         {error && <ErrorAlert>{error}</ErrorAlert>}
         {!editing && hubChoices && hubChoices.length > 1 && onHubChange && (
-          <Field label="Virtual Hub" hint="Where this user lives.">
+          <Field label={t("Virtual Hub")} hint={t("Where this user lives.")}>
             <select className="select" value={hub} onChange={(e) => onHubChange(e.target.value)}>
               {hubChoices.map((h) => (
                 <option key={h} value={h}>{h}</option>
@@ -206,44 +208,44 @@ export function UserSheet({
           </Field>
         )}
         {!editing && (
-          <Field label="Username" hint="What the client authenticates as. Letters, digits, - _ . are safe.">
+          <Field label={t("Username")} hint={t("Letters, digits, - and _ are safe.")}>
             <input className="input mono" value={name} onChange={(e) => setName(e.target.value)}
               autoFocus autoCapitalize="none" autoCorrect="off" spellCheck={false} />
           </Field>
         )}
         <div className="row2">
-          <Field label="Full name">
+          <Field label={t("Full name")}>
             <input className="input" value={realname} onChange={(e) => setRealname(e.target.value)} />
           </Field>
-          <Field label="Group" hint="Group members inherit the group's security policy.">
+          <Field label={t("Group")} hint={t("Group members inherit the group's security policy.")}>
             <select className="select" value={group} onChange={(e) => setGroup(e.target.value)}>
-              <option value="">— none —</option>
+              <option value="">— {t("none")} —</option>
               {groups.map((g) => (
                 <option key={g} value={g}>{g}</option>
               ))}
             </select>
           </Field>
         </div>
-        <Field label="Note">
+        <Field label={t("Note")}>
           <input className="input" value={note} onChange={(e) => setNote(e.target.value)} />
         </Field>
 
-        <Field label="Authentication">
+        <Field label={t("Authentication")}>
           <select className="select" value={authType} onChange={(e) => setAuthType(Number(e.target.value))}>
             {AUTH_TYPE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
+              <option key={o.value} value={o.value}>{t(o.label)}</option>
             ))}
           </select>
           <div className="hint">{AUTH_TYPE_OPTIONS.find((o) => o.value === authType)?.hint}</div>
         </Field>
 
         {authType === 1 && (
-          <Field label={editing ? "New password (leave empty to keep)" : "Password"}>
+          <Field label={editing ? t("New password (leave empty to keep)") : t("Password")}>
             <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
           </Field>
         )}
         {authType === 2 && (
-          <Field label={editing && existing?.UserX_bin ? "Replace certificate (optional)" : "User certificate"} hint="X.509, DER or PEM.">
+          <Field label={editing && existing?.UserX_bin ? t("Replace certificate (optional)") : t("User certificate")} hint="X.509, DER or PEM.">
             <input
               className="input"
               type="file"
@@ -256,22 +258,22 @@ export function UserSheet({
           </Field>
         )}
         {authType === 3 && (
-          <Field label="Limit to common name" hint="Optional: only certificates carrying this CN. Empty accepts any trusted-signed certificate.">
+          <Field label={t("Limit to common name")} hint="Optional: only certificates carrying this CN. Empty accepts any trusted-signed certificate.">
             <input className="input mono" value={commonName} onChange={(e) => setCommonName(e.target.value)} spellCheck={false} />
           </Field>
         )}
         {authType === 4 && (
-          <Field label="RADIUS username" hint="Empty uses the VPN username.">
+          <Field label={t("RADIUS username")} hint="Empty uses the VPN username.">
             <input className="input mono" value={radiusUser} onChange={(e) => setRadiusUser(e.target.value)} spellCheck={false} autoCapitalize="none" />
           </Field>
         )}
         {authType === 5 && (
-          <Field label="NT domain username" hint="Empty uses the VPN username.">
+          <Field label={t("NT domain username")} hint="Empty uses the VPN username.">
             <input className="input mono" value={ntUser} onChange={(e) => setNtUser(e.target.value)} spellCheck={false} autoCapitalize="none" />
           </Field>
         )}
 
-        <Field label="Expires" hint="After this moment the user cannot connect. Empty means never.">
+        <Field label={t("Expires")} hint={t("After this moment the user cannot connect. Empty means never.")}>
           <input className="input mono" type="datetime-local" value={expires} onChange={(e) => setExpires(e.target.value)} />
         </Field>
 

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type Wire } from "../lib/api";
 import { useToast } from "../lib/toast";
+import { useI18n } from "../lib/i18n";
 import { downloadText } from "../lib/util";
 import { IconDownload } from "../ui/Icon";
 import { Sheet } from "../ui/Sheet";
@@ -29,6 +30,7 @@ export function VpnFileSheet({
   name: string;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   const [host, setHost] = useState(() => window.location.hostname);
   const [port, setPort] = useState<number>(443);
   const [ports, setPorts] = useState<number[]>([]);
@@ -119,15 +121,15 @@ export function VpnFileSheet({
 
   return (
     <Sheet
-      title="Download connection file"
-      subtitle={`${name} · hub ${hub}`}
+      title={t("Download connection file")}
+      subtitle={`${name} · ${t("Hub")} ${hub}`}
       onClose={onClose}
       footer={
         <>
-          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn" onClick={onClose}>{t("Cancel")}</button>
           <button className="btn btn--primary" onClick={download} disabled={busy || !host.trim() || !port}>
             {busy ? <span className="spin" /> : <IconDownload size={15} />}
-            Download .vpn
+            {t("Download .vpn")}
           </button>
         </>
       }

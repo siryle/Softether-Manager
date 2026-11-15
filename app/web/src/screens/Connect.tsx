@@ -44,7 +44,7 @@ export function Connect() {
     setTestResult(null);
     try {
       const r = await api.testConnection({ host, port, password });
-      setTestResult(`${r.version} answered on ${host}:${port}.`);
+      setTestResult(`${r.version} ${t("answered on")} ${host}:${port}.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -101,10 +101,10 @@ export function Connect() {
             onChange={(e) => setPassword(e.target.value)} autoComplete="off" />
         </Field>
         <div style={{ display: "flex", gap: "var(--s2)", marginTop: "var(--s2)" }}>
-          <button className="btn" onClick={test} disabled={busy !== null || (!password && !configured)}>
+          <button className="btn" onClick={test} disabled={busy !== null}>
             {busy === "test" && <span className="spin" />} {t("Test connection")}
           </button>
-          <button className="btn btn--primary" onClick={save} disabled={busy !== null || (!password && !configured)}>
+          <button className="btn btn--primary" onClick={save} disabled={busy !== null}>
             {busy === "save" && <span className="spin" />} {t("Save & connect")}
           </button>
         </div>

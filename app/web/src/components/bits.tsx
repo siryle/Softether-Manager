@@ -57,10 +57,11 @@ export function LoadingBlock({ label = "loading" }: { label?: string }) {
 }
 
 export function Empty({ title, children, action }: { title: string; children?: ReactNode; action?: ReactNode }) {
+  const { t } = useI18n();
   return (
     <div className="empty">
-      <div className="empty__t">{title}</div>
-      {children && <p className="empty__s">{children}</p>}
+      <div className="empty__t">{t(title)}</div>
+      {children && <p className="empty__s">{typeof children === "string" ? t(children) : children}</p>}
       {action}
     </div>
   );
@@ -106,6 +107,7 @@ export function CheckRow({
 
 /** Search input with the icon, for tables. */
 export function SearchBox({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+  const { t } = useI18n();
   return (
     <div style={{ position: "relative", flex: "1 1 220px", maxWidth: 340 }}>
       <span style={{ position: "absolute", insetInlineStart: 10, top: "50%", transform: "translateY(-50%)", color: "var(--text-faint)", display: "flex" }}>
@@ -116,7 +118,7 @@ export function SearchBox({ value, onChange, placeholder }: { value: string; onC
         style={{ paddingInlineStart: 34 }}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
+        placeholder={t(placeholder)}
         autoCapitalize="none"
         autoCorrect="off"
         spellCheck={false}
@@ -182,7 +184,7 @@ export function ConfirmSheet({
           </button>
           <button className={`btn ${danger ? "btn--danger" : "btn--primary"}`} disabled={!armed || busy} onClick={go}>
             {busy && <span className="spin" />}
-            {verb}
+            {t(verb)}
           </button>
         </>
       }
@@ -190,7 +192,7 @@ export function ConfirmSheet({
       <div style={{ display: "grid", gap: "var(--s3)" }}>
         <div className="lede">{body}</div>
         {typed && (
-          <Field label={<>Type <span className="mono">{typed}</span> to confirm</>}>
+          <Field label={<>{t("输入")} <span className="mono">{typed}</span> {t("以确认")}</>}>
             <input
               className="input mono"
               value={text}
@@ -240,6 +242,7 @@ export function MoreRows({
   onReveal: () => void;
   onLoad: () => void | Promise<void>;
 }) {
+  const { t } = useI18n();
   const [busy, setBusy] = useState(false);
   const hidden = shown < loaded;
   if (!hidden && exhausted) return null;
@@ -256,11 +259,11 @@ export function MoreRows({
   return (
     <div className="morebar">
       <span className="micro">
-        {shown} of {loaded}
-        {exhausted ? "" : "+"} {noun}
+        {shown} / {loaded}
+        {exhausted ? "" : "+"} {t(noun)}
       </span>
       <button className="btn btn--sm" onClick={() => void click()} disabled={busy}>
-        {busy && <span className="spin" />} Show more
+        {busy && <span className="spin" />} {t("Show more")}
       </button>
     </div>
   );

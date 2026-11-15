@@ -118,7 +118,7 @@ export function Dashboard() {
           <div className="dash__main">
             <div className="kpis stagger">
               <Kpi label={t("Sessions")} value={formatCount(status?.NumSessionsTotal_u32)} sub={t("across all hubs")} />
-              <Kpi label={t("Users")} value={formatCount(status?.NumUsers_u32)} sub={t("accounts on the server")} />
+              <Kpi label={t("Total users")} value={formatCount(status?.NumUsers_u32)} sub={t("accounts on the server")} />
               <Kpi
                 label={t("Received")}
                 value={formatBytes((status?.["Recv.UnicastBytes_u64"] ?? 0) + (status?.["Recv.BroadcastBytes_u64"] ?? 0))}
@@ -137,8 +137,10 @@ export function Dashboard() {
                   <div className="panelcard__t">{t("Virtual Hubs")}</div>
                   <div className="panelcard__s">
                     {hubs?.length
-                      ? `${hubs.length} hub${hubs.length === 1 ? "" : "s"} on this server`
-                      : "where users, sessions and access control live"}
+                      ? hubs.length === 1
+                        ? t("1 hub on this server")
+                        : t("{count} hubs on this server", { count: hubs.length })
+                      : t("where users, sessions and access control live")}
                   </div>
                 </div>
                 <button className="btn btn--sm" onClick={() => setCreatingHub(true)}>
@@ -149,22 +151,26 @@ export function Dashboard() {
                 <LoadingBlock label="loading hubs" />
               ) : hubs.length === 0 ? (
                 <p className="lede" style={{ margin: 0 }}>
-                  A Virtual Hub is where users, sessions and access control live. Create the
-                  first one.
+                  {t("A Virtual Hub is where users, sessions and access control live. Create the first one.")}
                 </p>
               ) : (
                 <div className="feed">
                   {hubs.map((h) => {
                     const name = String(h.HubName_str ?? "");
                     const online = Boolean(h.Online_bool);
+                    const hubTypeRaw = h.HubType_u32 !== undefined ? HUB_TYPES[h.HubType_u32 as number]?.split(" ")[0] : "";
+                    const hubTypeTranslated = hubTypeRaw ? t(hubTypeRaw) : "—";
                     return (
                       <button key={name} className="feed__i" onClick={() => navigate(`/hub/${seg(name)}`)}>
                         <span className={`feed__ava${online ? " feed__ava--on" : ""}`}>{name.slice(0, 1)}</span>
                         <span className="feed__m">
                           <span className="feed__t">{name}</span>
                           <span className="feed__s">
-                            {formatCount(h.NumUsers_u32)} users · {formatCount(h.NumSessions_u32)} sessions ·{" "}
-                            {h.HubType_u32 !== undefined ? HUB_TYPES[h.HubType_u32 as number]?.split(" ")[0] : "—"}
+                            {t("{users} users · {sessions} sessions · {type}", {
+                              users: formatCount(h.NumUsers_u32),
+                              sessions: formatCount(h.NumSessions_u32),
+                              type: hubTypeTranslated,
+                            })}
                           </span>
                         </span>
                         <span className="feed__side">
@@ -183,13 +189,13 @@ export function Dashboard() {
             {resources === null ? null : resources.available === false ? (
               <div className="alert alert--info" style={{ marginBottom: 0 }}>
                 <div>
-                  <div className="alert__t">Resource monitoring is asleep.</div>
-                  {String(resources.reason ?? "It runs where /proc exists — a Linux host.")}
+                  <div className="alert__t">{t("Resource monitoring is asleep.")}</div>
+                  {String(resources.reason ?? t("It runs where /proc exists — a Linux host."))}
                 </div>
               </div>
             ) : (
               <>
-                <SectionTitle>This machine</SectionTitle>
+                <SectionTitle>{t("This machine")}</SectionTitle>
                 <div className="metrics" style={{ marginBottom: 0 }}>
                   <CpuCard snapshot={resources} history={history.cpu} />
                   <MemoryCard snapshot={resources} history={history.memory} />
@@ -204,18 +210,18 @@ export function Dashboard() {
           {/* ── side column ─────────────────────────────────────────────── */}
           <div className="dash__side">
             <div className="inverse hero">
-              <div className="hero__k">This server</div>
+              <div className="hero__k">{t("This server")}</div>
               <div className="hero__name mono truncate" title={probe?.hostname ?? ""}>
                 {probe?.hostname ?? "—"}
               </div>
               <div className="hero__v">{uptimeSeconds ? formatDuration(uptimeSeconds) : "—"}</div>
-              <div className="hero__s">VPN uptime · {probe?.version ?? "version unknown"}</div>
+              <div className="hero__s">{t("VPN uptime")} · {probe?.version ?? t("version unknown")}</div>
               <div className="hero__actions">
                 <button className="btn btn--sm" onClick={() => setCreatingHub(true)}>
-                  <IconPlus size={14} /> New hub
+                  <IconPlus size={14} /> {t("New hub")}
                 </button>
                 <Link to="/server-settings" className="btn btn--sm btn--ghost">
-                  <IconSettings size={14} /> Server settings
+                  <IconSettings size={14} /> {t("Server settings")}
                 </Link>
               </div>
             </div>
@@ -223,31 +229,55 @@ export function Dashboard() {
             <div className="card panelcard">
               <div className="panelcard__h">
                 <div>
-                  <div className="panelcard__t">Access protocols</div>
-                  <div className="panelcard__s">ways into this server</div>
+                  <div className="panelcard__t">{t("Access protocols")}</div>
+                  <div className="panelcard__s">{t("ways into this server")}</div>
                 </div>
               </div>
               <div className="feed">
-                <ProtocolRow label="SoftEther" on detail={`${(listeners ?? []).filter((l) => l.Enables_bool).map((l) => l.Ports_u32).join(", ") || "no listeners"}`} />
-                <ProtocolRow label="L2TP/IPsec" on={Boolean(ipsec?.L2TP_IPsec_bool)} detail={ipsec ? (ipsec.L2TP_IPsec_bool ? `default hub ${ipsec.L2TP_DefaultHub_str || "—"}` : "off") : "—"} />
-                <ProtocolRow label="OpenVPN" on={Boolean(openvpn?.EnableOpenVPN_bool)} detail={openvpn?.EnableOpenVPN_bool ? `udp ${openvpn.OpenVPNPortList_str}` : "off"} />
-                <ProtocolRow label="SSTP" on={Boolean(openvpn?.EnableSSTP_bool)} detail={openvpn?.EnableSSTP_bool ? "enabled" : "off"} />
-                <ProtocolRow label="VPN Azure" on={Boolean(azure?.IsEnabled_bool)} detail={azure?.IsEnabled_bool ? (ddns?.CurrentHostName_str ? `${ddns.CurrentHostName_str}.vpnazure.net` : "enabled") : "off"} />
-                <ProtocolRow label="DDNS" on={Boolean(ddns?.CurrentHostName_str)} detail={ddns?.CurrentFqdn_str || "—"} />
+                <ProtocolRow
+                  label="SoftEther"
+                  on
+                  detail={`${(listeners ?? []).filter((l) => l.Enables_bool).map((l) => l.Ports_u32).join(", ") || t("no listeners")}`}
+                />
+                <ProtocolRow
+                  label="L2TP/IPsec"
+                  on={Boolean(ipsec?.L2TP_IPsec_bool)}
+                  detail={ipsec ? (ipsec.L2TP_IPsec_bool ? t("default hub {hub}", { hub: ipsec.L2TP_DefaultHub_str || "—" }) : t("off")) : "—"}
+                />
+                <ProtocolRow
+                  label="OpenVPN"
+                  on={Boolean(openvpn?.EnableOpenVPN_bool)}
+                  detail={openvpn?.EnableOpenVPN_bool ? `udp ${openvpn.OpenVPNPortList_str}` : t("off")}
+                />
+                <ProtocolRow
+                  label="SSTP"
+                  on={Boolean(openvpn?.EnableSSTP_bool)}
+                  detail={openvpn?.EnableSSTP_bool ? t("enabled") : t("off")}
+                />
+                <ProtocolRow
+                  label="VPN Azure"
+                  on={Boolean(azure?.IsEnabled_bool)}
+                  detail={azure?.IsEnabled_bool ? (ddns?.CurrentHostName_str ? `${ddns.CurrentHostName_str}.vpnazure.net` : t("enabled")) : t("off")}
+                />
+                <ProtocolRow
+                  label="DDNS"
+                  on={Boolean(ddns?.CurrentHostName_str)}
+                  detail={ddns?.CurrentFqdn_str || "—"}
+                />
               </div>
             </div>
 
             <div className="card panelcard">
               <div className="panelcard__h">
                 <div>
-                  <div className="panelcard__t">Tools</div>
+                  <div className="panelcard__t">{t("Tools")}</div>
                 </div>
               </div>
               <div className="feed">
-                <ToolRow to="/connections" icon={<IconPulse size={16} />} title="Connections" sub="TCP connections into the server, live" />
-                <ToolRow to="/logs" icon={<IconLogs size={16} />} title="Logs" sub="server, hub security and packet logs" />
-                <ToolRow to="/console" icon={<IconTerminal size={16} />} title="API console" sub="every RPC method, callable raw" />
-                <ToolRow to="/server-settings" icon={<IconSettings size={16} />} title="Server settings" sub="listeners, certificate, bridges…" />
+                <ToolRow to="/connections" icon={<IconPulse size={16} />} title={t("Connections")} sub={t("TCP connections into the server, live")} />
+                <ToolRow to="/logs" icon={<IconLogs size={16} />} title={t("Logs")} sub={t("server, hub security and packet logs")} />
+                <ToolRow to="/console" icon={<IconTerminal size={16} />} title={t("API console")} sub={t("every RPC method, callable raw")} />
+                <ToolRow to="/server-settings" icon={<IconSettings size={16} />} title={t("Server settings")} sub={t("listeners, certificate, bridges…")} />
               </div>
             </div>
           </div>

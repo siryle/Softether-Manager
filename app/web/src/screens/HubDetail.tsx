@@ -8,6 +8,7 @@ import { api, type Usage, type Wire } from "../lib/api";
 import { HUB_TYPES } from "../lib/se";
 import { Link, navigate, seg } from "../lib/router";
 import { formatBytes, formatCount, formatDate } from "../lib/util";
+import { useI18n } from "../lib/i18n";
 import { OnlinePill } from "../ui/Status";
 import { OutcomeNote, Switch, useToggle } from "../ui/Switch";
 import { HubUsers } from "./hub/HubUsers";
@@ -40,6 +41,7 @@ const TABS: { key: string; label: string }[] = [
 ];
 
 export function HubDetail({ hub, tab }: { hub: string; tab: string }) {
+  const { t } = useI18n();
   const [status, setStatus] = useState<Wire | null>(null);
   const quotas = useQuotaIndex([hub]);
 
@@ -79,10 +81,10 @@ export function HubDetail({ hub, tab }: { hub: string; tab: string }) {
         }
         sub={
           <>
-            <Link to={`/`} className="linkish">← dashboard</Link>
+            <Link to={`/`} className="linkish">← {t("Dashboard")}</Link>
             {status && (
               <>
-                {" "}· {HUB_TYPES[Number(status.HubType_u32 ?? 0)]} hub
+                {" "}· {t(HUB_TYPES[Number(status.HubType_u32 ?? 0)]?.split(" ")[0] ?? "")} {t("Hub")}
               </>
             )}
           </>
@@ -95,7 +97,7 @@ export function HubDetail({ hub, tab }: { hub: string; tab: string }) {
                 pending={onlineToggle.pending}
                 target={onlineToggle.target}
                 onToggle={() => void onlineToggle.toggle()}
-                label="Hub online"
+                label={t("Hub online")}
                 onWord="online"
                 offWord="offline"
               />
@@ -106,15 +108,15 @@ export function HubDetail({ hub, tab }: { hub: string; tab: string }) {
       />
 
       <div className="tabs" role="tablist" aria-label="Hub sections">
-        {TABS.map((t) => (
+        {TABS.map((tabItem) => (
           <button
-            key={t.key}
+            key={tabItem.key}
             role="tab"
-            aria-selected={tab === t.key}
-            className={`tabs__i${tab === t.key ? " on" : ""}`}
-            onClick={() => navigate(`/hub/${seg(hub)}${t.key === "overview" ? "" : `/${t.key}`}`)}
+            aria-selected={tab === tabItem.key}
+            className={`tabs__i${tab === tabItem.key ? " on" : ""}`}
+            onClick={() => navigate(`/hub/${seg(hub)}${tabItem.key === "overview" ? "" : `/${tabItem.key}`}`)}
           >
-            {t.label}
+            {t(tabItem.label)}
           </button>
         ))}
       </div>
@@ -134,6 +136,7 @@ export function HubDetail({ hub, tab }: { hub: string; tab: string }) {
 }
 
 function HubOverview({ hub, status }: { hub: string; status: Wire | null }) {
+  const { t } = useI18n();
   const [hours, setHours] = useState(24);
   const [usage, setUsage] = useState<Usage | null>(null);
 
@@ -152,40 +155,40 @@ function HubOverview({ hub, status }: { hub: string; status: Wire | null }) {
       <div className="fleet stagger">
         <div className="fleet__cell">
           <div className="fleet__n">{formatCount(status.NumSessions_u32)}</div>
-          <div className="micro">sessions</div>
+          <div className="micro">{t("Sessions")}</div>
         </div>
         <div className="fleet__cell">
           <div className="fleet__n">{formatCount(status.NumUsers_u32)}</div>
-          <div className="micro">users</div>
+          <div className="micro">{t("Users")}</div>
         </div>
         <div className="fleet__cell">
           <div className="fleet__n">{formatCount(status.NumGroups_u32)}</div>
-          <div className="micro">groups</div>
+          <div className="micro">{t("Groups")}</div>
         </div>
         <div className="fleet__cell">
           <div className="fleet__n">{formatCount(status.NumMacTables_u32)}</div>
-          <div className="micro">MAC entries</div>
+          <div className="micro">{t("MAC entries")}</div>
         </div>
         <div className="fleet__cell">
           <div className="fleet__n">{formatBytes(send + recv)}</div>
-          <div className="micro">lifetime traffic</div>
+          <div className="micro">{t("lifetime traffic")}</div>
         </div>
       </div>
 
-      <SectionTitle actions={<RangeSeg hours={hours} onChange={setHours} />}>Throughput</SectionTitle>
+      <SectionTitle actions={<RangeSeg hours={hours} onChange={setHours} />}>{t("Throughput")}</SectionTitle>
       <div className="card" style={{ padding: "var(--s4)" }}>
         {usage ? <TrafficChart usage={usage} /> : <LoadingBlock label="loading samples" />}
       </div>
 
-      <SectionTitle>Details</SectionTitle>
+      <SectionTitle>{t("Details")}</SectionTitle>
       <div className="card" style={{ padding: "var(--s4)" }}>
         <div className="kv">
-          <div><div className="micro">created</div><div className="mono">{formatDate(status.CreatedTime_dt as string)}</div></div>
-          <div><div className="micro">last comm</div><div className="mono">{formatDate(status.LastCommTime_dt as string)}</div></div>
-          <div><div className="micro">last login</div><div className="mono">{formatDate(status.LastLoginTime_dt as string)}</div></div>
-          <div><div className="micro">logins</div><div className="mono">{formatCount(status.NumLogin_u32 as number)}</div></div>
-          <div><div className="micro">IP entries</div><div className="mono">{formatCount(status.NumIpTables_u32 as number)}</div></div>
-          <div><div className="micro">SecureNAT</div><div className="mono">{status.SecureNATEnabled_bool ? "enabled" : "disabled"}</div></div>
+          <div><div className="micro">{t("Created")}</div><div className="mono">{formatDate(status.CreatedTime_dt as string)}</div></div>
+          <div><div className="micro">{t("last comm")}</div><div className="mono">{formatDate(status.LastCommTime_dt as string)}</div></div>
+          <div><div className="micro">{t("last login")}</div><div className="mono">{formatDate(status.LastLoginTime_dt as string)}</div></div>
+          <div><div className="micro">{t("Logins")}</div><div className="mono">{formatCount(status.NumLogin_u32 as number)}</div></div>
+          <div><div className="micro">{t("IP entries")}</div><div className="mono">{formatCount(status.NumIpTables_u32 as number)}</div></div>
+          <div><div className="micro">SecureNAT</div><div className="mono">{status.SecureNATEnabled_bool ? t("enabled") : t("off")}</div></div>
         </div>
       </div>
     </>

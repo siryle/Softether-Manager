@@ -23,6 +23,7 @@ import { Spark } from "../components/ResourceCards";
 import { Link, navigate, seg } from "../lib/router";
 import { AUTH_TYPES, isNever, userBytes, SESSION_TYPE } from "../lib/se";
 import { useToast } from "../lib/toast";
+import { useI18n } from "../lib/i18n";
 import { formatBytes, formatCount, formatDate, formatDuration, timeAgo } from "../lib/util";
 import { BrandMark, IconDownload, IconTrash } from "../ui/Icon";
 import { Pill } from "../ui/Status";
@@ -125,6 +126,7 @@ function SessionUsageSheet({ hub, row, onClose }: { hub: string; row: Wire; onCl
  * decoration.
  */
 export function UserDetail({ hub, name }: { hub: string; name: string }) {
+  const { t } = useI18n();
   const [user, setUser] = useState<Wire | null>(null);
   const [sessions, setSessions] = useState<Wire[] | null>(null);
   const [history, setHistory] = useState<Wire[] | null>(null);
@@ -214,18 +216,18 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
         title={<span className="mono">{name}</span>}
         sub={
           <>
-            <Link to={`/hub/${seg(hub)}/users`} className="linkish">← users</Link>
-            {" "}· hub <span className="mono">{hub}</span>
+            <Link to={`/hub/${seg(hub)}/users`} className="linkish">← {t("Users")}</Link>
+            {" "}· {t("Hub")} <span className="mono">{hub}</span>
           </>
         }
         actions={
           <>
             <button className="btn btn--primary" onClick={() => setDownloading(true)}>
-              <IconDownload size={15} /> Download .vpn
+              <IconDownload size={15} /> {t("Download .vpn")}
             </button>
-            <button className="btn" onClick={() => setEditing(true)}>Edit profile</button>
+            <button className="btn" onClick={() => setEditing(true)}>{t("Edit profile")}</button>
             <button className="btn btn--danger" onClick={() => setDeleting(true)}>
-              <IconTrash size={14} /> Delete
+              <IconTrash size={14} /> {t("Delete")}
             </button>
           </>
         }
@@ -242,27 +244,27 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
           <div className="idcard__name mono">{name}</div>
           {user.Realname_utf ? <div className="idcard__real">{String(user.Realname_utf)}</div> : null}
           <div className="idcard__meta">
-            <span className="chip"><i>auth</i>{AUTH_TYPES[Number(user.AuthType_u32)] ?? "?"}</span>
-            <span className="chip"><i>group</i>{String(user.GroupName_str || "—")}</span>
-            <span className="chip"><i>expires</i>{isNever(user.ExpireTime_dt as string) ? "never" : formatDate(user.ExpireTime_dt as string)}</span>
+            <span className="chip"><i>{t("auth")}</i>{AUTH_TYPES[Number(user.AuthType_u32)] ? t(AUTH_TYPES[Number(user.AuthType_u32)]) : "?"}</span>
+            <span className="chip"><i>{t("group")}</i>{String(user.GroupName_str || "—")}</span>
+            <span className="chip"><i>{t("Expires")}</i>{isNever(user.ExpireTime_dt as string) ? t("never") : formatDate(user.ExpireTime_dt as string)}</span>
           </div>
           <div className="idcard__foot">
-            <div className="stat"><span className="stat__n">{formatCount(Number(user.NumLogin_u32))}</span><span className="micro">logins</span></div>
-            <div className="stat"><span className="stat__n">{formatBytes(bytes.recv)}</span><span className="micro">downloaded</span></div>
-            <div className="stat"><span className="stat__n">{formatBytes(bytes.send)}</span><span className="micro">uploaded</span></div>
-            <div className="stat"><span className="stat__n">{sessions?.length ?? 0}</span><span className="micro">online now</span></div>
+            <div className="stat"><span className="stat__n">{formatCount(Number(user.NumLogin_u32))}</span><span className="micro">{t("logins")}</span></div>
+            <div className="stat"><span className="stat__n">{formatBytes(bytes.recv)}</span><span className="micro">{t("downloaded")}</span></div>
+            <div className="stat"><span className="stat__n">{formatBytes(bytes.send)}</span><span className="micro">{t("uploaded")}</span></div>
+            <div className="stat"><span className="stat__n">{sessions?.length ?? 0}</span><span className="micro">{t("online now")}</span></div>
           </div>
         </div>
 
         <div className="card" style={{ padding: "var(--s4)" }}>
           <KV
             rows={[
-              ["created", formatDate(user.CreatedTime_dt as string)],
-              ["updated", formatDate(user.UpdatedTime_dt as string)],
-              ["note", String(user.Note_utf || "—")],
-              ...(Number(user.AuthType_u32) === 3 && user.CommonName_utf ? [["required CN", String(user.CommonName_utf)] as [string, string]] : []),
-              ...(Number(user.AuthType_u32) === 4 ? [["RADIUS user", String(user.RadiusUsername_utf || name)] as [string, string]] : []),
-              ...(Number(user.AuthType_u32) === 5 ? [["NT user", String(user.NtUsername_utf || name)] as [string, string]] : []),
+              [t("Created"), formatDate(user.CreatedTime_dt as string)],
+              [t("Updated"), formatDate(user.UpdatedTime_dt as string)],
+              [t("Note"), String(user.Note_utf || "—")],
+              ...(Number(user.AuthType_u32) === 3 && user.CommonName_utf ? [[t("required CN"), String(user.CommonName_utf)] as [string, string]] : []),
+              ...(Number(user.AuthType_u32) === 4 ? [[t("RADIUS user"), String(user.RadiusUsername_utf || name)] as [string, string]] : []),
+              ...(Number(user.AuthType_u32) === 5 ? [[t("NT user"), String(user.NtUsername_utf || name)] as [string, string]] : []),
             ]}
           />
         </div>
@@ -272,10 +274,10 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
         <>
           <SectionTitle
             actions={
-              <button className="btn btn--sm" onClick={() => setEditing(true)}>Change</button>
+              <button className="btn btn--sm" onClick={() => setEditing(true)}>{t("Change")}</button>
             }
           >
-            Traffic limit
+            {t("Traffic limit")}
           </SectionTitle>
           <div className="card" style={{ padding: "var(--s4)", maxWidth: 640 }}>
             <QuotaEnforceSwitch quota={quota} subject="user" onChanged={setQuota} />
@@ -284,7 +286,7 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
         </>
       )}
 
-      <SectionTitle actions={<RangeSeg hours={hours} onChange={setHours} />}>Usage</SectionTitle>
+      <SectionTitle actions={<RangeSeg hours={hours} onChange={setHours} />}>{t("Usage")}</SectionTitle>
       <div className="card" style={{ padding: "var(--s4)" }}>
         {usage ? (
           <TrafficChart
@@ -296,12 +298,12 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
         )}
       </div>
 
-      <SectionTitle count={sessions?.length}>Live sessions</SectionTitle>
+      <SectionTitle count={sessions?.length}>{t("Live sessions")}</SectionTitle>
       {sessions === null ? (
         <LoadingBlock />
       ) : sessions.length === 0 ? (
-        <Empty title="not connected right now">
-          Sessions appear here the moment this user connects, and can be cut from here too.
+        <Empty title={t("not connected right now")}>
+          {t("Sessions appear here the moment this user connects, and can be cut from here too.")}
         </Empty>
       ) : (
         <SessionsTable
@@ -316,13 +318,12 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
         />
       )}
 
-      <SectionTitle count={history?.length}>Session history</SectionTitle>
+      <SectionTitle count={history?.length}>{t("Session history")}</SectionTitle>
       {history === null ? (
         <LoadingBlock />
       ) : history.length === 0 ? (
-        <Empty title="no logins recorded yet">
-          Every connection this user makes lands here — client IP, when it started and ended,
-          and the bytes it moved — kept for the retention window set in Settings.
+        <Empty title={t("no logins recorded yet")}>
+          {t("Every connection this user makes lands here — client IP, when it started and ended, and the bytes it moved — kept for the retention window set in Settings.")}
         </Empty>
       ) : (
         <div className="card tcard">
@@ -330,12 +331,12 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
             <table className="dtable">
               <thead>
                 <tr>
-                  <th>Started</th>
-                  <th>Ended</th>
-                  <th>Duration</th>
-                  <th>Client IP</th>
-                  <th>Host</th>
-                  <th>Transferred</th>
+                  <th>{t("Started")}</th>
+                  <th>{t("Ended")}</th>
+                  <th>{t("Duration")}</th>
+                  <th>{t("Client IP")}</th>
+                  <th>{t("Host")}</th>
+                  <th>{t("Transferred")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -370,7 +371,7 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
         </div>
       )}
 
-      <SectionTitle>Security policy</SectionTitle>
+      <SectionTitle>{t("Security policy")}</SectionTitle>
       <div className="card" style={{ padding: "var(--s4)", maxWidth: 720 }}>
         {policy && (
           <>
@@ -385,7 +386,7 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
             {policyDirty && (
               <div style={{ display: "flex", gap: "var(--s2)", marginTop: "var(--s3)" }}>
                 <button className="btn btn--primary" onClick={savePolicy} disabled={savingPolicy}>
-                  {savingPolicy && <span className="spin" />} Save policy
+                  {savingPolicy && <span className="spin" />} {t("Save policy")}
                 </button>
                 <button
                   className="btn"
@@ -394,7 +395,7 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
                     setPolicyDirty(false);
                   }}
                 >
-                  Discard
+                  {t("Discard")}
                 </button>
               </div>
             )}

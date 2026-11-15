@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Empty, ErrorAlert, LoadingBlock, PageHead, SearchBox } from "../components/bits";
 import { api, type Wire } from "../lib/api";
 import { useToast } from "../lib/toast";
+import { useI18n } from "../lib/i18n";
 import { IconPlay, IconTerminal } from "../ui/Icon";
 
 /**
@@ -14,6 +15,7 @@ import { IconPlay, IconTerminal } from "../ui/Icon";
  * that nothing the server can do is beyond the panel's reach.
  */
 export function Console() {
+  const { t } = useI18n();
   const [methods, setMethods] = useState<Wire[] | null>(null);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Wire | null>(null);
@@ -69,8 +71,8 @@ export function Console() {
   return (
     <div className="page">
       <PageHead
-        title="API console"
-        sub="every documented RPC, raw"
+        title={t("API console")}
+        sub={t("every documented RPC, raw")}
       />
       <div className="console">
         <div className="console__list">
@@ -100,8 +102,7 @@ export function Console() {
         <div className="console__work">
           {!selected ? (
             <Empty title="pick a method">
-              The parameters template fills in with the documented example values; edit and run.
-              Writes here are as real as anywhere else in the panel.
+              {t("The parameters template fills in with the documented example values; edit and run. Writes here are as real as anywhere else in the panel.")}
             </Empty>
           ) : (
             <>
@@ -110,7 +111,7 @@ export function Console() {
                 <span className="mono">{String(selected.name)}</span>
               </div>
               <p className="lede" style={{ margin: "var(--s2) 0 var(--s3)" }}>{String(selected.desc || selected.title)}</p>
-              <div className="micro" style={{ marginBottom: 6 }}>parameters</div>
+              <div className="micro" style={{ marginBottom: 6 }}>{t("parameters")}</div>
               <textarea
                 className="textarea mono"
                 rows={Math.min(16, Math.max(4, params.split("\n").length))}
@@ -120,13 +121,13 @@ export function Console() {
               />
               <div style={{ display: "flex", gap: "var(--s2)", margin: "var(--s3) 0" }}>
                 <button className="btn btn--primary" onClick={call} disabled={busy}>
-                  {busy ? <span className="spin" /> : <IconPlay size={14} />} Call {String(selected.name)}
+                  {busy ? <span className="spin" /> : <IconPlay size={14} />} {t("Call {name}", { name: String(selected.name) })}
                 </button>
               </div>
               {error && <ErrorAlert>{error}</ErrorAlert>}
               {result && (
                 <>
-                  <div className="micro" style={{ margin: "var(--s2) 0 6px" }}>result</div>
+                  <div className="micro" style={{ margin: "var(--s2) 0 6px" }}>{t("result")}</div>
                   <pre className="console__result mono">{result}</pre>
                 </>
               )}

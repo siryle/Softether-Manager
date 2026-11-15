@@ -30,14 +30,17 @@ def connection() -> dict[str, Any]:
     return {
         "host": str(get_setting("se_host") or "127.0.0.1"),
         "port": int(get_setting("se_port") or 5555),
+        "auth": str(get_setting("se_auth") or "header"),
         "configured": bool(get_setting("se_password")),
     }
 
 
-def set_connection(host: str, port: int, password: Optional[str]) -> None:
+def set_connection(host: str, port: int, password: Optional[str], auth: Optional[str] = None) -> None:
     """Store new connection facts. ``password=None`` keeps the stored one."""
     set_setting("se_host", host.strip() or "127.0.0.1")
     set_setting("se_port", int(port))
+    if auth is not None:
+        set_setting("se_auth", auth)
     if password is not None:
         set_setting("se_password", encrypt(password))
     drop_client()
@@ -47,7 +50,16 @@ def stored_password() -> str:
     return decrypt(str(get_setting("se_password") or ""))
 
 
-def build_client(host: str, port: int, password: str, timeout: float = 15.0) -> softether.SoftEtherClient:
+def build_client(
+    host: str,
+    port: int,
+    password: str,
+    timeout: float = 15.0,
+    auth: Optional[str] = None,
+) -> softether.SoftEtherClient:
+    auth_mode = auth or str(get_setting("se_auth") or "header")
+    if auth_mode not in ("header", "basic", "both"):
+        auth_mode = "header"
     return softether.SoftEtherClient(
         host,
         port,
@@ -55,6 +67,7 @@ def build_client(host: str, port: int, password: str, timeout: float = 15.0) -> 
         verify=False,
         timeout=timeout,
         retries=2,
+        auth=auth_mode,
         suppress_insecure_warning=True,
     )
 
@@ -119,16 +132,23 @@ def to_http_error(exc: softether.SoftEtherError) -> HTTPException:
     if isinstance(exc, softether.ValidationError):
         return HTTPException(status_code=422, detail=str(exc))
     if isinstance(exc, softether.AuthenticationError):
-        return _http(502, "The SoftEther server rejected the stored administrator password.", exc)
+        return _http(502, "SoftEther 服务器拒绝了管理员密码，请检查密码是否正确 (HTTP 401/403)。", exc)
     if isinstance(exc, softether.ApiDisabledError):
         return _http(
             502,
-            "The SoftEther server answered 404 for /api/: its JSON-RPC interface is disabled "
-            "or the server predates it (4.27 is the first build that has it).",
+            "SoftEther 服务器返回 404：目标服务器未启用 JSON-RPC Web API，或版本过旧（请确认 vpn_server.config 中 bool DisableJsonRpcWebApi 为 false）。",
             exc,
         )
     if isinstance(exc, softether.TransportError):
-        return _http(502, f"The SoftEther server could not be reached: {exc}", exc)
+        err_msg = str(exc)
+        if "Broken pipe" in err_msg or "Errno 32" in err_msg:
+            return _http(
+                502,
+                "连接到 SoftEther 服务器失败 ([Errno 32] Broken pipe)：服务器在收到握手后切断了连接。"
+                "请检查：1. 管理员密码是否正确；2. 目标服务器是否在 vpn_server.config 中启用了 JSON-RPC Web API (bool DisableJsonRpcWebApi false)；3. 管理端口是否正确 (默认5555/443/992)。",
+                exc,
+            )
+        return _http(502, f"无法连接到 SoftEther 服务器: {exc}", exc)
     if isinstance(exc, softether.NotFoundError):
         return _http(404, str(exc), exc)
     if isinstance(exc, softether.AlreadyExistsError):
