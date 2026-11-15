@@ -58,9 +58,9 @@ jobs:
 
       - name: Lint the shell scripts
         run: |
-          bash -n scripts/install.sh scripts/sem scripts/build-release.sh
+          bash -n scripts/install.sh scripts/sem scripts/build-release.sh docker/docker-entrypoint.sh docker/sem
           if command -v shellcheck >/dev/null 2>&1; then
-            shellcheck --severity=warning scripts/install.sh scripts/sem scripts/build-release.sh || true
+            shellcheck --severity=warning scripts/install.sh scripts/sem scripts/build-release.sh docker/docker-entrypoint.sh docker/sem || true
           fi
 
       - name: Compile-check the Python

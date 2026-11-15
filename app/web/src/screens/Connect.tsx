@@ -83,7 +83,7 @@ export function Connect() {
           </div>
         )}
         <div className="row2">
-          <Field label="Host" hint="127.0.0.1 unless SoftEther deliberately lives elsewhere.">
+          <Field label="Host" hint="127.0.0.1 for local, or LAN IP (e.g. 192.168.1.x) / hostname.">
             <input className="input mono" value={host} onChange={(e) => setHost(e.target.value)}
               autoCapitalize="none" spellCheck={false} inputMode="url" />
           </Field>

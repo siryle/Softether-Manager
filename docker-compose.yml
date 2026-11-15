@@ -1,0 +1,57 @@
+services:
+  softether-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/siryle/softether-manager:latest
+    container_name: softether-manager
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # =========================================================================
+      # 1. 局域网 SoftEther VPN 服务器连接配置 (Target SoftEther Server on LAN)
+      # =========================================================================
+      # 目标 SoftEther 服务器的 IP 地址或主机名：
+      # - 若 SoftEther 运行在局域网内其他设备（NAS/路由器OpenWrt/独立Linux）：填写其实际局域网IP (如 192.168.1.100)
+      # - 若 SoftEther 运行在当前 Docker 宿主机上：可保持 host.docker.internal（配合下方 extra_hosts）
+      # - 若未设置，首次访问网页控制台也可以在 Connect 界面中交互式填写
+      - SEM_SE_HOST=192.168.1.100
+      
+      # SoftEther JSON-RPC 管理端口（默认 5555，常见还包括 443、992）
+      - SEM_SE_PORT=5555
+      
+      # SoftEther 服务器管理员密码（可选。若填写，容器启动时自动连接；留空则在 Web 界面手动输入）
+      - SEM_SE_PASSWORD=
+      
+      # =========================================================================
+      # 2. 面板管理员账号配置 (Panel Administrator Account)
+      # =========================================================================
+      # 首次启动时自动初始化的管理员用户名和密码（可选）
+      # 若留空，首次在浏览器打开面板时会自动引导创建账号
+      - SEM_ADMIN_USERNAME=admin
+      - SEM_ADMIN_PASSWORD=
+      
+      # =========================================================================
+      # 3. Web 面板与安全设置 (Panel Web & Security Settings)
+      # =========================================================================
+      - SEM_BIND_HOST=0.0.0.0
+      - SEM_BIND_PORT=8000
+      
+      # 隐蔽访问路径（可选，例如设置为 mysecret，则面板访问地址为 http://ip:8000/mysecret/）
+      - SEM_WEB_PATH=
+      
+      # 数据持久化目录（容器内部固定为 /data）
+      - SEM_DATA_DIR=/data
+
+    volumes:
+      # 挂载持久化数据目录（包含 SQLite 数据库 manager.db、加密密钥及 SSL 证书）
+      - ./data:/data
+
+    extra_hosts:
+      # 允许容器通过 host.docker.internal 直接访问宿主机网络服务
+      - "host.docker.internal:host-gateway"
+
+    # 【提示】如果 SoftEther 运行在宿主机且不想通过端口映射/网桥访问，
+    # 可以在 Linux 环境下取消下面一行的注释使用 host 网络模式（注意：host 模式下 ports 无效）：
+    # network_mode: "host"

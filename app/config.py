@@ -91,6 +91,13 @@ class Settings:
         self.sample_interval_minutes: int = _env_int("SEM_SAMPLE_INTERVAL_MINUTES", 5)
         self.sample_retention_days: int = _env_int("SEM_SAMPLE_RETENTION_DAYS", 90)
 
+        # --- SoftEther target & bootstrap credentials (for Docker & LAN management) ---
+        self.se_host: str = _env("SEM_SE_HOST", "127.0.0.1")
+        self.se_port: int = _env_int("SEM_SE_PORT", 5555)
+        self.se_password: str = _env("SEM_SE_PASSWORD", "")
+        self.admin_username: str = _env("SEM_ADMIN_USERNAME", "")
+        self.admin_password: str = _env("SEM_ADMIN_PASSWORD", "")
+
     @property
     def data_path(self) -> Path:
         return Path(self.data_dir).expanduser()

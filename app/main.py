@@ -40,9 +40,39 @@ logger = logging.getLogger(__name__)
 WEB_DIST = APP_ROOT / "app" / "web" / "out"
 
 
+def _auto_bootstrap() -> None:
+    # Auto-create initial admin account if provided via env vars and no users exist
+    if settings.admin_username and settings.admin_password:
+        try:
+            from .manage import cmd_password
+            from .routers.auth import _account_count
+
+            if _account_count() == 0:
+                logger.info("Creating initial admin account from environment: %s", settings.admin_username)
+                cmd_password(settings.admin_username, settings.admin_password)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to auto-bootstrap admin account: %s", exc)
+
+    # Auto-configure SoftEther connection if provided via env vars and not configured
+    if settings.se_password:
+        try:
+            from .se import connection, set_connection
+
+            if not connection()["configured"]:
+                logger.info(
+                    "Configuring initial SoftEther connection from environment to %s:%s",
+                    settings.se_host,
+                    settings.se_port,
+                )
+                set_connection(settings.se_host, settings.se_port, settings.se_password)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to auto-bootstrap SoftEther connection: %s", exc)
+
+
 @asynccontextmanager
 async def _lifespan(_inner: FastAPI):
     get_db()  # creates the schema (and migrations) on first start
+    _auto_bootstrap()
     sampler.start()
     resource_sampler.start()
     # The extra listeners serve the same wrapped application the main one
