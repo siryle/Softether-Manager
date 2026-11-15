@@ -95,6 +95,7 @@ class Settings:
         self.se_host: str = _env("SEM_SE_HOST", "127.0.0.1")
         self.se_port: int = _env_int("SEM_SE_PORT", 5555)
         self.se_password: str = _env("SEM_SE_PASSWORD", "")
+        self.se_auth: str = _env("SEM_SE_AUTH", "header")
         self.admin_username: str = _env("SEM_ADMIN_USERNAME", "")
         self.admin_password: str = _env("SEM_ADMIN_PASSWORD", "")
 

@@ -31,7 +31,7 @@ def connection() -> dict[str, Any]:
         "host": str(get_setting("se_host") or "127.0.0.1"),
         "port": int(get_setting("se_port") or 5555),
         "auth": str(get_setting("se_auth") or "header"),
-        "configured": bool(get_setting("se_password")),
+        "configured": bool(get_setting("se_configured")) or bool(get_setting("se_password")),
     }
 
 
@@ -39,6 +39,7 @@ def set_connection(host: str, port: int, password: Optional[str], auth: Optional
     """Store new connection facts. ``password=None`` keeps the stored one."""
     set_setting("se_host", host.strip() or "127.0.0.1")
     set_setting("se_port", int(port))
+    set_setting("se_configured", True)
     if auth is not None:
         set_setting("se_auth", auth)
     if password is not None:

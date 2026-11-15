@@ -26,9 +26,19 @@ _SALT_BYTES = 16
 _KEY_LEN = 32
 
 
+def _scrypt(password: bytes, salt: bytes, n: int, r: int, p: int, dklen: int) -> bytes:
+    if hasattr(hashlib, "scrypt"):
+        try:
+            return hashlib.scrypt(password, salt=salt, n=n, r=r, p=p, dklen=dklen)
+        except (AttributeError, ValueError):
+            pass
+    from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
+    return Scrypt(salt=salt, length=dklen, n=n, r=r, p=p).derive(password)
+
+
 def hash_password(password: str) -> str:
     salt = secrets.token_bytes(_SALT_BYTES)
-    key = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=_N, r=_R, p=_P, dklen=_KEY_LEN)
+    key = _scrypt(password.encode("utf-8"), salt=salt, n=_N, r=_R, p=_P, dklen=_KEY_LEN)
     return "scrypt$%d$%d$%d$%s$%s" % (
         _N,
         _R,
@@ -45,7 +55,7 @@ def verify_password(password: str, stored: str) -> bool:
             return False
         salt = base64.b64decode(salt_b64)
         expected = base64.b64decode(key_b64)
-        key = hashlib.scrypt(
+        key = _scrypt(
             password.encode("utf-8"), salt=salt, n=int(n), r=int(r), p=int(p), dklen=len(expected)
         )
     except (ValueError, TypeError):

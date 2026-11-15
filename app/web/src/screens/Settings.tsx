@@ -38,9 +38,11 @@ export function Settings({ section }: { section?: string }) {
     }
   }, [section]);
 
+  const { t } = useI18n();
+
   return (
     <div className="page">
-      <PageHead title="Settings" sub="The panel itself — account, address, domain, sampling, updates." />
+      <PageHead title={t("Settings")} sub={t("The panel itself — account, address, domain, sampling, updates.")} />
       <div className="setdoc">
         <AccountCard />
         <ConnectionCard />
@@ -57,6 +59,7 @@ export function Settings({ section }: { section?: string }) {
 }
 
 function AccountCard() {
+  const { t } = useI18n();
   const { user, logout } = useAuth();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
@@ -68,13 +71,13 @@ function AccountCard() {
   const change = async () => {
     setError(null);
     if (next !== confirm) {
-      setError("The two passwords do not match.");
+      setError(t("The two passwords do not match."));
       return;
     }
     setBusy(true);
     try {
       await api.changePassword(current, next);
-      push("ok", "Password changed.");
+      push("ok", t("Password changed."));
       setCurrent("");
       setNext("");
       setConfirm("");
@@ -87,27 +90,27 @@ function AccountCard() {
 
   return (
     <section id="s-account">
-      <SectionTitle>Account</SectionTitle>
+      <SectionTitle>{t("Account")}</SectionTitle>
       <div className="card" style={{ padding: "var(--s4)", maxWidth: 560 }}>
-        <KV rows={[["signed in as", user ?? "—"]]} />
-        <div className="section__t" style={{ margin: "var(--s4) 0 var(--s3)" }}>Change password</div>
+        <KV rows={[[t("signed in as"), user ?? "—"]]} />
+        <div className="section__t" style={{ margin: "var(--s4) 0 var(--s3)" }}>{t("Change password")}</div>
         {error && <ErrorAlert>{error}</ErrorAlert>}
-        <Field label="Current password">
+        <Field label={t("Current password")}>
           <input className="input" type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" />
         </Field>
         <div className="row2">
-          <Field label="New password">
+          <Field label={t("New password")}>
             <input className="input" type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" minLength={1} />
           </Field>
-          <Field label="Confirm">
+          <Field label={t("Confirm")}>
             <input className="input" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" />
           </Field>
         </div>
         <div style={{ display: "flex", gap: "var(--s2)" }}>
           <button className="btn btn--primary" onClick={change} disabled={busy || !current || !next}>
-            {busy && <span className="spin" />} Change password
+            {busy && <span className="spin" />} {t("Change password")}
           </button>
-          <button className="btn" onClick={logout}>Sign out</button>
+          <button className="btn" onClick={logout}>{t("Sign out")}</button>
         </div>
       </div>
     </section>
@@ -117,14 +120,24 @@ function AccountCard() {
 function ConnectionCard() {
   const { t } = useI18n();
   const [info, setInfo] = useState<Wire | null>(null);
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    void api.connection().then(setInfo).catch(() => {});
+    void api
+      .connection()
+      .then(setInfo)
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : String(e));
+      });
   }, []);
   return (
     <section id="s-connection">
       <SectionTitle>{t("VPN server")}</SectionTitle>
       <div className="card" style={{ padding: "var(--s4)", maxWidth: 560 }}>
-        {!info ? (
+        {error ? (
+          <div className="alert alert--err" style={{ marginBottom: "var(--s3)" }}>
+            {error}
+          </div>
+        ) : !info ? (
           <LoadingBlock />
         ) : (
           <KV
@@ -148,6 +161,7 @@ function ConnectionCard() {
 }
 
 function PanelCard() {
+  const { t } = useI18n();
   const [settings, setSettings] = useState<Wire | null>(null);
   const [dirty, setDirty] = useState(false);
   const [restartNeeded, setRestartNeeded] = useState(false);
@@ -168,25 +182,25 @@ function PanelCard() {
       const out = await api.saveSettings({ web_path: String(settings.web_path ?? "") });
       setDirty(false);
       if ((out as Wire).restart_required) setRestartNeeded(true);
-    }, "Settings saved.");
+    }, t("Settings saved."));
 
   return (
     <section id="s-panel">
-      <SectionTitle>Panel</SectionTitle>
+      <SectionTitle>{t("Panel")}</SectionTitle>
       <div className="card" style={{ padding: "var(--s4)", maxWidth: 560 }}>
         <Field
-          label="Web path"
-          hint="The secret prefix the panel serves under; empty serves at the root. Takes effect after a restart."
+          label={t("Web path")}
+          hint={t("The secret prefix the panel serves under; empty serves at the root. Takes effect after a restart.")}
         >
           <input className="input mono" value={String(settings.web_path ?? "")} onChange={(e) => set("web_path", e.target.value)} autoCapitalize="none" spellCheck={false} placeholder="(root)" />
         </Field>
         <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap" }}>
           {dirty && (
-            <button className="btn btn--primary" onClick={() => void save()}>Save</button>
+            <button className="btn btn--primary" onClick={() => void save()}>{t("Save")}</button>
           )}
           {restartNeeded && (
-            <button className="btn" onClick={() => void guard(() => api.restartPanel(), "Restarting — the panel will be back on the new path in a few seconds.")}>
-              <IconRefresh size={14} /> Restart panel now
+            <button className="btn" onClick={() => void guard(() => api.restartPanel(), t("Restarting — the panel will be back on the new path in a few seconds."))}>
+              <IconRefresh size={14} /> {t("Restart panel now")}
             </button>
           )}
         </div>
@@ -225,6 +239,7 @@ function StatRow({ label, pill, children, error }: { label: string; pill: ReactN
  * already sitting on.
  */
 function DomainCard() {
+  const { t } = useI18n();
   const [state, setState] = useState<DomainStatus | null>(null);
   const [form, setForm] = useState(domainForm(null));
   const [dirty, setDirty] = useState(false);
@@ -348,12 +363,12 @@ function DomainCard() {
         actions={
           dirty ? (
             <button className="btn btn--sm btn--primary" onClick={() => void save()} disabled={saving}>
-              {saving && <span className="spin" />} Save
+              {saving && <span className="spin" />} {t("Save")}
             </button>
           ) : undefined
         }
       >
-        Domain &amp; HTTPS
+        {t("Domain & HTTPS")}
       </SectionTitle>
       <div className="card" style={{ padding: "var(--s4)", maxWidth: 760 }}>
         <p className="lede" style={{ marginBottom: "var(--s3)" }}>
@@ -665,6 +680,7 @@ const RETRY_FOREVER = 4294967295;
  * per-user values stay as {placeholders}, visible in the preview.
  */
 function VpnFileTemplateCard() {
+  const { t } = useI18n();
   const [state, setState] = useState<Wire | null>(null);
   const [dirty, setDirty] = useState(false);
   const [preview, setPreview] = useState(false);
@@ -731,12 +747,12 @@ function VpnFileTemplateCard() {
       <SectionTitle
         actions={
           <>
-            {dirty && <button className="btn btn--sm btn--primary" onClick={() => void save()}>Save</button>}
-            <button className="btn btn--sm" onClick={resetDefaults}>Reset to defaults</button>
+            {dirty && <button className="btn btn--sm btn--primary" onClick={() => void save()}>{t("Save")}</button>}
+            <button className="btn btn--sm" onClick={resetDefaults}>{t("Reset to defaults")}</button>
           </>
         }
       >
-        Connection files (.vpn)
+        {t("Connection files (.vpn)")}
       </SectionTitle>
       <div className="card" style={{ padding: "var(--s4)" }}>
         <p className="lede" style={{ marginBottom: "var(--s3)" }}>
@@ -863,6 +879,7 @@ function VpnFileTemplateCard() {
  * per hub, one per live session -- so each is switchable on its own.
  */
 function MonitoringCard() {
+  const { t } = useI18n();
   const [settings, setSettings] = useState<Wire | null>(null);
   const [dirty, setDirty] = useState(false);
   const { guard } = useToast();
@@ -928,11 +945,11 @@ function MonitoringCard() {
       <SectionTitle
         actions={
           dirty ? (
-            <button className="btn btn--sm btn--primary" onClick={() => void save()}>Save</button>
+            <button className="btn btn--sm btn--primary" onClick={() => void save()}>{t("Save")}</button>
           ) : undefined
         }
       >
-        Monitoring
+        {t("Monitoring")}
       </SectionTitle>
       <div className="card" style={{ padding: "var(--s4)", maxWidth: 720 }}>
         <p className="lede" style={{ marginBottom: "var(--s3)" }}>
@@ -1025,33 +1042,34 @@ function MonitoringCard() {
 }
 
 function UpdatesCard() {
+  const { t } = useI18n();
   const { status, check, isChecking, open } = useUpdate();
   const checkInfo = status?.check;
   return (
     <section id="s-updates">
-      <SectionTitle>Updates</SectionTitle>
+      <SectionTitle>{t("Updates")}</SectionTitle>
       <div className="card" style={{ padding: "var(--s4)", maxWidth: 560 }}>
         <KV
           rows={[
-            ["running", String(checkInfo?.current_version ?? "—")],
-            ["latest release", String(checkInfo?.latest?.version || "unknown")],
-            ["source", String(checkInfo?.source ?? "—")],
-            ["last check", checkInfo?.checked_at ? timeAgo(String(checkInfo.checked_at)) : "never"],
+            [t("running"), String(checkInfo?.current_version ?? "—")],
+            [t("latest release"), String(checkInfo?.latest?.version || t("unknown"))],
+            [t("source"), String(checkInfo?.source ?? "—")],
+            [t("last check"), checkInfo?.checked_at ? timeAgo(String(checkInfo.checked_at)) : t("never")],
           ]}
         />
         {checkInfo?.update_available ? (
           <div className="alert alert--info" style={{ marginTop: "var(--s3)" }}>
-            <div className="alert__t">{String(checkInfo.latest.version)} is available.</div>
-            Open the updater from the version pill, or the button below.
+            <div className="alert__t">{String(checkInfo.latest.version)} {t("is available.")}</div>
+            {t("Open the updater from the version pill, or the button below.")}
           </div>
         ) : null}
         {checkInfo?.note ? <div className="hint">{String(checkInfo.note)}</div> : null}
         {checkInfo?.error ? <div className="hint hint--err">{String(checkInfo.error)}</div> : null}
         <div style={{ display: "flex", gap: "var(--s2)", marginTop: "var(--s3)" }}>
           <button className="btn" onClick={() => void check()} disabled={isChecking}>
-            {isChecking && <span className="spin" />} Check now
+            {isChecking && <span className="spin" />} {t("Check now")}
           </button>
-          <button className="btn btn--primary" onClick={open}>Open updater</button>
+          <button className="btn btn--primary" onClick={open}>{t("Open updater")}</button>
         </div>
       </div>
     </section>
@@ -1059,6 +1077,7 @@ function UpdatesCard() {
 }
 
 function AuditCard() {
+  const { t } = useI18n();
   const [rows, setRows] = useState<Wire[] | null>(null);
   const [exhausted, setExhausted] = useState(false);
   // The trail grows without bound; the page shows its head and lets an
@@ -1076,12 +1095,12 @@ function AuditCard() {
 
   return (
     <section id="s-audit">
-      <SectionTitle count={rows?.length}>Audit log</SectionTitle>
+      <SectionTitle count={rows?.length}>{t("Audit log")}</SectionTitle>
       {rows === null ? (
         <LoadingBlock />
       ) : rows.length === 0 ? (
         <div className="card" style={{ padding: "var(--s4)" }}>
-          <span className="micro">Every state-changing action lands here — nothing yet.</span>
+          <span className="micro">{t("Every state-changing action lands here — nothing yet.")}</span>
         </div>
       ) : (
         <div className="card tcard">
@@ -1089,11 +1108,11 @@ function AuditCard() {
             <table className="dtable">
               <thead>
                 <tr>
-                  <th>When</th>
-                  <th>Who</th>
-                  <th>Action</th>
-                  <th>Target</th>
-                  <th>Detail</th>
+                  <th>{t("When")}</th>
+                  <th>{t("Who")}</th>
+                  <th>{t("Action")}</th>
+                  <th>{t("Target")}</th>
+                  <th>{t("Detail")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1113,7 +1132,7 @@ function AuditCard() {
             shown={shown.length}
             loaded={rows.length}
             exhausted={exhausted}
-            noun="entries"
+            noun={t("entries")}
             onReveal={reveal}
             onLoad={() => load(Number(rows[rows.length - 1].id))}
           />
@@ -1124,28 +1143,29 @@ function AuditCard() {
 }
 
 function AboutCard() {
+  const { t } = useI18n();
   const [info, setInfo] = useState<Wire | null>(null);
   useEffect(() => {
     void api.systemInfo().then(setInfo).catch(() => {});
   }, []);
   return (
     <section id="s-about">
-      <SectionTitle>About</SectionTitle>
+      <SectionTitle>{t("About")}</SectionTitle>
       <div className="card" style={{ padding: "var(--s4)", maxWidth: 560 }}>
         {!info ? (
           <LoadingBlock />
         ) : (
           <KV
             rows={[
-              ["version", String(info.version ?? "—")],
-              ["release repo", String(info.release_repo ?? "—")],
-              ["service", `${(info.service as Wire)?.unit ?? "—"} (${(info.service as Wire)?.active || "not under systemd"})`],
-              ["environment file", String(info.env_file ?? "—")],
+              [t("version"), String(info.version ?? "—")],
+              [t("release repo"), String(info.release_repo ?? "—")],
+              [t("service"), `${(info.service as Wire)?.unit ?? "—"} (${(info.service as Wire)?.active || t("not under systemd")})`],
+              [t("environment file"), String(info.env_file ?? "—")],
             ]}
           />
         )}
         <p className="micro" style={{ marginTop: "var(--s3)" }}>
-          SoftEther Manager — a self-hosted panel over the SoftEther VPN Server JSON-RPC API.
+          {t("SoftEther Manager — a self-hosted panel over the SoftEther VPN Server JSON-RPC API.")}
         </p>
       </div>
     </section>

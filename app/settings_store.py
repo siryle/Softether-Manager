@@ -58,6 +58,8 @@ DEFAULTS: dict[str, Any] = {
     "se_host": None,
     "se_port": None,
     "se_password": None,
+    "se_auth": None,
+    "se_configured": None,
     # How .vpn connection files are generated: the ClientOption values, the
     # naming templates ({hub}, {username}, {host}, {port}), and whether the
     # download dialog embeds the credential by default.
@@ -108,6 +110,8 @@ def _seed(key: str) -> Any:
         "se_host": settings.se_host,
         "se_port": settings.se_port,
         "se_password": "",
+        "se_auth": getattr(settings, "se_auth", "header") or "header",
+        "se_configured": False,
         "vpn_template": dict(_vpnfile().DEFAULT_OPTIONS),
         "vpn_account_name_template": _vpnfile().DEFAULT_ACCOUNT_NAME_TEMPLATE,
         "vpn_filename_template": _vpnfile().DEFAULT_FILENAME_TEMPLATE,

@@ -64,7 +64,12 @@ def _auto_bootstrap() -> None:
                     settings.se_host,
                     settings.se_port,
                 )
-                set_connection(settings.se_host, settings.se_port, settings.se_password)
+                set_connection(
+                    settings.se_host,
+                    settings.se_port,
+                    settings.se_password,
+                    auth=settings.se_auth,
+                )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to auto-bootstrap SoftEther connection: %s", exc)
 
