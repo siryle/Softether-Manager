@@ -1,5 +1,6 @@
 "use client";
 
+import { t } from "../../lib/i18n";
 import { useCallback, useState } from "react";
 import { ConfirmSheet, Empty, ErrorAlert, Field, KV, LoadingBlock, SectionTitle, usePoll } from "../../components/bits";
 import { api, type Wire } from "../../lib/api";
@@ -53,7 +54,7 @@ function CaSection({ hub }: { hub: string }) {
         count={cas?.length}
         actions={
           <label className="btn btn--sm">
-            <IconPlus size={14} /> Add CA
+            <IconPlus size={14} /> {t("Add CA")}
             <input type="file" accept=".cer,.crt,.pem,.der" hidden onChange={(e) => e.target.files?.[0] && void upload(e.target.files[0])} />
           </label>
         }
@@ -63,8 +64,8 @@ function CaSection({ hub }: { hub: string }) {
       {cas === null ? (
         <LoadingBlock />
       ) : cas.length === 0 ? (
-        <Empty title="no trusted CAs">
-          Users authenticating with a signed certificate need the signing CA registered here.
+        <Empty title={t("no trusted CAs")}>
+          {t("Users authenticating with a signed certificate need the signing CA registered here.")}
         </Empty>
       ) : (
         <div className="rows">
@@ -76,14 +77,17 @@ function CaSection({ hub }: { hub: string }) {
                   <span className="truncate">{String(c.SubjectName_utf || "certificate")}</span>
                 </div>
                 <div className="row__note">
-                  issued by {String(c.IssuerName_utf || "?")} · expires {formatDate(c.Expires_dt as string)}
+                  {t("issued by {issuer} · expires {date}", {
+                    issuer: String(c.IssuerName_utf || "?"),
+                    date: formatDate(c.Expires_dt as string),
+                  })}
                 </div>
               </div>
               <div className="row__side">
-                <button className="btn btn--sm btn--ghost" onClick={() => void download(Number(c.Key_u32))} aria-label="Download">
+                <button className="btn btn--sm btn--ghost" onClick={() => void download(Number(c.Key_u32))} aria-label={t("Download")}>
                   <IconDownload size={14} />
                 </button>
-                <button className="btn btn--sm btn--ghost" onClick={() => setDeleting(c)} aria-label="Delete">
+                <button className="btn btn--sm btn--ghost" onClick={() => setDeleting(c)} aria-label={t("Delete")}>
                   <IconTrash size={14} />
                 </button>
               </div>
@@ -93,9 +97,9 @@ function CaSection({ hub }: { hub: string }) {
       )}
       {deleting && (
         <ConfirmSheet
-          title="Remove this CA?"
+          title={t("Remove this CA?")}
           verb="Remove"
-          body={<>Users whose certificates chain to <b>{String(deleting.SubjectName_utf || "this CA")}</b> will stop authenticating.</>}
+          body={<>{t("Users whose certificates chain to")} <b>{String(deleting.SubjectName_utf || t("this CA"))}</b> {t("will stop authenticating.")}</>}
           onClose={() => setDeleting(null)}
           onConfirm={async () => {
             await api.deleteCa(hub, Number(deleting.Key_u32));
@@ -126,25 +130,24 @@ function CrlSection({ hub }: { hub: string }) {
         count={crls?.length}
         actions={
           <button className="btn btn--sm" onClick={() => setAdding(true)}>
-            <IconPlus size={14} /> Revoke a certificate
+            <IconPlus size={14} /> {t("Revoke a certificate")}
           </button>
         }
       >
-        Revoked certificates
+        {t("Revoked certificates")}
       </SectionTitle>
       {crls === null ? (
         <LoadingBlock />
       ) : crls.length === 0 ? (
-        <Empty title="nothing revoked">
-          A revocation entry refuses one certificate -- by common name, serial or digest -- even
-          while its CA stays trusted. The lost-laptop switch.
+        <Empty title={t("nothing revoked")}>
+          {t("A revocation entry refuses one certificate -- by common name, serial or digest -- even while its CA stays trusted. The lost-laptop switch.")}
         </Empty>
       ) : (
         <div className="rows">
           {crls.map((c) => (
             <div key={String(c.Key_u32)} className="row">
               <div className="row__main">
-                <div className="row__name mono truncate">{String(c.CrlInfo_utf || `entry ${c.Key_u32}`)}</div>
+                <div className="row__name mono truncate">{String(c.CrlInfo_utf || t("entry {n}", { n: String(c.Key_u32) }))}</div>
               </div>
               <div className="row__side">
                 <button
@@ -153,7 +156,7 @@ function CrlSection({ hub }: { hub: string }) {
                     await api.deleteCrl(hub, Number(c.Key_u32));
                     await load();
                   }, "Revocation removed.")}
-                  aria-label="Delete"
+                  aria-label={t("Delete")}
                 >
                   <IconTrash size={14} />
                 </button>
@@ -198,21 +201,20 @@ function CrlSheet({ onClose, onSave }: { onClose: () => void; onSave: (b: Wire) 
 
   return (
     <Sheet
-      title="Revoke a certificate"
+      title={t("Revoke a certificate")}
       onClose={onClose}
       footer={
         <>
-          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn" onClick={onClose}>{t("Cancel")}</button>
           <button className="btn btn--danger" onClick={save} disabled={busy || (!cn.trim() && !serial.trim())}>
-            {busy && <span className="spin" />} Revoke
+            {busy && <span className="spin" />} {t("Revoke")}
           </button>
         </>
       }
     >
       {error && <ErrorAlert>{error}</ErrorAlert>}
       <div className="lede" style={{ marginBottom: "var(--s3)" }}>
-        A certificate matching <b>every</b> field you fill is refused. One precise field -- the
-        serial -- is usually enough.
+        {t("A certificate matching every field you fill is refused. One precise field -- the serial -- is usually enough.")}
       </div>
       <Field label="Common name (CN)">
         <input className="input mono" value={cn} onChange={(e) => setCn(e.target.value)} spellCheck={false} />
@@ -266,11 +268,10 @@ function RadiusSection({ hub }: { hub: string }) {
 
   return (
     <>
-      <SectionTitle>RADIUS authentication</SectionTitle>
+      <SectionTitle>{t("RADIUS authentication")}</SectionTitle>
       <div className="card" style={{ padding: "var(--s4)", maxWidth: 640 }}>
         <div className="lede" style={{ marginBottom: "var(--s3)" }}>
-          Users set to RADIUS authentication are verified against this server. Empty hostname
-          turns it off.
+          {t("Users set to RADIUS authentication are verified against this server. Empty hostname turns it off.")}
         </div>
         <div className="row2">
           <Field label="Server">
@@ -290,7 +291,7 @@ function RadiusSection({ hub }: { hub: string }) {
         </div>
         {dirty && (
           <button className="btn btn--primary" onClick={() => void save()}>
-            Save RADIUS settings
+            {t("Save RADIUS settings")}
           </button>
         )}
       </div>

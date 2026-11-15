@@ -23,7 +23,7 @@ import { Spark } from "../components/ResourceCards";
 import { Link, navigate, seg } from "../lib/router";
 import { AUTH_TYPES, isNever, userBytes, SESSION_TYPE } from "../lib/se";
 import { useToast } from "../lib/toast";
-import { useI18n } from "../lib/i18n";
+import { useI18n, t } from "../lib/i18n";
 import { formatBytes, formatCount, formatDate, formatDuration, timeAgo } from "../lib/util";
 import { BrandMark, IconDownload, IconTrash } from "../ui/Icon";
 import { Pill } from "../ui/Status";
@@ -39,7 +39,7 @@ function CombinedSessionChart({ usage }: { usage: Wire }) {
   if (!values.some((v) => v > 0)) {
     return (
       <p className="micro">
-        Nothing moved during this session, or it was shorter than one sampling interval.
+        {t("Nothing moved during this session, or it was shorter than one sampling interval.")}
       </p>
     );
   }
@@ -47,14 +47,13 @@ function CombinedSessionChart({ usage }: { usage: Wire }) {
     <div style={{ display: "grid", gap: "var(--s2)" }}>
       <div className="chart__legend">
         <span className="chart__key">
-          <i style={{ background: "var(--chart-recv)" }} /> Traffic
+          <i style={{ background: "var(--chart-recv)" }} /> {t("Traffic")}
           <b className="mono">{formatBytes(Number(usage.total_combined) || 0)}</b>
         </span>
       </div>
       <Spark values={values} color="var(--chart-recv)" />
       <p className="micro">
-        This session reports no split between download and upload, so this is the total it moved
-        over its life, sampled every interval.
+        {t("This session reports no split between download and upload, so this is the total it moved over its life, sampled every interval.")}
       </p>
     </div>
   );
@@ -82,11 +81,11 @@ function SessionUsageSheet({ hub, row, onClose }: { hub: string; row: Wire; onCl
 
   return (
     <Sheet
-      title="Session"
+      title={t("Session")}
       subtitle={`${row.username} · ${formatDate(String(row.started_date))}`}
       onClose={onClose}
       wide
-      footer={<button className="btn" onClick={onClose}>Close</button>}
+      footer={<button className="btn" onClick={onClose}>{t("Close")}</button>}
     >
       <div style={{ display: "grid", gap: "var(--s3)" }}>
         <KV
@@ -94,7 +93,7 @@ function SessionUsageSheet({ hub, row, onClose }: { hub: string; row: Wire; onCl
             ["client IP", String(row.client_ip || "—")],
             ["client host", String(row.client_hostname || "—")],
             ["started", formatDate(String(row.started_date))],
-            ["ended", row.ended_date ? formatDate(String(row.ended_date)) : "still connected"],
+            ["ended", row.ended_date ? formatDate(String(row.ended_date)) : t("still connected")],
             ["duration", formatDuration(duration)],
             ["downloaded", formatBytes(Number(row.download_bytes))],
             ["uploaded", formatBytes(Number(row.upload_bytes))],
@@ -201,7 +200,7 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
   if (!user) {
     return (
       <div className="page">
-        <LoadingBlock label={`loading ${name}`} />
+        <LoadingBlock label={t("loading {name}", { name })} />
       </div>
     );
   }
@@ -420,19 +419,18 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
       )}
       {deleting && (
         <ConfirmSheet
-          title={`Delete ${name}?`}
+          title={t("Delete {name}?", { name })}
           verb="Delete user"
           typed={name}
           body={
             <>
-              The user is removed from hub <b>{hub}</b> and any live session it has is cut. This
-              cannot be undone.
+              {t("The user is removed from hub {hub} and any live session it has is cut. This cannot be undone.", { hub })}
             </>
           }
           onClose={() => setDeleting(false)}
           onConfirm={async () => {
             await api.deleteUser(hub, name);
-            push("ok", `${name} deleted.`);
+            push("ok", t("{name} deleted.", { name }));
             navigate(`/hub/${seg(hub)}/users`);
           }}
         />

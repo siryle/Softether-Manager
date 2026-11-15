@@ -163,12 +163,13 @@ export function UserSheet({
         await saveUserQuotaDraft(hub, userName, quotaDraft, Boolean(quota));
       } catch (e) {
         setError(
-          `${editing ? "The profile was saved" : `User ${userName} was created`}, but its traffic ` +
-            `limit was not: ${e instanceof Error ? e.message : String(e)}`,
+          editing
+            ? t("The profile was saved, but its traffic limit was not: {error}", { error: e instanceof Error ? e.message : String(e) })
+            : t("User {name} was created, but its traffic limit was not: {error}", { name: userName, error: e instanceof Error ? e.message : String(e) }),
         );
         return;
       }
-      push("ok", editing ? "User updated." : `User ${userName} created.`);
+      push("ok", editing ? t("User updated.") : t("User {name} created.", { name: userName }));
       onSaved(userName);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

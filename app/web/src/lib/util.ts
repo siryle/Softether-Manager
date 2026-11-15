@@ -1,3 +1,5 @@
+import { t } from "./i18n";
+
 /** Formatting helpers. Machine values render mono; these make them short. */
 
 const UNITS = ["B", "KB", "MB", "GB", "TB", "PB"];
@@ -38,7 +40,8 @@ export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "never";
   const d = new Date(iso);
   if (!isFinite(d.getTime()) || d.getFullYear() < 1990) return "never";
-  return d.toLocaleString(undefined, {
+  const lang = typeof document !== "undefined" ? document.documentElement.lang || undefined : undefined;
+  return d.toLocaleString(lang, {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -52,10 +55,10 @@ export function timeAgo(iso: string | null | undefined): string {
   const then = new Date(iso).getTime();
   if (!isFinite(then) || new Date(iso).getFullYear() < 1990) return "never";
   const s = Math.max(0, (Date.now() - then) / 1000);
-  if (s < 60) return "just now";
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
+  if (s < 60) return t("just now");
+  if (s < 3600) return t("{n}m ago", { n: Math.floor(s / 60) });
+  if (s < 86400) return t("{n}h ago", { n: Math.floor(s / 3600) });
+  return t("{n}d ago", { n: Math.floor(s / 86400) });
 }
 
 export function classNames(...parts: (string | false | null | undefined)[]): string {

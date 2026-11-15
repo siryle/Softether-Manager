@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Empty, ErrorAlert, LoadingBlock, PageHead, SearchBox } from "../components/bits";
 import { api, type Wire } from "../lib/api";
 import { useToast } from "../lib/toast";
-import { useI18n } from "../lib/i18n";
+import { useI18n, t } from "../lib/i18n";
 import { IconPlay, IconTerminal } from "../ui/Icon";
 
 /**
@@ -59,7 +59,7 @@ export function Console() {
     try {
       const r = await api.rpcCall(String(selected.name), parsed);
       setResult(JSON.stringify(r, null, 2));
-      push("ok", `${selected.name} answered.`);
+      push("ok", t("{name} answered.", { name: String(selected.name) }));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setResult(null);
@@ -79,7 +79,7 @@ export function Console() {
           {/* the box flexes horizontally; left in the column flow it would
               stretch its height instead */}
           <div style={{ display: "flex" }}>
-            <SearchBox value={query} onChange={setQuery} placeholder="method name…" />
+            <SearchBox value={query} onChange={setQuery} placeholder={t("method name…")} />
           </div>
           <div className="console__methods">
             {filtered === null ? (
@@ -101,7 +101,7 @@ export function Console() {
 
         <div className="console__work">
           {!selected ? (
-            <Empty title="pick a method">
+            <Empty title={t("pick a method")}>
               {t("The parameters template fills in with the documented example values; edit and run. Writes here are as real as anywhere else in the panel.")}
             </Empty>
           ) : (

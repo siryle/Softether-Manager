@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useToast } from "../lib/toast";
-import { useI18n } from "../lib/i18n";
+import { useI18n, t } from "../lib/i18n";
 
 /**
  * A switch is a claim about the server, so it is never allowed to lie.
@@ -57,6 +57,7 @@ export function useToggle({ value, apply, reload, noun, onWord = "on", offWord =
   const [target, setTarget] = useState<boolean | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const { push } = useToast();
+  const { t } = useI18n();
   const alive = useRef(true);
   // The latest callbacks, so a poll that re-created them mid-flight is used
   // for the read-back rather than a stale closure.
@@ -103,24 +104,25 @@ export function useToggle({ value, apply, reload, noun, onWord = "on", offWord =
       if (!alive.current) return false;
       setTarget(null);
 
+      const word = (flag: boolean) => t(flag ? onWord : offWord);
       if (error) {
-        const text = fresh !== null && fresh !== wanted ? `${error} — still ${fresh ? onWord : offWord}.` : error;
+        const text = fresh !== null && fresh !== wanted ? t("{error} — still {state}.", { error, state: word(fresh) }) : error;
         setOutcome({ kind: "err", text, at: Date.now() });
-        push("err", `${noun}: ${text}`);
+        push("err", `${t(noun)}: ${text}`);
         return false;
       }
       if (fresh !== null && fresh !== wanted) {
-        const text = `The server still reports ${noun} ${fresh ? onWord : offWord}.`;
+        const text = t("The server still reports {noun} {state}.", { noun: t(noun), state: word(fresh) });
         setOutcome({ kind: "err", text, at: Date.now() });
         push("err", text);
         return false;
       }
-      const text = `${noun} ${wanted ? onWord : offWord}.`;
+      const text = t("{noun} {state}.", { noun: t(noun), state: word(wanted) });
       setOutcome({ kind: "ok", text, at: Date.now() });
       if (!quiet) push("ok", text);
       return true;
     },
-    [target, noun, onWord, offWord, quiet, push],
+    [target, noun, onWord, offWord, quiet, push, t],
   );
 
   return { pending: target !== null, target, outcome, toggle };
@@ -167,7 +169,11 @@ export function Switch({
       aria-checked={on}
       aria-busy={busy || undefined}
       aria-label={label}
-      title={busy ? `${label}: ${text}` : `${label}: ${text} — click to turn ${on ? offWord : onWord}`}
+      title={
+        busy
+          ? t("{label}: {state}", { label, state: text })
+          : t("{label}: {state} — click to turn {word}", { label, state: text, word: on ? offTxt : onTxt })
+      }
       className={`switch${on ? " switch--on" : ""}${busy ? " switch--busy" : ""}`}
       disabled={disabled || busy}
       onClick={(e) => {
@@ -231,11 +237,14 @@ export function SwitchRow({
   /** Override the click (to confirm first); defaults to `toggle.toggle()`. */
   onToggle?: () => void;
 }) {
+  const { t } = useI18n();
+  const title = typeof label === "string" ? t(label) : label;
+  const note = typeof hint === "string" ? t(hint) : hint;
   return (
     <div className={`switchrow${on ? " switchrow--on" : ""}${disabled ? " switchrow--off" : ""}`}>
       <div className="switchrow__m">
-        <span className="t">{label}</span>
-        {hint && <span className="s">{hint}</span>}
+        <span className="t">{title}</span>
+        {note && <span className="s">{note}</span>}
         <OutcomeNote outcome={toggle.outcome} className="switchrow__note" />
       </div>
       <div className="switchrow__side">
@@ -246,7 +255,7 @@ export function SwitchRow({
           target={toggle.target}
           disabled={disabled}
           onToggle={onToggle ?? (() => void toggle.toggle())}
-          label={typeof label === "string" ? label : "Switch"}
+          label={typeof title === "string" ? title : "Switch"}
           onWord={onWord}
           offWord={offWord}
         />

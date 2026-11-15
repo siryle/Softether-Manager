@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type Wire } from "../lib/api";
 import { useToast } from "../lib/toast";
-import { useI18n } from "../lib/i18n";
+import { useI18n, t } from "../lib/i18n";
 import { downloadText } from "../lib/util";
 import { IconDownload } from "../ui/Icon";
 import { Sheet } from "../ui/Sheet";
@@ -110,7 +110,7 @@ export function VpnFileSheet({
         filename: filename.trim() || undefined,
       });
       downloadText(r.filename, r.content);
-      push("ok", `${r.filename} downloaded.`);
+      push("ok", t("{file} downloaded.", { file: r.filename }));
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -137,17 +137,17 @@ export function VpnFileSheet({
       <div style={{ display: "grid", gap: "var(--s1)" }}>
         {error && <ErrorAlert>{error}</ErrorAlert>}
         <div className="lede" style={{ marginBottom: "var(--s2)" }}>
-          The file imports straight into SoftEther VPN Client — one double-click and the
-          connection exists, pointed at this server and signed in as <b className="mono">{name}</b>.
+          {t("The file imports straight into SoftEther VPN Client — one double-click and the connection exists, pointed at this server and signed in as")}{" "}
+          <b className="mono">{name}</b>.
         </div>
         <Field
           label="Server address"
           hint={
             ddnsFqdn ? (
               <>
-                What the client will dial.{" "}
+                {t("What the client will dial.")}{" "}
                 <button className="linkish" onClick={() => setHost(ddnsFqdn)} type="button">
-                  Use the DDNS name ({ddnsFqdn})
+                  {t("Use the DDNS name ({name})", { name: ddnsFqdn })}
                 </button>
               </>
             ) : (
@@ -188,7 +188,7 @@ export function VpnFileSheet({
               {portChoices.map((p) => (
                 <option key={p} value={p}>{p}</option>
               ))}
-              <option value="custom">other…</option>
+              <option value="custom">{t("other…")}</option>
             </select>
           )}
         </Field>
@@ -243,7 +243,7 @@ export function VpnFileSheet({
           </Field>
         )}
         {needsPassword && (
-          <p className="hint hint--err">Without the password the download will be refused — or untick embedding to ship the file without a credential.</p>
+          <p className="hint hint--err">{t("Without the password the download will be refused — or untick embedding to ship the file without a credential.")}</p>
         )}
       </div>
     </Sheet>

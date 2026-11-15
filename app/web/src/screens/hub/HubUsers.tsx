@@ -25,7 +25,7 @@ import { api, type Quota, type Wire } from "../../lib/api";
 import { navigate, seg } from "../../lib/router";
 import { AUTH_TYPES, isNever, userBytes, userSortValue } from "../../lib/se";
 import { formatBytes, formatCount, formatDate, timeAgo } from "../../lib/util";
-import { useI18n } from "../../lib/i18n";
+import { useI18n, t } from "../../lib/i18n";
 import { IconChevron, IconDownload, IconPlus, IconUsers } from "../../ui/Icon";
 import { Pill } from "../../ui/Status";
 
@@ -92,7 +92,7 @@ export function HubUsers({ hub }: { hub: string }) {
         count={users?.length}
         actions={
           <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap" }}>
-            <SearchBox value={query} onChange={setQuery} placeholder="name, group, note…" />
+            <SearchBox value={query} onChange={setQuery} placeholder={t("name, group, note…")} />
             <button className="btn btn--primary btn--sm" onClick={() => setCreating(true)}>
               <IconPlus size={14} /> {t("New user")}
             </button>

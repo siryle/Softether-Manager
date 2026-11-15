@@ -1,5 +1,6 @@
 "use client";
 
+import { t } from "../lib/i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Usage } from "../lib/api";
 import { formatBytes } from "../lib/util";
@@ -59,7 +60,7 @@ export function TrafficChart({ usage, emptyLabel }: { usage: Usage; emptyLabel?:
   if (!model) {
     return (
       <div className="chart chart--empty micro" ref={holder}>
-        {emptyLabel ?? "Not enough samples yet — the panel records traffic every few minutes."}
+        {t(emptyLabel ?? "Not enough samples yet — the panel records traffic every few minutes.")}
       </div>
     );
   }
@@ -87,11 +88,11 @@ export function TrafficChart({ usage, emptyLabel }: { usage: Usage; emptyLabel?:
     <div className="chart" ref={holder}>
       <div className="chart__legend">
         <span className="chart__key">
-          <i style={{ background: "var(--chart-recv)" }} /> Download
+          <i style={{ background: "var(--chart-recv)" }} /> {t("Download")}
           <b className="mono">{formatBytes(usage.total_recv)}</b>
         </span>
         <span className="chart__key">
-          <i style={{ background: "var(--chart-send)" }} /> Upload
+          <i style={{ background: "var(--chart-send)" }} /> {t("Upload")}
           <b className="mono">{formatBytes(usage.total_send)}</b>
         </span>
         {h && (
@@ -108,7 +109,11 @@ export function TrafficChart({ usage, emptyLabel }: { usage: Usage; emptyLabel?:
         height={H}
         className="chart__svg"
         role="img"
-        aria-label={`Traffic over the last ${usage.hours} hours: ${formatBytes(usage.total_recv)} downloaded, ${formatBytes(usage.total_send)} uploaded.`}
+        aria-label={t("Traffic over the last {hours} hours: {down} downloaded, {up} uploaded.", {
+          hours: String(usage.hours),
+          down: formatBytes(usage.total_recv),
+          up: formatBytes(usage.total_send),
+        })}
         onPointerMove={onMove}
         onPointerLeave={() => setHover(null)}
       >
@@ -166,7 +171,7 @@ export function RangeSeg({ hours, onChange }: { hours: number; onChange: (h: num
     { h: 24 * 30, label: "30d" },
   ];
   return (
-    <div className="seg" role="tablist" aria-label="Time range">
+    <div className="seg" role="tablist" aria-label={t("Time range")}>
       {options.map((o) => (
         <button
           key={o.h}

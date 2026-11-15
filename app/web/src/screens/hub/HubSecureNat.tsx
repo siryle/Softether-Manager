@@ -1,5 +1,6 @@
 "use client";
 
+import { t } from "../../lib/i18n";
 import { useCallback, useState } from "react";
 import { CheckRow, ConfirmSheet, Empty, Field, LoadingBlock, SectionTitle, usePoll } from "../../components/bits";
 import { api, type Wire } from "../../lib/api";
@@ -95,37 +96,40 @@ export function HubSecureNat({ hub }: { hub: string }) {
           </span>
         }
       >
-        SecureNAT
+        {t("SecureNAT")}
       </SectionTitle>
 
       <div className={`alert ${enabled ? "alert--ok" : ""}`} style={{ marginBottom: "var(--s4)" }}>
         <div>
           <div className="alert__t">
-            {enabled ? "SecureNAT is enabled" : "SecureNAT is disabled"}
-            {toggle.pending ? " — changing…" : ""}
+            {enabled ? t("SecureNAT is enabled") : t("SecureNAT is disabled")}
+            {toggle.pending ? t(" — changing…") : ""}
           </div>
           {enabled ? (
             <>
-              The virtual NAT{options.UseNat_bool ? "" : " (off in the options)"} and DHCP server
-              {options.UseDhcp_bool ? "" : " (off in the options)"} run inside <b>{hub}</b>
-              {status?.Ip_ip ? <> at <span className="mono">{String(status.Ip_ip)}</span></> : null}.
-              {!hubOnline && " The hub itself is offline right now, so nothing is being served until it comes back."}
+              {t("The virtual NAT{nat} and DHCP server{dhcp} run inside", {
+                nat: options.UseNat_bool ? "" : t(" (off in the options)"),
+                dhcp: options.UseDhcp_bool ? "" : t(" (off in the options)"),
+              })}{" "}
+              <b>{hub}</b>
+              {status?.Ip_ip ? <> {t("at")} <span className="mono">{String(status.Ip_ip)}</span></> : null}.
+              {!hubOnline && t(" The hub itself is offline right now, so nothing is being served until it comes back.")}
             </>
           ) : (
-            <>Clients connecting to <b>{hub}</b> get no virtual router: no NAT to the internet, no DHCP leases. The options below are kept and apply the moment it is enabled.</>
+            <>{t("Clients connecting to")} <b>{hub}</b> {t("get no virtual router: no NAT to the internet, no DHCP leases. The options below are kept and apply the moment it is enabled.")}</>
           )}
         </div>
       </div>
 
       <div className="fleet">
-        <div className="fleet__cell"><div className="fleet__n">{enabled ? formatCount(Number(status?.NumTcpSessions_u32)) : "—"}</div><div className="micro">TCP sessions</div></div>
-        <div className="fleet__cell"><div className="fleet__n">{enabled ? formatCount(Number(status?.NumUdpSessions_u32)) : "—"}</div><div className="micro">UDP sessions</div></div>
-        <div className="fleet__cell"><div className="fleet__n">{enabled ? formatCount(Number(status?.NumIcmpSessions_u32)) : "—"}</div><div className="micro">ICMP</div></div>
-        <div className="fleet__cell"><div className="fleet__n">{enabled ? formatCount(Number(status?.NumDhcpClients_u32)) : "—"}</div><div className="micro">DHCP clients</div></div>
-        <div className="fleet__cell"><div className="fleet__n">{status?.IsKernelMode_bool ? "kernel" : status?.IsRawIpMode_bool ? "raw IP" : "user"}</div><div className="micro">NAT mode</div></div>
+        <div className="fleet__cell"><div className="fleet__n">{enabled ? formatCount(Number(status?.NumTcpSessions_u32)) : "—"}</div><div className="micro">{t("TCP sessions")}</div></div>
+        <div className="fleet__cell"><div className="fleet__n">{enabled ? formatCount(Number(status?.NumUdpSessions_u32)) : "—"}</div><div className="micro">{t("UDP sessions")}</div></div>
+        <div className="fleet__cell"><div className="fleet__n">{enabled ? formatCount(Number(status?.NumIcmpSessions_u32)) : "—"}</div><div className="micro">{t("ICMP")}</div></div>
+        <div className="fleet__cell"><div className="fleet__n">{enabled ? formatCount(Number(status?.NumDhcpClients_u32)) : "—"}</div><div className="micro">{t("DHCP clients")}</div></div>
+        <div className="fleet__cell"><div className="fleet__n">{status?.IsKernelMode_bool ? "kernel" : status?.IsRawIpMode_bool ? "raw IP" : "user"}</div><div className="micro">{t("NAT mode")}</div></div>
       </div>
 
-      <SectionTitle>Virtual router</SectionTitle>
+      <SectionTitle>{t("Virtual router")}</SectionTitle>
       <div className="card" style={{ padding: "var(--s4)", maxWidth: 720 }}>
         <div className="row2">
           <Field label="Virtual IP" hint="The router's own address inside the hub.">
@@ -195,7 +199,7 @@ export function HubSecureNat({ hub }: { hub: string }) {
           label="Log SecureNAT activity" />
 
         {dirty && (
-          <button className="btn btn--primary" onClick={() => void save()}>Save options</button>
+          <button className="btn btn--primary" onClick={() => void save()}>{t("Save options")}</button>
         )}
       </div>
 
@@ -209,11 +213,10 @@ export function HubSecureNat({ hub }: { hub: string }) {
           body={
             confirming ? (
               <>
-                The virtual NAT and DHCP server start inside <b>{hub}</b>. Never enable it on a hub
-                bridged to a network that already has a DHCP server — the two will fight.
+                {t("The virtual NAT and DHCP server start inside {hub}. Never enable it on a hub bridged to a network that already has a DHCP server — the two will fight.", { hub })}
               </>
             ) : (
-              <>Clients relying on the virtual router lose their internet path immediately.</>
+              <>{t("Clients relying on the virtual router lose their internet path immediately.")}</>
             )
           }
           onClose={() => setConfirming(null)}
@@ -251,19 +254,19 @@ function NatTables({ hub, enabled }: { hub: string; enabled: boolean }) {
       <SectionTitle
         actions={
           <div className="seg">
-            <button className={tab === "nat" ? "on" : ""} onClick={() => setTab("nat")}>NAT sessions</button>
-            <button className={tab === "dhcp" ? "on" : ""} onClick={() => setTab("dhcp")}>DHCP leases</button>
+            <button className={tab === "nat" ? "on" : ""} onClick={() => setTab("nat")}>{t("NAT sessions")}</button>
+            <button className={tab === "dhcp" ? "on" : ""} onClick={() => setTab("dhcp")}>{t("DHCP leases")}</button>
           </div>
         }
       >
-        Live tables
+        {t("Live tables")}
       </SectionTitle>
 
       {tab === "nat" ? (
         nat === null ? (
           <LoadingBlock />
         ) : nat.length === 0 ? (
-          <Empty title="no NAT sessions">
+          <Empty title={t("no NAT sessions")}>
             {enabled
               ? "Translation entries appear as clients talk through the virtual NAT."
               : "SecureNAT is disabled, so nothing is being translated."}
@@ -274,7 +277,7 @@ function NatTables({ hub, enabled }: { hub: string; enabled: boolean }) {
               <table className="dtable">
                 <thead>
                   <tr>
-                    <th>Proto</th><th>Source</th><th>Destination</th><th>Transfer</th><th>Last activity</th>
+                    <th>{t("Proto")}</th><th>{t("Source")}</th><th>{t("Destination")}</th><th>{t("Transfer")}</th><th>{t("Last activity")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -290,13 +293,13 @@ function NatTables({ hub, enabled }: { hub: string; enabled: boolean }) {
                 </tbody>
               </table>
             </div>
-            {nat.length > 200 && <div className="micro" style={{ padding: "var(--s2) var(--s4)" }}>showing the first 200 of {nat.length}</div>}
+            {nat.length > 200 && <div className="micro" style={{ padding: "var(--s2) var(--s4)" }}>{t("showing the first 200 of {n}", { n: String(nat.length) })}</div>}
           </div>
         )
       ) : dhcp === null ? (
         <LoadingBlock />
       ) : dhcp.length === 0 ? (
-        <Empty title="no leases">
+        <Empty title={t("no leases")}>
           {enabled
             ? "Leases appear as the virtual DHCP server hands out addresses."
             : "SecureNAT is disabled, so no addresses are being handed out."}
@@ -306,7 +309,7 @@ function NatTables({ hub, enabled }: { hub: string; enabled: boolean }) {
           <div className="tscroll">
             <table className="dtable">
               <thead>
-                <tr><th>IP</th><th>MAC</th><th>Hostname</th><th>Leased</th><th>Expires</th></tr>
+                <tr><th>IP</th><th>{t("MAC")}</th><th>{t("Hostname")}</th><th>{t("Leased")}</th><th>{t("Expires")}</th></tr>
               </thead>
               <tbody>
                 {dhcp.map((l) => (

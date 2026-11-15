@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { IconClose } from "./Icon";
+import { useI18n, t } from "../lib/i18n";
 
 /**
  * One overlay, two shapes.
@@ -35,6 +36,9 @@ export function Sheet({
 }) {
   const panel = useRef<HTMLDivElement>(null);
   const [closing, setClosing] = useState(false);
+  const { t } = useI18n();
+  const heading = t(title);
+  const sub = subtitle ? t(subtitle) : "";
   const drag = useRef<{ y: number; t: number; active: boolean } | null>(null);
 
   // Play the exit animation before unmounting, so the sheet leaves the way it
@@ -106,7 +110,7 @@ export function Sheet({
         className={`sheet${wide ? " sheet--wide" : ""}${closing ? " sheet--out" : ""}`}
         role="dialog"
         aria-modal="true"
-        aria-label={title}
+        aria-label={heading}
       >
         <div
           className="sheet__grab"
@@ -123,10 +127,10 @@ export function Sheet({
           onPointerCancel={onPointerUp}
         >
           <div style={{ minWidth: 0 }}>
-            <h2 className="sheet__title">{title}</h2>
-            {subtitle && <p className="sheet__sub">{subtitle}</p>}
+            <h2 className="sheet__title">{heading}</h2>
+            {subtitle && <p className="sheet__sub">{sub}</p>}
           </div>
-          <button className="icon-btn" onClick={dismiss} aria-label="Close">
+          <button className="icon-btn" onClick={dismiss} aria-label={t("Close")}>
             <IconClose size={17} />
           </button>
         </div>

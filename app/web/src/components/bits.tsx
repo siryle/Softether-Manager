@@ -24,11 +24,12 @@ export function PageHead({
   sub?: ReactNode;
   actions?: ReactNode;
 }) {
+  const { t } = useI18n();
   return (
     <div className="page__head">
       <div style={{ minWidth: 0 }}>
-        <h1 className="page__title">{title}</h1>
-        {sub && <div className="page__sub">{sub}</div>}
+        <h1 className="page__title">{typeof title === "string" ? t(title) : title}</h1>
+        {sub && <div className="page__sub">{typeof sub === "string" ? t(sub) : sub}</div>}
       </div>
       {actions && <div className="page__actions">{actions}</div>}
     </div>
@@ -36,10 +37,11 @@ export function PageHead({
 }
 
 export function SectionTitle({ children, count, actions }: { children: ReactNode; count?: number; actions?: ReactNode }) {
+  const { t } = useI18n();
   return (
     <div className="section">
       <div className="section__t">
-        {children}
+        {typeof children === "string" ? t(children.trim()) : children}
         {count !== undefined && <span className="section__n">{count}</span>}
       </div>
       {actions}
@@ -68,16 +70,18 @@ export function Empty({ title, children, action }: { title: string; children?: R
 }
 
 export function ErrorAlert({ children }: { children: ReactNode }) {
-  return <div className="alert alert--err">{children}</div>;
+  const { t } = useI18n();
+  return <div className="alert alert--err">{typeof children === "string" ? t(children) : children}</div>;
 }
 
 /** Label + control, the standard form row. */
 export function Field({ label, hint, children, id }: { label: ReactNode; hint?: ReactNode; children: ReactNode; id?: string }) {
+  const { t } = useI18n();
   return (
     <div className="field">
-      <label htmlFor={id}>{label}</label>
+      <label htmlFor={id}>{typeof label === "string" ? t(label) : label}</label>
       {children}
-      {hint && <div className="hint">{hint}</div>}
+      {hint && <div className="hint">{typeof hint === "string" ? t(hint) : hint}</div>}
     </div>
   );
 }
@@ -94,12 +98,13 @@ export function CheckRow({
   label: ReactNode;
   hint?: ReactNode;
 }) {
+  const { t } = useI18n();
   return (
     <label className="checkrow">
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
       <span style={{ minWidth: 0 }}>
-        <span className="t">{label}</span>
-        {hint && <span className="s">{hint}</span>}
+        <span className="t">{typeof label === "string" ? t(label) : label}</span>
+        {hint && <span className="s">{typeof hint === "string" ? t(hint) : hint}</span>}
       </span>
     </label>
   );
@@ -190,7 +195,7 @@ export function ConfirmSheet({
       }
     >
       <div style={{ display: "grid", gap: "var(--s3)" }}>
-        <div className="lede">{body}</div>
+        <div className="lede">{typeof body === "string" ? t(body) : body}</div>
         {typed && (
           <Field label={<>{t("输入")} <span className="mono">{typed}</span> {t("以确认")}</>}>
             <input
@@ -343,11 +348,12 @@ export function SortTh({
 
 /** Key/value grid for detail blocks: micro labels, mono values. */
 export function KV({ rows }: { rows: [ReactNode, ReactNode][] }) {
+  const { t } = useI18n();
   return (
     <div className="kv">
       {rows.map(([k, v], i) => (
         <div key={i}>
-          <div className="micro">{k}</div>
+          <div className="micro">{typeof k === "string" ? t(k) : k}</div>
           <div className="mono" style={{ fontSize: "var(--t-data)", overflowWrap: "anywhere" }}>
             {v ?? "—"}
           </div>

@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { ApiError, api, type Wire } from "./api";
+import { t } from "./i18n";
 import { useAuth } from "./auth";
 import { useToast } from "./toast";
 
@@ -91,7 +92,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       // While an update is running the panel is expected to disappear for a
       // while; that is the update working, not failing.
       if (!applyingRef.current) {
-        setError(err instanceof ApiError ? err.message : "The panel could not be reached");
+        setError(err instanceof ApiError ? err.message : t("The panel could not be reached"));
       }
     }
   }, []);
@@ -139,7 +140,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       setStatus({ check: checkResult, state });
       setError(null);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "The check could not be run");
+      setError(err instanceof ApiError ? err.message : t("The check could not be run"));
     } finally {
       setChecking(false);
     }
@@ -152,7 +153,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       const state = await api.updateApply(version);
       setStatus((s) => ({ check: s?.check ?? {}, state }));
     } catch (err) {
-      setStartError(err instanceof ApiError ? err.message : "The update could not be started");
+      setStartError(err instanceof ApiError ? err.message : t("The update could not be started"));
     } finally {
       setStarting(false);
     }
@@ -173,7 +174,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     const version = String(status.check.latest?.version ?? "");
     if (!version || announcedVersion === version) return;
     announcedVersion = version;
-    push("info", `Version ${version} is available.`, {
+    push("info", t("Version {version} is available", { version }), {
       action: { label: "Update", run: open },
       duration: 12000,
     });

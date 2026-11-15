@@ -1,5 +1,6 @@
 "use client";
 
+import { t } from "../../lib/i18n";
 import { useCallback, useState } from "react";
 import { ConfirmSheet, Empty, ErrorAlert, Field, LoadingBlock, SectionTitle, usePoll } from "../../components/bits";
 import { PolicyEditor, extractPolicy } from "../../components/PolicyEditor";
@@ -31,26 +32,25 @@ export function HubGroups({ hub }: { hub: string }) {
         count={groups?.length}
         actions={
           <button className="btn btn--primary btn--sm" onClick={() => setCreating(true)}>
-            <IconPlus size={14} /> New group
+            <IconPlus size={14} /> {t("New group")}
           </button>
         }
       >
-        Groups
+        {t("Groups")}
       </SectionTitle>
 
       {groups === null ? (
         <LoadingBlock label="loading groups" />
       ) : groups.length === 0 ? (
         <Empty
-          title="no groups"
+          title={t("no groups")}
           action={
             <button className="btn btn--primary" onClick={() => setCreating(true)}>
-              <IconPlus size={15} /> Create a group
+              <IconPlus size={15} /> {t("Create a group")}
             </button>
           }
         >
-          A group carries one security policy for many users: bandwidth tiers, an access cut-off
-          for a whole team, one switch instead of fifty.
+          {t("A group carries one security policy for many users: bandwidth tiers, an access cut-off for a whole team, one switch instead of fifty.")}
         </Empty>
       ) : (
         <div className="grid hubgrid">
@@ -62,7 +62,7 @@ export function HubGroups({ hub }: { hub: string }) {
               </div>
               {g.Realname_utf ? <div className="micro truncate">{String(g.Realname_utf)}</div> : null}
               <div className="hubtile__stats">
-                <span className="stat"><span className="stat__n">{formatCount(Number(g.NumUsers_u32))}</span><span className="micro">members</span></span>
+                <span className="stat"><span className="stat__n">{formatCount(Number(g.NumUsers_u32))}</span><span className="micro">{t("members")}</span></span>
               </div>
             </button>
           ))}
@@ -91,9 +91,9 @@ export function HubGroups({ hub }: { hub: string }) {
       )}
       {deleting && (
         <ConfirmSheet
-          title={`Delete group ${deleting}?`}
+          title={t("Delete group {name}?", { name: deleting })}
           verb="Delete group"
-          body={<>Members are not deleted; they simply stop belonging to any group.</>}
+          body={<>{t("Members are not deleted; they simply stop belonging to any group.")}</>}
           onClose={() => setDeleting(null)}
           onConfirm={async () => {
             await api.deleteGroup(hub, deleting);
@@ -157,7 +157,7 @@ function GroupSheet({ hub,
         body.Name_str = groupName.trim();
         await api.createGroup(hub, body);
       }
-      push("ok", editing ? "Group saved." : `Group ${groupName.trim()} created.`);
+      push("ok", editing ? t("Group saved.") : t("Group {name} created.", { name: groupName.trim() }));
       onSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -168,18 +168,18 @@ function GroupSheet({ hub,
 
   return (
     <Sheet
-      title={editing ? `Group ${name}` : "New group"}
-      subtitle={`hub ${hub}`}
+      title={editing ? t("Group {name}", { name: String(name) }) : t("New group")}
+      subtitle={t("hub {hub}", { hub })}
       onClose={onClose}
       wide
       footer={
         <>
           {editing && (
             <button className="btn btn--danger" onClick={() => onDelete(name as string)} style={{ marginInlineEnd: "auto" }}>
-              Delete
+              {t("Delete")}
             </button>
           )}
-          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn" onClick={onClose}>{t("Cancel")}</button>
           <button className="btn btn--primary" onClick={save} disabled={busy || (!editing && !groupName.trim()) || !loaded}>
             {busy && <span className="spin" />}
             {editing ? "Save" : "Create group"}

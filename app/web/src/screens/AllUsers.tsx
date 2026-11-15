@@ -25,7 +25,7 @@ import { api, type Wire } from "../lib/api";
 import { navigate, seg } from "../lib/router";
 import { AUTH_TYPES, isNever, userBytes, userSortValue } from "../lib/se";
 import { formatBytes, formatCount, formatDate, timeAgo } from "../lib/util";
-import { useI18n } from "../lib/i18n";
+import { useI18n, t } from "../lib/i18n";
 import { IconChevron, IconDownload, IconPlus } from "../ui/Icon";
 import { UserStatePill } from "./hub/HubUsers";
 
@@ -88,7 +88,7 @@ export function AllUsers() {
         sub={data ? t("{users} across {hubs} hubs", { users: data.users.length, hubs: data.hubs.length }) : t("Every user on this server.")}
         actions={
           <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap" }}>
-            <SearchBox value={query} onChange={setQuery} placeholder="name, hub, group, note…" />
+            <SearchBox value={query} onChange={setQuery} placeholder={t("name, hub, group, note…")} />
             <button
               className="btn btn--primary"
               onClick={() => {
@@ -105,7 +105,7 @@ export function AllUsers() {
 
       {data?.errors.map((e) => (
         <div key={e.hub} className="alert alert--warn">
-          Hub <b>{e.hub}</b> could not be listed: {e.error}
+          {t("Hub {hub} could not be listed: {error}", { hub: e.hub, error: e.error })}
         </div>
       ))}
 

@@ -6,7 +6,7 @@ import { Empty, ErrorAlert, Field, LoadingBlock, SectionTitle, usePoll } from ".
 import { QuotaStatePill, quotaKey, useQuotaIndex } from "../components/QuotaCard";
 import { api, type Wire } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { useI18n } from "../lib/i18n";
+import { useI18n, t } from "../lib/i18n";
 import { useServer } from "../lib/server";
 import { Link, navigate, seg } from "../lib/router";
 import { useToast } from "../lib/toast";
@@ -104,13 +104,12 @@ export function Dashboard() {
             </Link>
           }
         >
-          Tell the panel the management port and administrator password of the SoftEther
-          instance on this machine, and everything else lights up.
+          {t("Tell the panel the management port and administrator password of the SoftEther instance on this machine, and everything else lights up.")}
         </Empty>
       ) : health === "offline" ? (
         <ErrorAlert>
-          <div className="alert__t">The VPN server is not answering.</div>
-          {probe?.error} — <Link to="/connect" className="linkish">check the connection</Link>
+          <div className="alert__t">{t("The VPN server is not answering.")}</div>
+          {probe?.error} — <Link to="/connect" className="linkish">{t("check the connection")}</Link>
         </ErrorAlert>
       ) : (
         <div className="dash">
@@ -240,27 +239,27 @@ export function Dashboard() {
                   detail={`${(listeners ?? []).filter((l) => l.Enables_bool).map((l) => l.Ports_u32).join(", ") || t("no listeners")}`}
                 />
                 <ProtocolRow
-                  label="L2TP/IPsec"
+                  label={t("L2TP/IPsec")}
                   on={Boolean(ipsec?.L2TP_IPsec_bool)}
                   detail={ipsec ? (ipsec.L2TP_IPsec_bool ? t("default hub {hub}", { hub: ipsec.L2TP_DefaultHub_str || "—" }) : t("off")) : "—"}
                 />
                 <ProtocolRow
-                  label="OpenVPN"
+                  label={t("OpenVPN")}
                   on={Boolean(openvpn?.EnableOpenVPN_bool)}
-                  detail={openvpn?.EnableOpenVPN_bool ? `udp ${openvpn.OpenVPNPortList_str}` : t("off")}
+                  detail={openvpn?.EnableOpenVPN_bool ? t("udp {ports}", { ports: String(openvpn.OpenVPNPortList_str ?? "") }) : t("off")}
                 />
                 <ProtocolRow
-                  label="SSTP"
+                  label={t("SSTP")}
                   on={Boolean(openvpn?.EnableSSTP_bool)}
                   detail={openvpn?.EnableSSTP_bool ? t("enabled") : t("off")}
                 />
                 <ProtocolRow
-                  label="VPN Azure"
+                  label={t("VPN Azure")}
                   on={Boolean(azure?.IsEnabled_bool)}
                   detail={azure?.IsEnabled_bool ? (ddns?.CurrentHostName_str ? `${ddns.CurrentHostName_str}.vpnazure.net` : t("enabled")) : t("off")}
                 />
                 <ProtocolRow
-                  label="DDNS"
+                  label={t("DDNS")}
                   on={Boolean(ddns?.CurrentHostName_str)}
                   detail={ddns?.CurrentFqdn_str || "—"}
                 />
@@ -350,7 +349,7 @@ function CreateHubSheet({ onClose, onCreated }: { onClose: () => void; onCreated
     setBusy(true);
     const body: Wire = { HubName_str: name.trim(), Online_bool: online, HubType_u32: 0 };
     if (password) body.AdminPasswordPlainText_str = password;
-    const ok = await guard(() => api.createHub(body), `Hub ${name.trim()} created.`);
+    const ok = await guard(() => api.createHub(body), t("Hub {name} created.", { name: name.trim() }));
     setBusy(false);
     if (ok) onCreated();
   };

@@ -100,7 +100,10 @@ export function PolicyEditor({
                             {(f.key === "policy:MaxUpload_u32" || f.key === "policy:MaxDownload_u32") &&
                               Number(value[f.key]) > 0 && (
                                 <>
-                                  {" "}Currently <b>{formatBytes(Number(value[f.key]))}/s ≈ {((Number(value[f.key]) * 8) / 1_000_000).toFixed(1)} Mbps</b>.
+                                  {" "}{t("Currently {rate}/s ≈ {mbps} Mbps.", {
+                                    rate: formatBytes(Number(value[f.key])),
+                                    mbps: ((Number(value[f.key]) * 8) / 1_000_000).toFixed(1),
+                                  })}
                                 </>
                               )}
                           </>

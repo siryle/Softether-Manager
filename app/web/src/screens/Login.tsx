@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ApiError } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { LanguageButton, useI18n } from "../lib/i18n";
+import { LanguageButton, useI18n, t } from "../lib/i18n";
 import { BrandMark } from "../ui/Icon";
 
 /**
@@ -71,7 +71,7 @@ export function Login() {
                 autoFocus
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="admin"
+                placeholder={t("admin")}
                 autoComplete="username"
                 autoCapitalize="none"
                 autoCorrect="off"

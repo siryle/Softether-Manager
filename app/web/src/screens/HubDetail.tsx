@@ -8,7 +8,7 @@ import { api, type Usage, type Wire } from "../lib/api";
 import { HUB_TYPES } from "../lib/se";
 import { Link, navigate, seg } from "../lib/router";
 import { formatBytes, formatCount, formatDate } from "../lib/util";
-import { useI18n } from "../lib/i18n";
+import { useI18n, t } from "../lib/i18n";
 import { OnlinePill } from "../ui/Status";
 import { OutcomeNote, Switch, useToggle } from "../ui/Switch";
 import { HubUsers } from "./hub/HubUsers";
@@ -64,7 +64,7 @@ export function HubDetail({ hub, tab }: { hub: string; tab: string }) {
       return Boolean(r.online);
     },
     reload: load,
-    noun: `Hub ${hub}`,
+    noun: t("Hub {hub}", { hub }),
     onWord: "online",
     offWord: "offline",
   });
@@ -107,7 +107,7 @@ export function HubDetail({ hub, tab }: { hub: string; tab: string }) {
         }
       />
 
-      <div className="tabs" role="tablist" aria-label="Hub sections">
+      <div className="tabs" role="tablist" aria-label={t("Hub sections")}>
         {TABS.map((tabItem) => (
           <button
             key={tabItem.key}
@@ -188,7 +188,7 @@ function HubOverview({ hub, status }: { hub: string; status: Wire | null }) {
           <div><div className="micro">{t("last login")}</div><div className="mono">{formatDate(status.LastLoginTime_dt as string)}</div></div>
           <div><div className="micro">{t("Logins")}</div><div className="mono">{formatCount(status.NumLogin_u32 as number)}</div></div>
           <div><div className="micro">{t("IP entries")}</div><div className="mono">{formatCount(status.NumIpTables_u32 as number)}</div></div>
-          <div><div className="micro">SecureNAT</div><div className="mono">{status.SecureNATEnabled_bool ? t("enabled") : t("off")}</div></div>
+          <div><div className="micro">{t("SecureNAT")}</div><div className="mono">{status.SecureNATEnabled_bool ? t("enabled") : t("off")}</div></div>
         </div>
       </div>
     </>

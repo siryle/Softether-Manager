@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import { useI18n } from "./i18n";
 
 /**
  * Toasts are for things you cannot already see.
@@ -43,6 +44,7 @@ const DEFAULT_MS = 4600;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const { t } = useI18n();
 
   const dismiss = useCallback((id: number) => {
     setToasts((t) => t.filter((x) => x.id !== id));
@@ -75,19 +77,19 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={{ push, guard }}>
       {children}
       <div className="toasts" role="status" aria-live="polite">
-        {toasts.map((t) => (
-          <div key={t.id} className={`toast toast--${t.kind}`}>
+        {toasts.map((toast) => (
+          <div key={toast.id} className={`toast toast--${toast.kind}`}>
             <span className="toast__mark" aria-hidden="true" />
-            <span className="toast__body">{t.message}</span>
-            {t.action && (
+            <span className="toast__body">{t(toast.message)}</span>
+            {toast.action && (
               <button
                 className="toast__action"
                 onClick={() => {
-                  t.action?.run();
-                  dismiss(t.id);
+                  toast.action?.run();
+                  dismiss(toast.id);
                 }}
               >
-                {t.action.label}
+                {t(toast.action.label)}
               </button>
             )}
           </div>

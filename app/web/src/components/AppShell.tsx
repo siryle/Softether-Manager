@@ -5,7 +5,7 @@ import { useAuth } from "../lib/auth";
 import { useServer } from "../lib/server";
 import { Link, back, navigate, seg, useRoute } from "../lib/router";
 import { useUpdate } from "../lib/update";
-import { LanguageButton, useI18n } from "../lib/i18n";
+import { LanguageButton, useI18n, t } from "../lib/i18n";
 import {
   BrandMark,
   IconBack,
@@ -124,15 +124,15 @@ function Side({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => voi
         <button
           className="icon-btn side__fold"
           onClick={onToggle}
-          title={collapsed ? "Expand the sidebar" : "Collapse the sidebar"}
-          aria-label={collapsed ? "Expand the sidebar" : "Collapse the sidebar"}
+          title={collapsed ? t("Expand the sidebar") : t("Collapse the sidebar")}
+          aria-label={collapsed ? t("Expand the sidebar") : t("Collapse the sidebar")}
           aria-expanded={!collapsed}
         >
           <IconChevron size={15} />
         </button>
       </div>
 
-      <nav className="side__nav" aria-label="Primary">
+      <nav className="side__nav" aria-label={t("Primary")}>
         {item("/", t("Dashboard"), <IconPanels size={19} />, dashOn)}
 
         {!collapsed && hubs && hubs.length > 0 && (
@@ -291,7 +291,7 @@ function TabBar() {
     </Link>
   );
   return (
-    <nav className="tabbar" aria-label="Primary">
+    <nav className="tabbar" aria-label={t("Primary")}>
       {tab((p) => p === "" || p === "hub" || p === "connect", "/", "Dashboard", <IconPanels />)}
       {tab((p) => p === "users", "/users", "Users", <IconUsers />)}
       {tab((p) => p === "settings", "/settings", "Settings", <IconSettings />)}
@@ -308,8 +308,8 @@ export function ThemeToggle() {
     <button
       className="icon-btn"
       onClick={toggle}
-      title={dark ? "Switch to light" : "Switch to dark"}
-      aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}
+      title={dark ? t("Switch to light") : t("Switch to dark")}
+      aria-label={dark ? t("Switch to light theme") : t("Switch to dark theme")}
     >
       {dark ? <IconSun size={17} /> : <IconMoon size={17} />}
     </button>
@@ -329,10 +329,10 @@ export function VersionPill({ compact }: { compact?: boolean }) {
       onClick={open}
       title={
         applying
-          ? "An update is running"
+          ? t("An update is running")
           : available
-            ? `Version ${status?.check?.latest?.version} is available`
-            : "Check for updates"
+            ? t("Version {version} is available", { version: String(status?.check?.latest?.version ?? "") })
+            : t("Check for updates")
       }
     >
       {applying && <span className="spin" style={{ width: 11, height: 11 }} />}

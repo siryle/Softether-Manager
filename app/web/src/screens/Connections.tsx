@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import { ConfirmSheet, Empty, KV, LoadingBlock, PageHead, usePoll } from "../components/bits";
 import { api, type Wire } from "../lib/api";
 import { useToast } from "../lib/toast";
-import { useI18n } from "../lib/i18n";
+import { useI18n, t } from "../lib/i18n";
 import { formatDate, timeAgo } from "../lib/util";
 import { IconClose } from "../ui/Icon";
 import { Sheet } from "../ui/Sheet";
@@ -44,7 +44,7 @@ export function Connections() {
       {connections === null ? (
         <LoadingBlock label="loading connections" />
       ) : connections.length === 0 ? (
-        <Empty title="no connections">{t("Which would be odd, since this panel is one.")}</Empty>
+        <Empty title={t("no connections")}>{t("Which would be odd, since this panel is one.")}</Empty>
       ) : (
         <div className="card tcard">
           <div className="tscroll">
@@ -62,7 +62,7 @@ export function Connections() {
                 {connections.map((c) => (
                   <tr key={String(c.Name_str)} className="clickable" onClick={() => setOpen(String(c.Name_str))}>
                     <td className="tmono">{String(c.Name_str)}</td>
-                    <td><Pill kind="idle" label={CONNECTION_TYPES[Number(c.Type_u32)] ?? `type ${c.Type_u32}`} /></td>
+                    <td><Pill kind="idle" label={CONNECTION_TYPES[Number(c.Type_u32)] ?? t("type {n}", { n: String(c.Type_u32) })} /></td>
                     <td className="tmono">
                       {String(c.Hostname_str || c.Ip_ip)}:{String(c.Port_u32)}
                       {c.Hostname_str ? <span className="tsub">{String(c.Ip_ip)}</span> : null}
@@ -90,7 +90,7 @@ export function Connections() {
       {open && <ConnectionSheet name={open} onClose={() => setOpen(null)} />}
       {killing && (
         <ConfirmSheet
-          title="Disconnect this connection?"
+          title={t("Disconnect this connection?")}
           verb="Disconnect"
           body={
             <>
@@ -127,7 +127,7 @@ function ConnectionSheet({ name, onClose }: { name: string; onClose: () => void 
   );
 
   return (
-    <Sheet title="Connection" subtitle={name} onClose={onClose}>
+    <Sheet title={t("Connection")} subtitle={name} onClose={onClose}>
       {error && <div className="alert alert--err">{error}</div>}
       {!detail && !error && <LoadingBlock />}
       {detail && (

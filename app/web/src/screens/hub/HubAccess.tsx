@@ -1,5 +1,6 @@
 "use client";
 
+import { t } from "../../lib/i18n";
 import { useCallback, useState } from "react";
 import { CheckRow, ConfirmSheet, Empty, ErrorAlert, Field, LoadingBlock, SectionTitle, usePoll } from "../../components/bits";
 import { api, type Wire } from "../../lib/api";
@@ -34,26 +35,25 @@ export function HubAccess({ hub }: { hub: string }) {
         count={rules?.length}
         actions={
           <button className="btn btn--primary btn--sm" onClick={() => setEditing("new")}>
-            <IconPlus size={14} /> New rule
+            <IconPlus size={14} /> {t("New rule")}
           </button>
         }
       >
-        Access list
+        {t("Access list")}
       </SectionTitle>
 
       {rules === null ? (
         <LoadingBlock label="loading rules" />
       ) : rules.length === 0 ? (
         <Empty
-          title="no rules — everything passes"
+          title={t("no rules — everything passes")}
           action={
             <button className="btn btn--primary" onClick={() => setEditing("new")}>
-              <IconPlus size={15} /> Add the first rule
+              <IconPlus size={15} /> {t("Add the first rule")}
             </button>
           }
         >
-          Access rules filter packets inside the hub, by protocol, address, port and user. Lower
-          priority numbers run first; the first match decides.
+          {t("Access rules filter packets inside the hub, by protocol, address, port and user. Lower priority numbers run first; the first match decides.")}
         </Empty>
       ) : (
         <div className="rows">
@@ -77,7 +77,7 @@ export function HubAccess({ hub }: { hub: string }) {
                       e.stopPropagation();
                       setDeleting(r);
                     }}
-                    aria-label="Delete rule"
+                    aria-label={t("Delete rule")}
                   >
                     <IconTrash size={14} />
                   </button>
@@ -104,7 +104,7 @@ export function HubAccess({ hub }: { hub: string }) {
       )}
       {deleting && (
         <ConfirmSheet
-          title="Delete this rule?"
+          title={t("Delete this rule?")}
           verb="Delete rule"
           body={<>{ruleSentence(deleting)}</>}
           onClose={() => setDeleting(null)}
@@ -119,19 +119,25 @@ export function HubAccess({ hub }: { hub: string }) {
 }
 
 function ruleSentence(r: Wire): string {
-  const proto = ACCESS_PROTOCOLS[Number(r.Protocol_u32)] ?? `proto ${r.Protocol_u32}`;
+  const named = ACCESS_PROTOCOLS[Number(r.Protocol_u32)];
+  const proto = named ? t(named) : t("proto {n}", { n: String(r.Protocol_u32) });
   const v6 = r.IsIPv6_bool;
-  const src = r.SrcUsername_str
-    ? `user ${r.SrcUsername_str}`
-    : (v6 ? "" : (r.SrcIpAddress_ip && r.SrcIpAddress_ip !== "0.0.0.0" ? `${r.SrcIpAddress_ip}/${r.SrcSubnetMask_ip}` : "")) || "anywhere";
-  const dst = r.DestUsername_str
-    ? `user ${r.DestUsername_str}`
-    : (v6 ? "" : (r.DestIpAddress_ip && r.DestIpAddress_ip !== "0.0.0.0" ? `${r.DestIpAddress_ip}/${r.DestSubnetMask_ip}` : "")) || "anywhere";
-  const ports =
-    Number(r.DestPortStart_u32) > 0
-      ? ` port ${r.DestPortStart_u32}${Number(r.DestPortEnd_u32) > Number(r.DestPortStart_u32) ? `–${r.DestPortEnd_u32}` : ""}`
-      : "";
-  return `${proto}${v6 ? " (IPv6)" : ""} from ${src} to ${dst}${ports}`;
+  const who = (user: unknown, ip: unknown, mask: unknown) =>
+    user
+      ? t("user {name}", { name: String(user) })
+      : !v6 && ip && ip !== "0.0.0.0"
+        ? `${ip}/${mask}`
+        : t("anywhere");
+  const start = Number(r.DestPortStart_u32);
+  const end = Number(r.DestPortEnd_u32);
+  const ports = start > 0 ? t(" port {range}", { range: end > start ? `${start}–${end}` : String(start) }) : "";
+  return t("{proto}{v6} from {src} to {dst}{ports}", {
+    proto,
+    v6: v6 ? t(" (IPv6)") : "",
+    src: who(r.SrcUsername_str, r.SrcIpAddress_ip, r.SrcSubnetMask_ip),
+    dst: who(r.DestUsername_str, r.DestIpAddress_ip, r.DestSubnetMask_ip),
+    ports,
+  });
 }
 
 function AccessRuleSheet({ hub,
@@ -189,13 +195,13 @@ function AccessRuleSheet({ hub,
 
   return (
     <Sheet
-      title={editing ? "Edit rule" : "New access rule"}
-      subtitle={`hub ${hub}`}
+      title={editing ? t("Edit rule") : t("New access rule")}
+      subtitle={t("hub {hub}", { hub })}
       onClose={onClose}
       wide
       footer={
         <>
-          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn" onClick={onClose}>{t("Cancel")}</button>
           <button className="btn btn--primary" onClick={save} disabled={busy}>
             {busy && <span className="spin" />}
             {editing ? "Save rule" : "Add rule"}
@@ -206,8 +212,8 @@ function AccessRuleSheet({ hub,
       {error && <ErrorAlert>{error}</ErrorAlert>}
       <div style={{ display: "grid", gap: "var(--s1)" }}>
         <div className="seg">
-          <button className={!draft.Discard_bool ? "on" : ""} onClick={() => set("Discard_bool", false)}>Pass</button>
-          <button className={draft.Discard_bool ? "on" : ""} onClick={() => set("Discard_bool", true)}>Discard</button>
+          <button className={!draft.Discard_bool ? "on" : ""} onClick={() => set("Discard_bool", false)}>{t("Pass")}</button>
+          <button className={draft.Discard_bool ? "on" : ""} onClick={() => set("Discard_bool", true)}>{t("Discard")}</button>
         </div>
         <div className="row2">
           <Field label="Priority" hint="Lower runs first.">
@@ -225,7 +231,7 @@ function AccessRuleSheet({ hub,
           <input className="input" value={String(draft.Note_utf ?? "")} onChange={(e) => set("Note_utf", e.target.value)} />
         </Field>
 
-        <SectionTitle>Source</SectionTitle>
+        <SectionTitle>{t("Source")}</SectionTitle>
         <div className="row2">
           <Field label="IPv4 address" hint="Empty matches any source.">
             <input className="input mono" placeholder="10.0.0.0" value={String(draft.SrcIpAddress_ip ?? "")} onChange={(e) => set("SrcIpAddress_ip", e.target.value)} spellCheck={false} inputMode="decimal" />
@@ -238,7 +244,7 @@ function AccessRuleSheet({ hub,
           <input className="input mono" value={String(draft.SrcUsername_str ?? "")} onChange={(e) => set("SrcUsername_str", e.target.value)} spellCheck={false} autoCapitalize="none" />
         </Field>
 
-        <SectionTitle>Destination</SectionTitle>
+        <SectionTitle>{t("Destination")}</SectionTitle>
         <div className="row2">
           <Field label="IPv4 address" hint="Empty matches any destination.">
             <input className="input mono" placeholder="10.0.0.8" value={String(draft.DestIpAddress_ip ?? "")} onChange={(e) => set("DestIpAddress_ip", e.target.value)} spellCheck={false} inputMode="decimal" />
@@ -254,20 +260,20 @@ function AccessRuleSheet({ hub,
           <div className="row2">
             <Field label="Destination ports" hint="Start – end; same number for one port.">
               <div style={{ display: "flex", gap: "var(--s2)" }}>
-                <input className="input mono" type="number" min={0} max={65535} placeholder="from" value={Number(draft.DestPortStart_u32 ?? 0) || ""} onChange={(e) => set("DestPortStart_u32", Number(e.target.value))} />
+                <input className="input mono" type="number" min={0} max={65535} placeholder={t("from")} value={Number(draft.DestPortStart_u32 ?? 0) || ""} onChange={(e) => set("DestPortStart_u32", Number(e.target.value))} />
                 <input className="input mono" type="number" min={0} max={65535} placeholder="to" value={Number(draft.DestPortEnd_u32 ?? 0) || ""} onChange={(e) => set("DestPortEnd_u32", Number(e.target.value))} />
               </div>
             </Field>
             <Field label="Source ports">
               <div style={{ display: "flex", gap: "var(--s2)" }}>
-                <input className="input mono" type="number" min={0} max={65535} placeholder="from" value={Number(draft.SrcPortStart_u32 ?? 0) || ""} onChange={(e) => set("SrcPortStart_u32", Number(e.target.value))} />
+                <input className="input mono" type="number" min={0} max={65535} placeholder={t("from")} value={Number(draft.SrcPortStart_u32 ?? 0) || ""} onChange={(e) => set("SrcPortStart_u32", Number(e.target.value))} />
                 <input className="input mono" type="number" min={0} max={65535} placeholder="to" value={Number(draft.SrcPortEnd_u32 ?? 0) || ""} onChange={(e) => set("SrcPortEnd_u32", Number(e.target.value))} />
               </div>
             </Field>
           </div>
         )}
 
-        <SectionTitle>Simulation (optional)</SectionTitle>
+        <SectionTitle>{t("Simulation (optional)")}</SectionTitle>
         <div className="row2">
           <Field label="Delay" hint="ms added to matching packets — for testing bad links.">
             <input className="input mono" type="number" min={0} max={10000} value={Number(draft.Delay_u32 ?? 0)} onChange={(e) => set("Delay_u32", Number(e.target.value))} />
@@ -300,7 +306,7 @@ function AcList({ hub }: { hub: string }) {
       const next = (rules ?? []).filter((r) => r.Id_u32 !== rule.Id_u32);
       await api.setAcList(hub, next);
       await load();
-    }, "Entry removed.");
+    }, t("Entry removed."));
 
   return (
     <>
@@ -308,18 +314,17 @@ function AcList({ hub }: { hub: string }) {
         count={rules?.length}
         actions={
           <button className="btn btn--sm" onClick={() => setAdding(true)}>
-            <IconPlus size={14} /> Add entry
+            <IconPlus size={14} /> {t("Add entry")}
           </button>
         }
       >
-        Source-IP limits
+        {t("Source-IP limits")}
       </SectionTitle>
       {rules === null ? (
         <LoadingBlock />
       ) : rules.length === 0 ? (
-        <Empty title="no limits — clients may connect from any address">
-          Entries here allow or deny the act of connecting to this hub by the client's source IP,
-          before authentication is even attempted.
+        <Empty title={t("no limits — clients may connect from any address")}>
+          {t("Entries here allow or deny the act of connecting to this hub by the client's source IP, before authentication is even attempted.")}
         </Empty>
       ) : (
         <div className="rows">
@@ -338,7 +343,7 @@ function AcList({ hub }: { hub: string }) {
                   </div>
                 </div>
                 <div className="row__side">
-                  <button className="btn btn--sm btn--ghost" onClick={() => void remove(r)} aria-label="Remove">
+                  <button className="btn btn--sm btn--ghost" onClick={() => void remove(r)} aria-label={t("Remove")}>
                     <IconTrash size={14} />
                   </button>
                 </div>
@@ -389,11 +394,11 @@ function AcSheet({ existing, onClose, onSave }: { existing: Wire[]; onClose: () 
 
   return (
     <Sheet
-      title="Source-IP entry"
+      title={t("Source-IP entry")}
       onClose={onClose}
       footer={
         <>
-          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn" onClick={onClose}>{t("Cancel")}</button>
           <button className="btn btn--primary" onClick={save} disabled={busy || !ip.trim()}>
             {busy && <span className="spin" />} Add
           </button>
@@ -402,8 +407,8 @@ function AcSheet({ existing, onClose, onSave }: { existing: Wire[]; onClose: () 
     >
       {error && <ErrorAlert>{error}</ErrorAlert>}
       <div className="seg" style={{ marginBottom: "var(--s3)" }}>
-        <button className={!deny ? "on" : ""} onClick={() => setDeny(false)}>Allow</button>
-        <button className={deny ? "on" : ""} onClick={() => setDeny(true)}>Deny</button>
+        <button className={!deny ? "on" : ""} onClick={() => setDeny(false)}>{t("Allow")}</button>
+        <button className={deny ? "on" : ""} onClick={() => setDeny(true)}>{t("Deny")}</button>
       </div>
       <Field label="IP address">
         <input className="input mono" value={ip} onChange={(e) => setIp(e.target.value)} placeholder="203.0.113.7" spellCheck={false} inputMode="decimal" />

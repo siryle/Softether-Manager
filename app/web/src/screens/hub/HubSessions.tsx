@@ -1,5 +1,6 @@
 "use client";
 
+import { t } from "../../lib/i18n";
 import { useCallback, useEffect, useState } from "react";
 import { ConfirmSheet, Empty, KV, LoadingBlock, SearchBox, SectionTitle, usePoll } from "../../components/bits";
 import { api, type Wire } from "../../lib/api";
@@ -42,9 +43,9 @@ export function HubSessions({ hub }: { hub: string }) {
     <>
       <SectionTitle
         count={sessions?.length}
-        actions={<SearchBox value={query} onChange={setQuery} placeholder="user, host, IP…" />}
+        actions={<SearchBox value={query} onChange={setQuery} placeholder={t("user, host, IP…")} />}
       >
-        Sessions
+        {t("Sessions")}
       </SectionTitle>
 
       {filtered == null ? (
@@ -65,13 +66,13 @@ export function HubSessions({ hub }: { hub: string }) {
       {open && <SessionSheet hub={hub} name={open} onClose={() => setOpen(null)} />}
       {killing && (
         <ConfirmSheet
-          title="Disconnect this session?"
+          title={t("Disconnect this session?")}
           verb="Disconnect"
           body={
             <>
               <span className="mono">{String(killing.Name_str)}</span>
-              {killing.Username_str ? <> — user <b>{String(killing.Username_str)}</b></> : null} is cut
-              immediately. The client may simply reconnect unless the user is disabled first.
+              {killing.Username_str ? <> {t("— user {name}", { name: String(killing.Username_str) })}</> : null}{" "}
+              {t("is cut immediately. The client may simply reconnect unless the user is disabled first.")}
             </>
           }
           onClose={() => setKilling(null)}
@@ -106,15 +107,15 @@ export function SessionsTable({
             <table className="dtable">
               <thead>
                 <tr>
-                  <th>Session</th>
-                  <th>User</th>
-                  <th>Kind</th>
-                  <th>Source</th>
-                  <th style={{ width: 80 }}>TCP</th>
-                  <th>Packets</th>
-                  <th>Transfer</th>
-                  <th>Started</th>
-                  <th className="tact" style={{ width: 120 }} aria-label="Actions" />
+                  <th>{t("Session")}</th>
+                  <th>{t("User")}</th>
+                  <th>{t("Kind")}</th>
+                  <th>{t("Source")}</th>
+                  <th style={{ width: 80 }}>{t("TCP")}</th>
+                  <th>{t("Packets")}</th>
+                  <th>{t("Transfer")}</th>
+                  <th>{t("Started")}</th>
+                  <th className="tact" style={{ width: 120 }} aria-label={t("Actions")} />
                 </tr>
               </thead>
               <tbody>
@@ -159,7 +160,7 @@ export function SessionsTable({
                               void onKill(s);
                             }}
                           >
-                            <IconClose size={13} /> Kill
+                            <IconClose size={13} /> {t("Kill")}
                           </button>
                         )}
                       </td>
@@ -185,9 +186,9 @@ export function SessionsTable({
                   <Pill kind={system ? "idle" : "ok"} label={kind} />
                 </div>
                 <div className="spec">
-                  {s.ClientIP_ip ? <span className="chip"><i>from</i>{String(s.ClientIP_ip)}</span> : null}
-                  <span className="chip"><i>data</i>{formatBytes(Number(s.PacketSize_u64))}</span>
-                  <span className="chip"><i>since</i>{timeAgo(s.CreatedTime_dt as string)}</span>
+                  {s.ClientIP_ip ? <span className="chip"><i>{t("from")}</i>{String(s.ClientIP_ip)}</span> : null}
+                  <span className="chip"><i>{t("data")}</i>{formatBytes(Number(s.PacketSize_u64))}</span>
+                  <span className="chip"><i>{t("since")}</i>{timeAgo(s.CreatedTime_dt as string)}</span>
                 </div>
               </div>
               <div className="row__side">
@@ -235,7 +236,7 @@ export function SessionSheet({ hub,
   }, [hub, name]);
 
   return (
-    <Sheet title="Session" subtitle={name} onClose={onClose} wide>
+    <Sheet title={t("Session")} subtitle={name} onClose={onClose} wide>
       {error && <div className="alert alert--err">{error}</div>}
       {!detail && !error && <LoadingBlock />}
       {detail && (

@@ -15,7 +15,7 @@ import {
   useReveal,
 } from "../components/bits";
 import { api, type DomainStatus, type Wire } from "../lib/api";
-import { useI18n } from "../lib/i18n";
+import { useI18n, t } from "../lib/i18n";
 import { Link } from "../lib/router";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../lib/toast";
@@ -192,7 +192,7 @@ function PanelCard() {
           label={t("Web path")}
           hint={t("The secret prefix the panel serves under; empty serves at the root. Takes effect after a restart.")}
         >
-          <input className="input mono" value={String(settings.web_path ?? "")} onChange={(e) => set("web_path", e.target.value)} autoCapitalize="none" spellCheck={false} placeholder="(root)" />
+          <input className="input mono" value={String(settings.web_path ?? "")} onChange={(e) => set("web_path", e.target.value)} autoCapitalize="none" spellCheck={false} placeholder={t("(root)")} />
         </Field>
         <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap" }}>
           {dirty && (
@@ -286,7 +286,7 @@ function DomainCard() {
   const save = async () => {
     const port = Number(form.https_port);
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
-      push("err", "The HTTPS port must be a number between 1 and 65535.");
+      push("err", t("The HTTPS port must be a number between 1 and 65535."));
       return;
     }
     setSaving(true);
@@ -300,7 +300,7 @@ function DomainCard() {
       setDirty(false);
       setState(s);
       setForm(domainForm(s));
-    }, form.domain.trim() ? "Domain saved — the panel is obtaining a certificate for it." : "Domain removed.");
+    }, form.domain.trim() ? t("Domain saved — the panel is obtaining a certificate for it.") : t("Domain removed."));
     setSaving(false);
   };
 
@@ -309,7 +309,7 @@ function DomainCard() {
     await guard(async () => {
       const s = await api.issueCertificate();
       absorb(s);
-    }, "Certificate request started.");
+    }, t("Certificate request started."));
     setActing("");
   };
 
@@ -329,7 +329,7 @@ function DomainCard() {
       setDirty(false);
       setState(s);
       setForm(domainForm(s));
-    }, "Domain removed — the panel answers on every name again.");
+    }, t("Domain removed — the panel answers on every name again."));
   };
 
   const s = state;
@@ -345,16 +345,16 @@ function DomainCard() {
   if (s && configured && !busy) {
     if (s.config_error) attention.push(s.config_error);
     if (s.dns?.error) attention.push(s.dns.error);
-    if (s.http.error) attention.push(`Port 80: ${s.http.error}`);
-    if (s.https.error) attention.push(`HTTPS on port ${s.https.port}: ${s.https.error}`);
+    if (s.http.error) attention.push(t("Port 80: {error}", { error: s.http.error }));
+    if (s.https.error) attention.push(t("HTTPS on port {port}: {error}", { port: s.https.port, error: s.https.error }));
     const stageError = s.renewal.last_error_type === "dns" || s.renewal.last_error_type === "port80";
     if (s.renewal.last_error && (!certOk || s.renewal.due) && !stageError) attention.push(s.renewal.last_error);
   }
   const blockedBy =
     s?.renewal.last_error_type === "dns"
-      ? "Waiting on the DNS record above."
+      ? t("Waiting on the DNS record above.")
       : s?.renewal.last_error_type === "port80"
-        ? "Waiting on port 80 above."
+        ? t("Waiting on port 80 above.")
         : "";
 
   return (
@@ -372,41 +372,45 @@ function DomainCard() {
       </SectionTitle>
       <div className="card" style={{ padding: "var(--s4)", maxWidth: 760 }}>
         <p className="lede" style={{ marginBottom: "var(--s3)" }}>
-          Point a DNS record at this server — an <span className="mono">A</span> record, plus{" "}
-          <span className="mono">AAAA</span> for IPv6 — open port 80 and the HTTPS port in the
-          firewall, and enter the name. The panel asks Let&rsquo;s Encrypt for a certificate,
-          serves HTTPS on the port below, keeps port 80 for the validation and a redirect, and
-          renews the certificate a month before it expires. The plain-HTTP address keeps working.
+          {t("Point a DNS record at this server — an A record, plus AAAA for IPv6 — open port 80 and the HTTPS port in the firewall, and enter the name. The panel asks Let's Encrypt for a certificate, serves HTTPS on the port below, keeps port 80 for the validation and a redirect, and renews the certificate a month before it expires. The plain-HTTP address keeps working.")}
         </p>
 
         <div className="row2">
-          <Field label="Domain" hint="A public hostname that resolves to this server, e.g. panel.example.com. Empty means no domain.">
+          <Field label={t("Domain")} hint={t("A public hostname that resolves to this server, e.g. panel.example.com. Empty means no domain.")}>
             <input className="input mono" value={form.domain} onChange={(e) => set({ domain: e.target.value })} placeholder="panel.example.com" autoCapitalize="none" spellCheck={false} inputMode="url" />
           </Field>
-          <Field label="HTTPS port" hint={`443 is what browsers assume. SoftEther itself listens on 443 on a stock install — disable that listener under Server settings, or pick another port here.${s ? ` The plain-HTTP panel stays on ${s.bind_port}.` : ""}`}>
+          <Field
+            label={t("HTTPS port")}
+            hint={
+              <>
+                {t("443 is what browsers assume. SoftEther itself listens on 443 on a stock install — disable that listener under Server settings, or pick another port here.")}
+                {s ? t(" The plain-HTTP panel stays on {port}.", { port: s.bind_port }) : ""}
+              </>
+            }
+          >
             <input className="input mono" type="number" min={1} max={65535} value={form.https_port} onChange={(e) => set({ https_port: e.target.value })} inputMode="numeric" />
           </Field>
         </div>
-        <Field label="Contact email (optional)" hint="Let's Encrypt writes to it if a certificate is about to expire unrenewed. Nothing else is done with it.">
+        <Field label={t("Contact email (optional)")} hint={t("Let's Encrypt writes to it if a certificate is about to expire unrenewed. Nothing else is done with it.")}>
           <input className="input mono" value={form.acme_email} onChange={(e) => set({ acme_email: e.target.value })} placeholder="ops@example.com" autoCapitalize="none" spellCheck={false} inputMode="email" />
         </Field>
         <CheckRow
           checked={form.acme_staging}
           onChange={(v) => set({ acme_staging: v })}
-          label="Use Let's Encrypt's staging environment"
-          hint="Issues a certificate browsers do not trust, without counting against the real rate limits — for checking DNS and firewall before asking for the real thing. Switch it off afterwards and a trusted certificate is obtained in its place."
+          label={t("Use Let's Encrypt's staging environment")}
+          hint={t("Issues a certificate browsers do not trust, without counting against the real rate limits — for checking DNS and firewall before asking for the real thing. Switch it off afterwards and a trusted certificate is obtained in its place.")}
         />
         <p className="hint" style={{ marginTop: 0 }}>
-          Setting a domain accepts the{" "}
-          <a className="linkish" href="https://letsencrypt.org/repository/" target="_blank" rel="noreferrer">Let&rsquo;s Encrypt subscriber agreement</a>{" "}
-          on your behalf. Only <span className="mono">http-01</span> validation is used, so the name must resolve straight to this server: no wildcards, no names behind a CDN.
+          {t("Setting a domain accepts the")}{" "}
+          <a className="linkish" href="https://letsencrypt.org/repository/" target="_blank" rel="noreferrer">{t("Let's Encrypt subscriber agreement")}</a>
+          {t(" on your behalf. Only http-01 validation is used, so the name must resolve straight to this server: no wildcards, no names behind a CDN.")}
         </p>
         {dirty && (
           <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap" }}>
             <button className="btn btn--primary" onClick={() => void save()} disabled={saving}>
-              {saving && <span className="spin" />} {form.domain.trim() ? "Save and obtain the certificate" : "Save"}
+              {saving && <span className="spin" />} {form.domain.trim() ? t("Save and obtain the certificate") : t("Save")}
             </button>
-            <button className="btn" onClick={() => { setForm(domainForm(state)); setDirty(false); }}>Discard</button>
+            <button className="btn" onClick={() => { setForm(domainForm(state)); setDirty(false); }}>{t("Discard")}</button>
           </div>
         )}
 
@@ -414,25 +418,25 @@ function DomainCard() {
           <LoadingBlock />
         ) : configured ? (
           <>
-            <div className="tpl__group">Status</div>
+            <div className="tpl__group">{t("Status")}</div>
             {busy && (
               <div className="progressline" role="status">
-                <span className="spin" /> {s.phase === "renewing" ? "Renewing the certificate" : "Obtaining the certificate"}
-                {s.step ? ` — ${s.step}` : "…"}
+                <span className="spin" /> {s.phase === "renewing" ? t("Renewing the certificate") : t("Obtaining the certificate")}
+                {s.step ? ` — ${t(s.step)}` : "…"}
               </div>
             )}
             {attention.length > 0 && (
               <div className="alert alert--err" style={{ display: "block" }}>
-                <div className="alert__t">Needs attention</div>
+                <div className="alert__t">{t("Needs attention")}</div>
                 <ul style={{ margin: "4px 0 0", paddingInlineStart: "1.2em" }}>
                   {attention.map((line, i) => <li key={i}>{line}</li>)}
                 </ul>
               </div>
             )}
             <div className="statrows">
-              <StatRow label="Domain" pill={<Pill kind="ok" label="configured" />}>
-                <span className="mono">{s.domain}</span> · HTTPS on port <span className="mono">{s.https_port}</span>
-                {s.acme_staging ? " · staging environment" : ""}
+              <StatRow label={t("Domain")} pill={<Pill kind="ok" label="configured" />}>
+                <span className="mono">{s.domain}</span>{t(" · HTTPS on port ")}<span className="mono">{s.https_port}</span>
+                {s.acme_staging ? t(" · staging environment") : ""}
               </StatRow>
 
               <StatRow
@@ -451,28 +455,28 @@ function DomainCard() {
                 }
               >
                 {!s.dns?.checked_at
-                  ? "Checked when the certificate is requested, or with Re-check."
+                  ? t("Checked when the certificate is requested, or with Re-check.")
                   : s.dns.error
                     ? s.dns.error
                     : s.dns.match
-                      ? <>Resolves to <span className="mono">{(s.dns.addresses ?? []).join(", ")}</span> — one of this machine&rsquo;s addresses.</>
-                      : <>Resolves to <span className="mono">{(s.dns.addresses ?? []).join(", ")}</span>, but this machine&rsquo;s addresses are <span className="mono">{(s.dns.local_addresses ?? []).join(", ") || "unknown"}</span>. Behind NAT or a port forward that can still validate; otherwise fix the record.</>}
+                      ? <>{t("Resolves to ")}<span className="mono">{(s.dns.addresses ?? []).join(", ")}</span>{t(" — one of this machine's addresses.")}</>
+                      : <>{t("Resolves to ")}<span className="mono">{(s.dns.addresses ?? []).join(", ")}</span>{t(", but this machine's addresses are ")}<span className="mono">{(s.dns.local_addresses ?? []).join(", ") || t("unknown")}</span>{t(". Behind NAT or a port forward that can still validate; otherwise fix the record.")}</>}
               </StatRow>
 
               <StatRow
-                label="Port 80"
+                label={t("Port 80")}
                 error={Boolean(s.http.error)}
                 pill={s.http.listening ? <Pill kind="ok" label="listening" /> : <Pill kind="err" label="not available" />}
               >
                 {s.http.listening
                   ? s.http.redirecting
-                    ? "Answers Let's Encrypt's validation requests and redirects everything else to HTTPS."
-                    : "Answers Let's Encrypt's validation requests; will redirect to HTTPS once the certificate is in place."
-                  : `${s.http.error || "The listener is not running."} Validation arrives on port 80 and nowhere else, so nothing can be issued until it is free.`}
+                    ? t("Answers Let's Encrypt's validation requests and redirects everything else to HTTPS.")
+                    : t("Answers Let's Encrypt's validation requests; will redirect to HTTPS once the certificate is in place.")
+                  : `${s.http.error || t("The listener is not running.")} ${t("Validation arrives on port 80 and nowhere else, so nothing can be issued until it is free.")}`}
               </StatRow>
 
               <StatRow
-                label="Certificate"
+                label={t("Certificate")}
                 error={!busy && !certOk && Boolean(s.renewal.last_error)}
                 pill={
                   busy ? (
@@ -489,31 +493,39 @@ function DomainCard() {
                 }
               >
                 {busy ? (
-                  s.step || "Working…"
+                  s.step ? t(s.step) : t("Working…")
                 ) : certOk ? (
                   <>
-                    Valid until <span className="mono">{formatDate(cert!.expires_at)}</span>
-                    {daysLeft !== null ? ` (${Math.max(0, Math.floor(daysLeft))} days)` : ""} · issued by {cert!.issuer || "Let's Encrypt"}
-                    {cert!.staging ? " — a staging certificate, which browsers will not trust." : "."}
+                    {t("Valid until")} <span className="mono">{formatDate(cert!.expires_at)}</span>
+                    {daysLeft !== null ? t(" ({days} days)", { days: Math.max(0, Math.floor(daysLeft)) }) : ""}
+                    {t(" · issued by {issuer}", { issuer: cert!.issuer || "Let's Encrypt" })}
+                    {cert!.staging ? t(" — a staging certificate, which browsers will not trust.") : "."}
                   </>
                 ) : cert?.present ? (
                   cert.expired
-                    ? `The certificate on disk expired ${formatDate(cert.expires_at)}; a new one is being requested.`
+                    ? t("The certificate on disk expired {date}; a new one is being requested.", { date: formatDate(cert.expires_at) })
                     : cert.domain !== s.domain
-                      ? `The certificate on disk is for ${cert.domain}; one for ${s.domain} is being requested.`
-                      : `The certificate on disk came from the ${cert.staging ? "staging" : "production"} environment; one from the ${s.acme_staging ? "staging" : "production"} environment is being requested.`
+                      ? t("The certificate on disk is for {have}; one for {want} is being requested.", { have: cert.domain, want: s.domain })
+                      : t("The certificate on disk came from the {from} environment; one from the {to} environment is being requested.", {
+                          from: t(cert.staging ? "staging" : "production"),
+                          to: t(s.acme_staging ? "staging" : "production"),
+                        })
                 ) : s.renewal.last_error ? (
                   <>
                     {blockedBy || s.renewal.last_error}
-                    {s.renewal.next_attempt_at ? <> Next automatic attempt {timeAgo(s.renewal.next_attempt_at) === "just now" ? "shortly" : `at ${formatDate(s.renewal.next_attempt_at)}`}; or use Issue now once it is fixed.</> : null}
+                    {s.renewal.next_attempt_at ? (
+                      timeAgo(s.renewal.next_attempt_at) === t("just now")
+                        ? t(" Next automatic attempt shortly; or use Issue now once it is fixed.")
+                        : t(" Next automatic attempt at {date}; or use Issue now once it is fixed.", { date: formatDate(s.renewal.next_attempt_at) })
+                    ) : null}
                   </>
                 ) : (
-                  "Requested shortly after the domain is saved."
+                  t("Requested shortly after the domain is saved.")
                 )}
               </StatRow>
 
               <StatRow
-                label="Renewal"
+                label={t("Renewal")}
                 error={certOk && s.renewal.due && Boolean(s.renewal.last_error)}
                 pill={
                   !certOk ? (
@@ -528,14 +540,16 @@ function DomainCard() {
                 }
               >
                 {!certOk ? (
-                  "Starts once a certificate is in place: renewed automatically a month before it expires."
+                  t("Starts once a certificate is in place: renewed automatically a month before it expires.")
                 ) : (
                   <>
-                    Renews on <span className="mono">{formatDate(s.renewal.renew_at)}</span>, {s.renewal.renew_before_days} days before expiry, checked hourly.
+                    {t("Renews on ")}<span className="mono">{formatDate(s.renewal.renew_at)}</span>
+                    {t(", {days} days before expiry, checked hourly.", { days: s.renewal.renew_before_days })}
                     {s.renewal.last_attempt_at ? (
                       <>
-                        {" "}Last {s.renewal.last_attempt_kind || "attempt"} {timeAgo(s.renewal.last_attempt_at)}:{" "}
-                        {s.renewal.last_success_at && s.renewal.last_success_at >= s.renewal.last_attempt_at ? "succeeded." : s.renewal.last_error ? `failed — ${s.renewal.last_error}` : "in progress."}
+                        {" "}
+                        {t("Last {kind} {when}:", { kind: t(s.renewal.last_attempt_kind || "attempt"), when: timeAgo(s.renewal.last_attempt_at) })}{" "}
+                        {s.renewal.last_success_at && s.renewal.last_success_at >= s.renewal.last_attempt_at ? t("succeeded.") : s.renewal.last_error ? t("failed — {error}", { error: s.renewal.last_error }) : t("in progress.")}
                       </>
                     ) : null}
                   </>
@@ -557,48 +571,48 @@ function DomainCard() {
               >
                 {s.https.listening ? (
                   <>
-                    On port <span className="mono">{s.https.port}</span>
-                    {s.https.since ? ` since ${timeAgo(s.https.since)}` : ""} · <a className="linkish" href={s.url} target="_blank" rel="noreferrer">{s.url}</a>
+                    {t("On port ")}<span className="mono">{s.https.port}</span>
+                    {s.https.since ? t(" since {when}", { when: timeAgo(s.https.since) }) : ""}{" · "}<a className="linkish" href={s.url} target="_blank" rel="noreferrer">{s.url}</a>
                   </>
                 ) : s.https.error ? (
                   <>
                     {s.https.error}.
-                    {s.https.port === 443 ? " On a stock install SoftEther's own listener holds 443: disable it under Server settings → TCP listeners, or choose another HTTPS port above." : ""}
+                    {s.https.port === 443 ? t(" On a stock install SoftEther's own listener holds 443: disable it under Server settings → TCP listeners, or choose another HTTPS port above.") : ""}
                   </>
                 ) : (
-                  "Starts the moment a valid certificate is in place."
+                  t("Starts the moment a valid certificate is in place.")
                 )}
               </StatRow>
             </div>
 
             <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap", marginTop: "var(--s3)" }}>
               <button className={`btn ${certOk ? "" : "btn--primary"}`} onClick={() => void issue()} disabled={busy || acting !== "" || dirty}>
-                {acting === "issue" && <span className="spin" />} {certOk ? "Renew now" : "Issue certificate now"}
+                {acting === "issue" && <span className="spin" />} {certOk ? t("Renew now") : t("Issue certificate now")}
               </button>
               <button className="btn" onClick={() => void check()} disabled={acting !== ""}>
-                {acting === "check" ? <span className="spin" /> : <IconRefresh size={14} />} Re-check
+                {acting === "check" ? <span className="spin" /> : <IconRefresh size={14} />} {t("Re-check")}
               </button>
-              <button className="btn btn--ghost" onClick={() => setRemoving(true)} disabled={busy}>Remove domain…</button>
+              <button className="btn btn--ghost" onClick={() => setRemoving(true)} disabled={busy}>{t("Remove domain…")}</button>
             </div>
-            {dirty && <p className="hint">Save the changes above before requesting a certificate for them.</p>}
+            {dirty && <p className="hint">{t("Save the changes above before requesting a certificate for them.")}</p>}
 
-            <div className="tpl__group">Access</div>
+            <div className="tpl__group">{t("Domain access")}</div>
             <SwitchRow
-              label="Only serve the panel at this domain"
+              label={t("Only serve the panel at this domain")}
               hint={
                 s.domain_only ? (
                   <>
-                    On. A request by IP address, or by any other name, gets a bare 404 — on every port. Requests from this
-                    machine itself and the certificate validation path are always let through, so renewal keeps working.
-                    If a DNS change ever locks you out, <span className="mono">sem domain only off</span> on the server turns it back off.
+                    {t("On. A request by IP address, or by any other name, gets a bare 404 — on every port. Requests from this machine itself and the certificate validation path are always let through, so renewal keeps working. If a DNS change ever locks you out,")}
+                    {" "}<span className="mono">sem domain only off</span>
+                    {t(" on the server turns it back off.")}
                   </>
                 ) : s.via_domain ? (
-                  <>You are using the panel through <span className="mono">{s.domain}</span> right now, so this can be switched on without locking yourself out.</>
+                  <>{t("You are using the panel through")} <span className="mono">{s.domain}</span>{t(" right now, so this can be switched on without locking yourself out.")}</>
                 ) : (
                   <>
-                    Offered only while you are using the panel through the domain, so it can never lock you out — this tab came in as{" "}
-                    <span className="mono">{s.request_host || "an unnamed host"}</span>.{" "}
-                    {s.https.listening ? <>Open <a className="linkish" href={s.url} target="_blank" rel="noreferrer">{s.url}</a> and switch it on from there.</> : "Once HTTPS is serving, open the panel at the domain and switch it on from there."}
+                    {t("Offered only while you are using the panel through the domain, so it can never lock you out — this tab came in as")}{" "}
+                    <span className="mono">{s.request_host || t("an unnamed host")}</span>.{" "}
+                    {s.https.listening ? <>{t("Open")} <a className="linkish" href={s.url} target="_blank" rel="noreferrer">{s.url}</a> {t("and switch it on from there.")}</> : t("Once HTTPS is serving, open the panel at the domain and switch it on from there.")}
                   </>
                 )
               }
@@ -613,7 +627,7 @@ function DomainCard() {
             {s.events.length > 0 && (
               <>
                 <button className="btn btn--sm btn--ghost" onClick={() => setShowEvents((v) => !v)} aria-expanded={showEvents} style={{ marginTop: "var(--s2)" }}>
-                  {showEvents ? "Hide history" : `History (${s.events.length})`}
+                  {showEvents ? t("Hide history") : t("History ({count})", { count: s.events.length })}
                 </button>
                 {showEvents && (
                   <div className="eventlist">
@@ -630,21 +644,15 @@ function DomainCard() {
           </>
         ) : (
           <p className="hint" style={{ marginBottom: 0 }}>
-            No domain is set: the panel answers plain HTTP on port {s.bind_port}, on any name or address that reaches it.
+            {t("No domain is set: the panel answers plain HTTP on port {port}, on any name or address that reaches it.", { port: s.bind_port })}
           </p>
         )}
       </div>
       {removing && (
         <ConfirmSheet
-          title="Remove the domain?"
-          verb="Remove domain"
-          body={
-            <>
-              The HTTPS listener and the port-80 listener stop, the domain-only restriction is lifted, and the panel
-              answers on every name again at plain <span className="mono">http://…:{s?.bind_port}</span>. The certificate
-              files stay on disk, so adding the same name back reuses them while they are valid.
-            </>
-          }
+          title={t("Remove the domain?")}
+          verb={t("Remove domain")}
+          body={t("The HTTPS listener and the port-80 listener stop, the domain-only restriction is lifted, and the panel answers on every name again at plain http://…:{port}. The certificate files stay on disk, so adding the same name back reuses them while they are valid.", { port: s?.bind_port ?? "" })}
           onClose={() => setRemoving(false)}
           onConfirm={remove}
         />
@@ -711,7 +719,7 @@ function VpnFileTemplateCard() {
       });
       setState(out);
       setDirty(false);
-    }, "Connection file template saved.");
+    }, t("Connection file template saved."));
 
   const resetDefaults = () => {
     setState((s) => ({ ...(s ?? {}), options: { ...((s?.defaults as Wire) ?? {}) } }));
@@ -730,7 +738,7 @@ function VpnFileTemplateCard() {
     );
 
   const numberField = (label: string, key: string, hint?: string, min = 0, max = RETRY_FOREVER) => (
-    <Field label={label} hint={hint}>
+    <Field label={t(label)} hint={hint ? t(hint) : hint}>
       <input
         className="input mono"
         type="number"
@@ -756,41 +764,40 @@ function VpnFileTemplateCard() {
       </SectionTitle>
       <div className="card" style={{ padding: "var(--s4)" }}>
         <p className="lede" style={{ marginBottom: "var(--s3)" }}>
-          Every <span className="mono">.vpn</span> file the panel hands out is built from this template.
-          Options set here apply to all downloads; the per-user values are filled in at download time.
+          {t("Every .vpn file the panel hands out is built from this template. Options set here apply to all downloads; the per-user values are filled in at download time.")}
         </p>
 
-        <div className="tpl__group">Naming</div>
+        <div className="tpl__group">{t("Naming")}</div>
         <div className="row2">
           <Field
-            label="File name"
-            hint={<>Variables: <span className="mono">{"{hub} {username} {host} {port}"}</span> — “.vpn” is added.</>}
+            label={t("File name")}
+            hint={<><span className="mono">{t("Variables:")} {"{hub} {username} {host} {port}"}</span> {t("— “.vpn” is added.")}</>}
           >
             <input className="input mono" value={String(state.filename_template ?? "")} onChange={(e) => setTop("filename_template", e.target.value)} spellCheck={false} />
           </Field>
-          <Field label="Connection name in the client" hint="What the user sees in their VPN Client's connection list.">
+          <Field label={t("Connection name in the client")} hint={t("What the user sees in their VPN Client's connection list.")}>
             <input className="input mono" value={String(state.account_name_template ?? "")} onChange={(e) => setTop("account_name_template", e.target.value)} spellCheck={false} />
           </Field>
         </div>
         <CheckRow
           checked={Boolean(state.embed_password_default)}
           onChange={(v) => setTop("embed_password_default", v)}
-          label="Embed the user's password by default"
-          hint="The download dialog starts with embedding on. The credential goes in as SoftEther's own hash — taken from what the panel has stored, or recovered from the server's configuration."
+          label={t("Embed the user's password by default")}
+          hint={t("The download dialog starts with embedding on. The credential goes in as SoftEther's own hash — taken from what the panel has stored, or recovered from the server's configuration.")}
         />
 
-        <div className="tpl__group">Tunnel</div>
-        <CheckRow checked={boolOpt("UseEncrypt")} onChange={(v) => setOpt("UseEncrypt", v)} label="Encrypt with SSL" hint="Off sends VPN traffic in the clear — only for links that are already protected." />
-        <CheckRow checked={boolOpt("UseCompress")} onChange={(v) => setOpt("UseCompress", v)} label="Compress data" />
-        <CheckRow checked={boolOpt("NoUdpAcceleration")} onChange={(v) => setOpt("NoUdpAcceleration", v)} label="Disable UDP acceleration" />
-        <CheckRow checked={boolOpt("HalfConnection")} onChange={(v) => setOpt("HalfConnection", v)} label="Half-duplex connections" hint="Each TCP connection carries one direction only; needs at least two connections." />
+        <div className="tpl__group">{t("Tunnel")}</div>
+        <CheckRow checked={boolOpt("UseEncrypt")} onChange={(v) => setOpt("UseEncrypt", v)} label={t("Encrypt with SSL")} hint={t("Off sends VPN traffic in the clear — only for links that are already protected.")} />
+        <CheckRow checked={boolOpt("UseCompress")} onChange={(v) => setOpt("UseCompress", v)} label={t("Compress data")} />
+        <CheckRow checked={boolOpt("NoUdpAcceleration")} onChange={(v) => setOpt("NoUdpAcceleration", v)} label={t("Disable UDP acceleration")} />
+        <CheckRow checked={boolOpt("HalfConnection")} onChange={(v) => setOpt("HalfConnection", v)} label={t("Half-duplex connections")} hint={t("Each TCP connection carries one direction only; needs at least two connections.")} />
         <div className="row2">
           {numberField("TCP connections", "MaxConnection", "1–32; more can help on lossy links.", 1, 32)}
           {numberField("UDP port", "PortUDP", "0 lets the client pick.", 0, 65535)}
         </div>
 
-        <div className="tpl__group">Reliability</div>
-        <CheckRow checked={retryForever} onChange={(v) => setOpt("NumRetry", v ? RETRY_FOREVER : 10)} label="Retry forever" hint="Keep redialling until the connection succeeds." />
+        <div className="tpl__group">{t("Reliability")}</div>
+        <CheckRow checked={retryForever} onChange={(v) => setOpt("NumRetry", v ? RETRY_FOREVER : 10)} label={t("Retry forever")} hint={t("Keep redialling until the connection succeeds.")} />
         <div className="row2">
           {!retryForever && numberField("Retry count", "NumRetry", undefined, 0, 4096)}
           {numberField("Retry interval (s)", "RetryInterval", undefined, 5, 3600)}
@@ -798,71 +805,71 @@ function VpnFileTemplateCard() {
           {numberField("Reconnect lifetime (s)", "ConnectionDisconnectSpan", "0 keeps connections until they drop on their own.")}
         </div>
 
-        <div className="tpl__group">Security</div>
-        <CheckRow checked={boolOpt("CheckServerCert")} onChange={(v) => setOpt("CheckServerCert", v)} label="Verify the server certificate" hint="On, the client refuses a server whose certificate it cannot trust." />
-        <CheckRow checked={boolOpt("NoTls1")} onChange={(v) => setOpt("NoTls1", v)} label="Disable TLS 1.0" />
+        <div className="tpl__group">{t("Security")}</div>
+        <CheckRow checked={boolOpt("CheckServerCert")} onChange={(v) => setOpt("CheckServerCert", v)} label={t("Verify the server certificate")} hint={t("On, the client refuses a server whose certificate it cannot trust.")} />
+        <CheckRow checked={boolOpt("NoTls1")} onChange={(v) => setOpt("NoTls1", v)} label={t("Disable TLS 1.0")} />
 
-        <div className="tpl__group">Proxy</div>
-        <Field label="Connect via">
+        <div className="tpl__group">{t("Proxy")}</div>
+        <Field label={t("Connect via")}>
           <select className="select" value={num("ProxyType")} onChange={(e) => setOpt("ProxyType", Number(e.target.value))}>
             {PROXY_TYPES.map(([v, label]) => (
-              <option key={v} value={v}>{label}</option>
+              <option key={v} value={v}>{t(label)}</option>
             ))}
           </select>
         </Field>
         {proxied && (
           <>
             <div className="row2">
-              <Field label="Proxy host">
+              <Field label={t("Proxy host")}>
                 <input className="input mono" value={String(opt.ProxyName ?? "")} onChange={(e) => setOpt("ProxyName", e.target.value)} spellCheck={false} />
               </Field>
               {numberField("Proxy port", "ProxyPort", undefined, 0, 65535)}
             </div>
             <div className="row2">
-              <Field label="Proxy username" hint="Leave empty when the proxy needs no sign-in.">
+              <Field label={t("Proxy username")} hint={t("Leave empty when the proxy needs no sign-in.")}>
                 <input className="input mono" value={String(opt.ProxyUsername ?? "")} onChange={(e) => setOpt("ProxyUsername", e.target.value)} spellCheck={false} />
               </Field>
-              <Field label="Proxy password" hint="Stored scrambled in the file, the way the client itself stores it.">
+              <Field label={t("Proxy password")} hint={t("Stored scrambled in the file, the way the client itself stores it.")}>
                 <input className="input" type="password" value={String(opt.ProxyPassword ?? "")} onChange={(e) => setOpt("ProxyPassword", e.target.value)} autoComplete="off" />
               </Field>
             </div>
           </>
         )}
 
-        <div className="tpl__group">Client behaviour</div>
-        <CheckRow checked={boolOpt("StartupAccount")} onChange={(v) => setOpt("StartupAccount", v)} label="Connect at client startup" />
-        <CheckRow checked={boolOpt("HideStatusWindow")} onChange={(v) => setOpt("HideStatusWindow", v)} label="Hide the status window while connecting" />
-        <CheckRow checked={boolOpt("HideNicInfoWindow")} onChange={(v) => setOpt("HideNicInfoWindow", v)} label="Hide the adapter info window" />
-        <CheckRow checked={boolOpt("NoRoutingTracking")} onChange={(v) => setOpt("NoRoutingTracking", v)} label="Disable routing tracking" hint="Stops the client adjusting the routing table while connected." />
-        <CheckRow checked={boolOpt("DisableQoS")} onChange={(v) => setOpt("DisableQoS", v)} label="Disable VoIP/QoS handling" />
-        <CheckRow checked={boolOpt("RequireMonitorMode")} onChange={(v) => setOpt("RequireMonitorMode", v)} label="Monitoring mode" hint="Asks for a promiscuous session; needs hub permission." />
-        <CheckRow checked={boolOpt("RequireBridgeRoutingMode")} onChange={(v) => setOpt("RequireBridgeRoutingMode", v)} label="Bridge / router mode" hint="Needed when the client side bridges or routes for other machines." />
+        <div className="tpl__group">{t("Client behaviour")}</div>
+        <CheckRow checked={boolOpt("StartupAccount")} onChange={(v) => setOpt("StartupAccount", v)} label={t("Connect at client startup")} />
+        <CheckRow checked={boolOpt("HideStatusWindow")} onChange={(v) => setOpt("HideStatusWindow", v)} label={t("Hide the status window while connecting")} />
+        <CheckRow checked={boolOpt("HideNicInfoWindow")} onChange={(v) => setOpt("HideNicInfoWindow", v)} label={t("Hide the adapter info window")} />
+        <CheckRow checked={boolOpt("NoRoutingTracking")} onChange={(v) => setOpt("NoRoutingTracking", v)} label={t("Disable routing tracking")} hint={t("Stops the client adjusting the routing table while connected.")} />
+        <CheckRow checked={boolOpt("DisableQoS")} onChange={(v) => setOpt("DisableQoS", v)} label={t("Disable VoIP/QoS handling")} />
+        <CheckRow checked={boolOpt("RequireMonitorMode")} onChange={(v) => setOpt("RequireMonitorMode", v)} label={t("Monitoring mode")} hint={t("Asks for a promiscuous session; needs hub permission.")} />
+        <CheckRow checked={boolOpt("RequireBridgeRoutingMode")} onChange={(v) => setOpt("RequireBridgeRoutingMode", v)} label={t("Bridge / router mode")} hint={t("Needed when the client side bridges or routes for other machines.")} />
         <div className="row2">
-          <Field label="Virtual adapter name" hint="The client-side NIC the connection binds to.">
+          <Field label={t("Virtual adapter name")} hint={t("The client-side NIC the connection binds to.")}>
             <input className="input mono" value={String(opt.DeviceName ?? "")} onChange={(e) => setOpt("DeviceName", e.target.value)} spellCheck={false} />
           </Field>
-          <Field label="Custom HTTP header" hint="Sent during HTTP-proxy connect; rarely needed.">
+          <Field label={t("Custom HTTP header")} hint={t("Sent during HTTP-proxy connect; rarely needed.")}>
             <input className="input mono" value={String(opt.CustomHttpHeader ?? "")} onChange={(e) => setOpt("CustomHttpHeader", e.target.value)} spellCheck={false} />
           </Field>
         </div>
 
         <div style={{ display: "flex", gap: "var(--s2)", marginTop: "var(--s2)", flexWrap: "wrap" }}>
           {dirty && (
-            <button className="btn btn--primary" onClick={() => void save()}>Save template</button>
+            <button className="btn btn--primary" onClick={() => void save()}>{t("Save template")}</button>
           )}
           <button className="btn" onClick={() => setPreview((p) => !p)} aria-expanded={preview}>
-            {preview ? "Hide the document" : "Preview the document"}
+            {preview ? t("Hide the document") : t("Preview the document")}
           </button>
         </div>
         {preview && (
           <div style={{ marginTop: "var(--s3)" }}>
-            {dirty && <p className="hint">The preview shows the last saved template — save to refresh it.</p>}
+            {dirty && <p className="hint">{t("The preview shows the last saved template — save to refresh it.")}</p>}
             <pre className="tpl">{highlighted(String(state.template ?? ""))}</pre>
             <div className="tpl__params" style={{ marginTop: "var(--s3)", marginBottom: 0 }}>
               {VPN_PARAMS.map(([name, what]) => (
                 <div key={name} className="tpl__param">
                   <span className="mono tpl__ph">{name}</span>
-                  <span className="micro">{what}</span>
+                  <span className="micro">{t(what)}</span>
                 </div>
               ))}
             </div>
@@ -918,7 +925,7 @@ function MonitoringCard() {
         }),
       );
       setDirty(false);
-    }, "Monitoring settings saved.");
+    }, t("Monitoring settings saved."));
 
   const numberField = (
     label: string,
@@ -928,7 +935,7 @@ function MonitoringCard() {
     max: number,
     hint?: string,
   ) => (
-    <Field label={label} hint={hint}>
+    <Field label={t(label)} hint={hint ? t(hint) : hint}>
       <input
         className="input mono"
         type="number"
@@ -953,16 +960,15 @@ function MonitoringCard() {
       </SectionTitle>
       <div className="card" style={{ padding: "var(--s4)", maxWidth: 720 }}>
         <p className="lede" style={{ marginBottom: "var(--s3)" }}>
-          Turning a monitor off stops it reading; what it has already recorded stays until its
-          retention window prunes it, which keeps running either way.
+          {t("Turning a monitor off stops it reading; what it has already recorded stays until its retention window prunes it, which keeps running either way.")}
         </p>
 
-        <div className="tpl__group">Host resources</div>
+        <div className="tpl__group">{t("Host resources")}</div>
         <CheckRow
           checked={on("resource_monitor_enabled")}
           onChange={(v) => set("resource_monitor_enabled", v)}
-          label="Monitor this machine"
-          hint="CPU, memory, swap, disks and network on the dashboard. Read from /proc, so it costs nothing outside this host."
+          label={t("Monitor this machine")}
+          hint={t("CPU, memory, swap, disks and network on the dashboard. Read from /proc, so it costs nothing outside this host.")}
         />
         {on("resource_monitor_enabled") && (
           <div className="row2">
@@ -971,12 +977,12 @@ function MonitoringCard() {
           </div>
         )}
 
-        <div className="tpl__group">Traffic (hubs and users)</div>
+        <div className="tpl__group">{t("Traffic (hubs and users)")}</div>
         <CheckRow
           checked={on("traffic_monitor_enabled")}
           onChange={(v) => set("traffic_monitor_enabled", v)}
-          label="Record hub and user traffic"
-          hint="What the usage charts are derived from. One RPC per hub, plus one for its user list, every tick."
+          label={t("Record hub and user traffic")}
+          hint={t("What the usage charts are derived from. One RPC per hub, plus one for its user list, every tick.")}
         />
         {on("traffic_monitor_enabled") && (
           <div className="row2">
@@ -985,20 +991,20 @@ function MonitoringCard() {
           </div>
         )}
 
-        <div className="tpl__group">Sessions</div>
+        <div className="tpl__group">{t("Session history")}</div>
         <CheckRow
           checked={on("session_monitor_enabled")}
           onChange={(v) => set("session_monitor_enabled", v)}
-          label="Record session history"
-          hint="Who connected, from what address, when it started and ended. Ticks on its own clock, below."
+          label={t("Record session history")}
+          hint={t("Who connected, from what address, when it started and ended. Ticks on its own clock, below.")}
         />
         {on("session_monitor_enabled") && (
           <>
             <CheckRow
               checked={on("session_traffic_enabled")}
               onChange={(v) => set("session_traffic_enabled", v)}
-              label="Record each session's traffic over time"
-              hint="What a session's usage chart is drawn from. Costs one extra RPC per live session per tick — the first thing to turn off on a busy server."
+              label={t("Record each session's traffic over time")}
+              hint={t("What a session's usage chart is drawn from. Costs one extra RPC per live session per tick — the first thing to turn off on a busy server.")}
             />
             <div className="row2">
               {numberField("Sample every (seconds)", "session_interval_seconds", 60, 5, 3600, "How often the live session list is read. A session shorter than this can be missed entirely.")}
@@ -1007,12 +1013,12 @@ function MonitoringCard() {
           </>
         )}
 
-        <div className="tpl__group">Traffic limits</div>
+        <div className="tpl__group">{t("Traffic limits")}</div>
         <CheckRow
           checked={on("quota_enforcement_enabled")}
           onChange={(v) => set("quota_enforcement_enabled", v)}
-          label="Enforce hub and config traffic limits"
-          hint="Counts what each limited hub and config moves and cuts it off at its ceiling. Costs nothing while no limit is set; while some are, one RPC per limited hub per tick."
+          label={t("Enforce hub and config traffic limits")}
+          hint={t("Counts what each limited hub and config moves and cuts it off at its ceiling. Costs nothing while no limit is set; while some are, one RPC per limited hub per tick.")}
         />
         {on("quota_enforcement_enabled") && (
           <div className="row2">
@@ -1020,10 +1026,9 @@ function MonitoringCard() {
           </div>
         )}
 
-        <div className="tpl__group">Page refresh</div>
+        <div className="tpl__group">{t("Page refresh")}</div>
         <p className="hint" style={{ marginTop: 0 }}>
-          How often an open page re-reads, by the kind of thing it is watching. This costs a request
-          per open tab, not per server.
+          {t("How often an open page re-reads, by the kind of thing it is watching. This costs a request per open tab, not per server.")}
         </p>
         <div className="row2">
           {numberField("Live views (seconds)", "ui_live_seconds", 5, 1, 3600, "Dashboard, sessions, connections.")}
@@ -1033,7 +1038,7 @@ function MonitoringCard() {
 
         {dirty && (
           <div style={{ marginTop: "var(--s3)" }}>
-            <button className="btn btn--primary" onClick={() => void save()}>Save monitoring settings</button>
+            <button className="btn btn--primary" onClick={() => void save()}>{t("Save monitoring settings")}</button>
           </div>
         )}
       </div>

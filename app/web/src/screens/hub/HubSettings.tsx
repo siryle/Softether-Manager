@@ -1,5 +1,6 @@
 "use client";
 
+import { t } from "../../lib/i18n";
 import { useCallback, useState } from "react";
 import { CheckRow, ConfirmSheet, Empty, ErrorAlert, Field, LoadingBlock, SectionTitle, usePoll } from "../../components/bits";
 import { QuotaCard } from "../../components/QuotaCard";
@@ -34,7 +35,7 @@ export function HubSettings({ hub, onChanged }: { hub: string; onChanged: () => 
 function QuotaSection({ hub, onChanged }: { hub: string; onChanged: () => void }) {
   return (
     <>
-      <SectionTitle>Traffic limit</SectionTitle>
+      <SectionTitle>{t("Traffic limit")}</SectionTitle>
       <QuotaCard hub={hub} onChanged={onChanged} />
     </>
   );
@@ -76,7 +77,7 @@ function BasicsCard({ hub, onChanged }: { hub: string; onChanged: () => void }) 
 
   return (
     <>
-      <SectionTitle>Hub</SectionTitle>
+      <SectionTitle>{t("Hub")}</SectionTitle>
       <div className="card" style={{ padding: "var(--s4)", maxWidth: 640 }}>
         <div className="row2">
           <Field label="Max concurrent sessions" hint="0 means unlimited.">
@@ -96,7 +97,7 @@ function BasicsCard({ hub, onChanged }: { hub: string; onChanged: () => void }) 
           <input className="input" type="password" value={password} onChange={(e) => { setPassword(e.target.value); setDirty(true); }} autoComplete="off" />
         </Field>
         {dirty && (
-          <button className="btn btn--primary" onClick={() => void save()}>Save hub settings</button>
+          <button className="btn btn--primary" onClick={() => void save()}>{t("Save hub settings")}</button>
         )}
       </div>
     </>
@@ -156,7 +157,7 @@ function LogCard({ hub }: { hub: string }) {
 
   return (
     <>
-      <SectionTitle>Logging</SectionTitle>
+      <SectionTitle>{t("Logging")}</SectionTitle>
       <div className="card" style={{ padding: "var(--s4)", maxWidth: 640 }}>
         <CheckRow checked={Boolean(data.SaveSecurityLog_bool)} onChange={(v) => set("SaveSecurityLog_bool", v)}
           label="Security log" hint="Logins, disconnections, administrative changes." />
@@ -196,7 +197,7 @@ function LogCard({ hub }: { hub: string }) {
             ))}
           </>
         )}
-        {dirty && <button className="btn btn--primary" onClick={() => void save()}>Save log settings</button>}
+        {dirty && <button className="btn btn--primary" onClick={() => void save()}>{t("Save log settings")}</button>}
       </div>
     </>
   );
@@ -217,7 +218,7 @@ function MessageCard({ hub }: { hub: string }) {
   if (message === null) return null;
   return (
     <>
-      <SectionTitle>Message of the day</SectionTitle>
+      <SectionTitle>{t("Message of the day")}</SectionTitle>
       <div className="card" style={{ padding: "var(--s4)", maxWidth: 640 }}>
         <Field label="Shown to clients when they connect" hint="Empty shows nothing.">
           <textarea className="textarea" rows={4} value={message} onChange={(e) => { setMessage(e.target.value); setDirty(true); }} />
@@ -225,9 +226,9 @@ function MessageCard({ hub }: { hub: string }) {
         {dirty && (
           <button
             className="btn btn--primary"
-            onClick={() => void guard(() => api.setHubMsg(hub, message), "Message saved.").then(() => setDirty(false))}
+            onClick={() => void guard(() => api.setHubMsg(hub, message), t("Message saved.")).then(() => setDirty(false))}
           >
-            Save message
+            {t("Save message")}
           </button>
         )}
       </div>
@@ -268,18 +269,18 @@ function OptionsCard({ hub, kind }: { hub: string; kind: "admin" | "ext" }) {
         count={items.length}
         actions={
           <button className="btn btn--sm" onClick={() => setOpen((o) => !o)}>
-            {open ? "Collapse" : "Expand"}
+            {open ? t("Collapse") : t("Expand")}
           </button>
         }
       >
-        {kind === "admin" ? "Administration options" : "Extended options"}
+        {kind === "admin" ? t("Administration options") : t("Extended options")}
       </SectionTitle>
       {open && (
         <div className="card" style={{ padding: "var(--s4)" }}>
           <div className="lede" style={{ marginBottom: "var(--s3)" }}>
             {kind === "admin"
-              ? "Limits on what a hub administrator may do. Non-zero enables the named restriction."
-              : "Per-hub behaviour switches, exactly as SoftEther names them."}
+              ? t("Limits on what a hub administrator may do. Non-zero enables the named restriction.")
+              : t("Per-hub behaviour switches, exactly as SoftEther names them.")}
           </div>
           <div className="optgrid">
             {items.map((item, index) => (
@@ -299,10 +300,10 @@ function OptionsCard({ hub, kind }: { hub: string; kind: "admin" | "ext" }) {
               </label>
             ))}
           </div>
-          {items.length === 0 && <Empty title="the server reports no options" />}
+          {items.length === 0 && <Empty title={t("the server reports no options")} />}
           {dirty && (
             <button className="btn btn--primary" style={{ marginTop: "var(--s3)" }} onClick={() => void save()}>
-              Save options
+              {t("Save options")}
             </button>
           )}
         </div>
@@ -317,17 +318,16 @@ function DangerCard({ hub }: { hub: string }) {
   return (
     <div className="danger">
       <button className="btn btn--ghost" onClick={() => setDeleting(true)}>
-        <IconTrash size={14} /> Delete this hub
+        <IconTrash size={14} /> {t("Delete this hub")}
       </button>
       {deleting && (
         <ConfirmSheet
-          title={`Delete hub ${hub}?`}
+          title={t("Delete hub {hub}?", { hub })}
           verb="Delete hub"
           typed={hub}
           body={
             <>
-              Every user, group, session, rule and setting inside <b>{hub}</b> is destroyed with
-              it. There is no undo.
+              {t("Every user, group, session, rule and setting inside {hub} is destroyed with it. There is no undo.", { hub })}
             </>
           }
           onClose={() => setDeleting(false)}

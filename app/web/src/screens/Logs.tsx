@@ -6,7 +6,7 @@ import { Terminal } from "../components/Terminal";
 import { api, type Wire } from "../lib/api";
 import { Link } from "../lib/router";
 import { useToast } from "../lib/toast";
-import { useI18n } from "../lib/i18n";
+import { useI18n, t } from "../lib/i18n";
 import { formatBytes, timeAgo } from "../lib/util";
 import { IconLogs } from "../ui/Icon";
 
@@ -66,7 +66,7 @@ export function Logs() {
           {files === null ? (
             <LoadingBlock />
           ) : files.length === 0 ? (
-            <Empty title="no log files">{t("Logging may be switched off, or nothing has happened yet.")}</Empty>
+            <Empty title={t("no log files")}>{t("Logging may be switched off, or nothing has happened yet.")}</Empty>
           ) : (
             <div className="rows">
               {files.map((f) => (
@@ -104,7 +104,7 @@ export function Logs() {
               </div>
             </>
           ) : (
-            <Empty title="pick a file">{t("The last chunk of the file loads first; page forward from there.")}</Empty>
+            <Empty title={t("pick a file")}>{t("The last chunk of the file loads first; page forward from there.")}</Empty>
           )}
         </div>
       </div>

@@ -1,5 +1,6 @@
 "use client";
 
+import { t } from "../../lib/i18n";
 import { useCallback, useState } from "react";
 import { CheckRow, ConfirmSheet, Empty, ErrorAlert, Field, KV, LoadingBlock, SectionTitle, usePoll } from "../../components/bits";
 import { api, type Wire } from "../../lib/api";
@@ -35,26 +36,25 @@ export function HubLinks({ hub }: { hub: string }) {
         count={links?.length}
         actions={
           <button className="btn btn--primary btn--sm" onClick={() => setCreating(true)}>
-            <IconPlus size={14} /> New cascade
+            <IconPlus size={14} /> {t("New cascade")}
           </button>
         }
       >
-        Cascade connections
+        {t("Cascade connections")}
       </SectionTitle>
 
       {links === null ? (
         <LoadingBlock />
       ) : links.length === 0 ? (
         <Empty
-          title="no cascades"
+          title={t("no cascades")}
           action={
             <button className="btn btn--primary" onClick={() => setCreating(true)}>
-              <IconPlus size={15} /> Create a cascade
+              <IconPlus size={15} /> {t("Create a cascade")}
             </button>
           }
         >
-          A cascade bridges this hub to a hub on another SoftEther server, making the two one
-          layer-2 network. Site-to-site VPN, in one object.
+          {t("A cascade bridges this hub to a hub on another SoftEther server, making the two one layer-2 network. Site-to-site VPN, in one object.")}
         </Empty>
       ) : (
         <div className="rows">
@@ -77,14 +77,14 @@ export function HubLinks({ hub }: { hub: string }) {
                     )}
                   </div>
                   <div className="spec">
-                    <span className="chip"><i>to</i>{String(l.Hostname_str)}</span>
-                    <span className="chip"><i>hub</i>{String(l.TargetHubName_str)}</span>
-                    {l.Connected_bool ? <span className="chip"><i>since</i>{timeAgo(l.ConnectedTime_dt as string)}</span> : null}
+                    <span className="chip"><i>{t("to")}</i>{String(l.Hostname_str)}</span>
+                    <span className="chip"><i>{t("hub")}</i>{String(l.TargetHubName_str)}</span>
+                    {l.Connected_bool ? <span className="chip"><i>{t("since")}</i>{timeAgo(l.ConnectedTime_dt as string)}</span> : null}
                   </div>
                 </div>
                 <div className="row__side" onClick={(e) => e.stopPropagation()}>
                   <LinkSwitch hub={hub} link={l} reload={load} />
-                  <button className="btn btn--sm btn--ghost" onClick={() => setDeleting(name)} aria-label="Delete">
+                  <button className="btn btn--sm btn--ghost" onClick={() => setDeleting(name)} aria-label={t("Delete")}>
                     <IconTrash size={14} />
                   </button>
                 </div>
@@ -108,9 +108,9 @@ export function HubLinks({ hub }: { hub: string }) {
       {statusOf && <LinkStatusSheet hub={hub} name={statusOf} onClose={() => setStatusOf(null)} />}
       {deleting && (
         <ConfirmSheet
-          title={`Delete cascade ${deleting}?`}
+          title={t("Delete cascade {name}?", { name: deleting })}
           verb="Delete"
-          body={<>The bridge to the other network is torn down and the stored account removed.</>}
+          body={<>{t("The bridge to the other network is torn down and the stored account removed.")}</>}
           onClose={() => setDeleting(null)}
           onConfirm={async () => {
             await api.deleteLink(hub, deleting);
@@ -136,7 +136,7 @@ function LinkSwitch({ hub, link, reload }: { hub: string; link: Wire; reload: ()
       const me = list?.find((x) => String(x.AccountName_utf) === name);
       return me ? Boolean(me.Online_bool) : null;
     },
-    noun: `Cascade ${name}`,
+    noun: t("Cascade {name}", { name }),
     onWord: "online",
     offWord: "offline",
   });
@@ -147,7 +147,7 @@ function LinkSwitch({ hub, link, reload }: { hub: string; link: Wire; reload: ()
         pending={toggle.pending}
         target={toggle.target}
         onToggle={() => void toggle.toggle()}
-        label={`Cascade ${name}`}
+        label={t("Cascade {name}", { name })}
         onWord="online"
         offWord="offline"
       />
@@ -198,14 +198,14 @@ function LinkSheet({ hub, onClose, onSaved }: { hub: string; onClose: () => void
 
   return (
     <Sheet
-      title="New cascade"
-      subtitle={`from hub ${hub}`}
+      title={t("New cascade")}
+      subtitle={t("from hub {hub}", { hub })}
       onClose={onClose}
       footer={
         <>
-          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn" onClick={onClose}>{t("Cancel")}</button>
           <button className="btn btn--primary" onClick={save} disabled={busy || !host.trim() || !targetHub.trim() || !username.trim()}>
-            {busy && <span className="spin" />} Create
+            {busy && <span className="spin" />} {t("Create")}
           </button>
         </>
       }
@@ -256,7 +256,7 @@ function LinkStatusSheet({ hub, name, onClose }: { hub: string; name: string; on
   );
 
   return (
-    <Sheet title="Cascade status" subtitle={name} onClose={onClose} wide>
+    <Sheet title={t("Cascade status")} subtitle={name} onClose={onClose} wide>
       {error && <ErrorAlert>{error} — the link is probably offline.</ErrorAlert>}
       {!status && !error && <LoadingBlock />}
       {status && (

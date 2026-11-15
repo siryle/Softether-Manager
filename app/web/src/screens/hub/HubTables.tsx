@@ -1,5 +1,6 @@
 "use client";
 
+import { t } from "../../lib/i18n";
 import { useCallback, useState } from "react";
 import { Empty, LoadingBlock, SectionTitle, usePoll } from "../../components/bits";
 import { api, type Wire } from "../../lib/api";
@@ -49,18 +50,18 @@ export function HubTables({ hub }: { hub: string }) {
         count={rows?.length}
         actions={
           <div className="seg">
-            <button className={tab === "mac" ? "on" : ""} onClick={() => setTab("mac")}>MAC table</button>
-            <button className={tab === "ip" ? "on" : ""} onClick={() => setTab("ip")}>IP table</button>
+            <button className={tab === "mac" ? "on" : ""} onClick={() => setTab("mac")}>{t("MAC table")}</button>
+            <button className={tab === "ip" ? "on" : ""} onClick={() => setTab("ip")}>{t("IP table")}</button>
           </div>
         }
       >
-        Address tables
+        {t("Address tables")}
       </SectionTitle>
 
       {rows === null ? (
         <LoadingBlock />
       ) : rows.length === 0 ? (
-        <Empty title="table is empty">Entries appear as sessions carry traffic.</Empty>
+        <Empty title={t("table is empty")}>{t("Entries appear as sessions carry traffic.")}</Empty>
       ) : (
         <div className="card tcard">
           <div className="tscroll">
@@ -68,12 +69,12 @@ export function HubTables({ hub }: { hub: string }) {
               <thead>
                 <tr>
                   <th>{tab === "mac" ? "MAC address" : "IP address"}</th>
-                  {tab === "mac" && <th>VLAN</th>}
-                  {tab === "ip" && <th>Source</th>}
-                  <th>Session</th>
-                  <th>Learned</th>
-                  <th>Updated</th>
-                  <th className="tact" style={{ width: 60 }} aria-label="Delete" />
+                  {tab === "mac" && <th>{t("VLAN")}</th>}
+                  {tab === "ip" && <th>{t("Source")}</th>}
+                  <th>{t("Session")}</th>
+                  <th>{t("Learned")}</th>
+                  <th>{t("Updated")}</th>
+                  <th className="tact" style={{ width: 60 }} aria-label={t("Delete")} />
                 </tr>
               </thead>
               <tbody>
@@ -92,7 +93,7 @@ export function HubTables({ hub }: { hub: string }) {
                       <button
                         className="btn btn--sm btn--ghost"
                         onClick={() => void (tab === "mac" ? removeMac(Number(r.Key_u32)) : removeIp(Number(r.Key_u32)))}
-                        aria-label="Delete entry"
+                        aria-label={t("Delete entry")}
                       >
                         <IconTrash size={14} />
                       </button>

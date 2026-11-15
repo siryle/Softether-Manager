@@ -1,5 +1,6 @@
 "use client";
 
+import { t } from "../lib/i18n";
 import { useEffect, useRef, useState } from "react";
 
 /**
@@ -57,15 +58,15 @@ export function Terminal({
       <div className="term__head">
         <span className="mono">{label}</span>
         <span className="mono">
-          {lines.length.toLocaleString()} {lines.length === 1 ? "line" : "lines"}
-          {live && " · live"}
+          {lines.length === 1 ? t("{n} line", { n: lines.length.toLocaleString() }) : t("{n} lines", { n: lines.length.toLocaleString() })}
+          {live && t(" · live")}
         </span>
       </div>
       <div className="term__body" ref={body} onScroll={onScroll}>
         {lines.length === 0 && (
           <div className="term__ln term__ln--mgr">
             <span className="term__g">»</span>
-            <span>waiting for output…</span>
+            <span>{t("waiting for output…")}</span>
           </div>
         )}
         {lines.map((l, i) => {
@@ -81,7 +82,7 @@ export function Terminal({
       </div>
       {!stick && (
         <button className="term__stick" onClick={() => setStick(true)}>
-          jump to latest
+          {t("jump to latest")}
         </button>
       )}
     </div>
