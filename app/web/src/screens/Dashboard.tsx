@@ -6,6 +6,7 @@ import { Empty, ErrorAlert, Field, LoadingBlock, SectionTitle, usePoll } from ".
 import { QuotaStatePill, quotaKey, useQuotaIndex } from "../components/QuotaCard";
 import { api, type Wire } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import { useI18n } from "../lib/i18n";
 import { useServer } from "../lib/server";
 import { Link, navigate, seg } from "../lib/router";
 import { useToast } from "../lib/toast";
@@ -30,6 +31,7 @@ import { OnlinePill } from "../ui/Status";
 export function Dashboard() {
   const { probe, health, refresh } = useServer();
   const { user } = useAuth();
+  const { t } = useI18n();
   const [resources, setResources] = useState<Wire | null>(null);
   const [overview, setOverview] = useState<Wire | null>(null);
   const [creatingHub, setCreatingHub] = useState(false);
@@ -73,20 +75,21 @@ export function Dashboard() {
   }, [status]);
 
   const hour = new Date().getHours();
-  const daypart = hour < 5 ? "night" : hour < 12 ? "morning" : hour < 18 ? "afternoon" : "evening";
+  const greeting =
+    hour < 5 ? t("Good night") : hour < 12 ? t("Good morning") : hour < 18 ? t("Good afternoon") : t("Good evening");
 
   return (
     <div className="page">
       <div className="hello">
         <div style={{ minWidth: 0 }}>
-          <h1 className="hello__t">Good {daypart}{user ? `, ${user}` : ""}</h1>
+          <h1 className="hello__t">{greeting}{user ? `, ${user}` : ""}</h1>
           <div className="hello__s">
             {probe?.online ? (
-              <>Your VPN server is healthy. <span className="mono">{probe.hostname} · {probe.version}</span></>
+              <>{t("Your VPN server is healthy.")} <span className="mono">{probe.hostname} · {probe.version}</span></>
             ) : health === "offline" ? (
-              "The VPN server is not answering."
+              t("The VPN server is not answering.")
             ) : (
-              "Here's an overview of this machine and its VPN server."
+              t("Here's an overview of this machine and its VPN server.")
             )}
           </div>
         </div>
@@ -94,10 +97,10 @@ export function Dashboard() {
 
       {health === "unconfigured" ? (
         <Empty
-          title="not connected to SoftEther yet"
+          title={t("not connected to SoftEther yet")}
           action={
             <Link to="/connect" className="btn btn--primary">
-              Connect the server
+              {t("Connect the server")}
             </Link>
           }
         >
@@ -114,24 +117,24 @@ export function Dashboard() {
           {/* ── main column ─────────────────────────────────────────────── */}
           <div className="dash__main">
             <div className="kpis stagger">
-              <Kpi label="Sessions" value={formatCount(status?.NumSessionsTotal_u32)} sub="across all hubs" />
-              <Kpi label="Users" value={formatCount(status?.NumUsers_u32)} sub="accounts on the server" />
+              <Kpi label={t("Sessions")} value={formatCount(status?.NumSessionsTotal_u32)} sub={t("across all hubs")} />
+              <Kpi label={t("Users")} value={formatCount(status?.NumUsers_u32)} sub={t("accounts on the server")} />
               <Kpi
-                label="Received"
+                label={t("Received")}
                 value={formatBytes((status?.["Recv.UnicastBytes_u64"] ?? 0) + (status?.["Recv.BroadcastBytes_u64"] ?? 0))}
-                sub="since the server started"
+                sub={t("since the server started")}
               />
               <Kpi
-                label="Sent"
+                label={t("Sent")}
                 value={formatBytes((status?.["Send.UnicastBytes_u64"] ?? 0) + (status?.["Send.BroadcastBytes_u64"] ?? 0))}
-                sub="since the server started"
+                sub={t("since the server started")}
               />
             </div>
 
             <div className="card panelcard">
               <div className="panelcard__h">
                 <div style={{ minWidth: 0 }}>
-                  <div className="panelcard__t">Virtual hubs</div>
+                  <div className="panelcard__t">{t("Virtual Hubs")}</div>
                   <div className="panelcard__s">
                     {hubs?.length
                       ? `${hubs.length} hub${hubs.length === 1 ? "" : "s"} on this server`
@@ -139,7 +142,7 @@ export function Dashboard() {
                   </div>
                 </div>
                 <button className="btn btn--sm" onClick={() => setCreatingHub(true)}>
-                  <IconPlus size={14} /> New hub
+                  <IconPlus size={14} /> {t("Create hub")}
                 </button>
               </div>
               {!hubs ? (
@@ -306,6 +309,7 @@ function ToolRow({ to, icon, title, sub }: { to: string; icon: React.ReactNode; 
 }
 
 function CreateHubSheet({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const { t } = useI18n();
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [online, setOnline] = useState(true);
@@ -323,26 +327,26 @@ function CreateHubSheet({ onClose, onCreated }: { onClose: () => void; onCreated
 
   return (
     <Sheet
-      title="New Virtual Hub"
+      title={t("Create hub")}
       onClose={onClose}
       footer={
         <>
-          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn" onClick={onClose}>{t("Cancel")}</button>
           <button className="btn btn--primary" onClick={create} disabled={busy || !name.trim()}>
-            {busy && <span className="spin" />} Create hub
+            {busy && <span className="spin" />} {t("Create hub")}
           </button>
         </>
       }
     >
-      <Field label="Name" hint="Letters, digits, - and _ are safe.">
+      <Field label={t("Name")} hint={t("Letters, digits, - and _ are safe.")}>
         <input className="input mono" value={name} onChange={(e) => setName(e.target.value)} autoFocus autoCapitalize="none" spellCheck={false} />
       </Field>
-      <Field label="Hub admin password" hint="Optional — lets someone administer only this hub.">
+      <Field label={t("Hub password")} hint={t("Optional — lets someone administer only this hub.")}>
         <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="off" />
       </Field>
       <label className="checkrow">
         <input type="checkbox" checked={online} onChange={(e) => setOnline(e.target.checked)} />
-        <span><span className="t">Bring it online now</span></span>
+        <span><span className="t">{t("Bring it online now")}</span></span>
       </label>
     </Sheet>
   );

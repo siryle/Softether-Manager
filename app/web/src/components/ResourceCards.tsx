@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { Wire } from "../lib/api";
 import { formatBytes } from "../lib/util";
+import { useI18n } from "../lib/i18n";
 import { IconChevron, IconCpu, IconDisk, IconMemory, IconSwap, IconTraffic } from "../ui/Icon";
 
 /**
@@ -75,13 +76,14 @@ function MetricTitle({ icon, children }: { icon: React.ReactNode; children: Reac
 }
 
 function Fold({ open, onToggle, children }: { open: boolean; onToggle: () => void; children: React.ReactNode }) {
+  const { t } = useI18n();
   return (
     <>
       <button className="metric__fold" onClick={onToggle} aria-expanded={open}>
         <span className={`rail__chev${open ? " open" : ""}`} style={{ display: "inline-flex" }}>
           <IconChevron size={12} />
         </span>
-        {open ? "Show less" : "Show more"}
+        {open ? t("Show less") || "收起" : t("Show more") || "展开详情"}
       </button>
       {open && <div className="metric__more">{children}</div>}
     </>

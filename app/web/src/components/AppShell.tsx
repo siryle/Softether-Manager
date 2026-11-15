@@ -5,6 +5,7 @@ import { useAuth } from "../lib/auth";
 import { useServer } from "../lib/server";
 import { Link, back, navigate, seg, useRoute } from "../lib/router";
 import { useUpdate } from "../lib/update";
+import { LanguageButton, useI18n } from "../lib/i18n";
 import {
   BrandMark,
   IconBack,
@@ -81,6 +82,7 @@ const DESTINATIONS = [
 function Side({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const { user, logout } = useAuth();
   const { hubs } = useServer();
+  const { t } = useI18n();
   const route = useRoute();
   const active = route.parts[0] ?? "";
   const activeHub = active === "hub" ? route.parts[1] : null;
@@ -112,7 +114,7 @@ function Side({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => voi
   return (
     <aside className="side">
       <div className="side__top">
-        <Link to="/" className="side__brand" aria-label="Dashboard">
+        <Link to="/" className="side__brand" aria-label={t("Dashboard")}>
           <BrandMark size={38} />
           <span className="side__label">
             <span className="side__word">SoftEther</span>
@@ -131,11 +133,11 @@ function Side({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => voi
       </div>
 
       <nav className="side__nav" aria-label="Primary">
-        {item("/", "Dashboard", <IconPanels size={19} />, dashOn)}
+        {item("/", t("Dashboard"), <IconPanels size={19} />, dashOn)}
 
         {!collapsed && hubs && hubs.length > 0 && (
           <div className="side__group">
-            <div className="side__gtitle">Hubs</div>
+            <div className="side__gtitle">{t("Virtual Hubs")}</div>
             {hubs.map((h) => {
               const name = String(h.HubName_str);
               return (
@@ -144,7 +146,7 @@ function Side({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => voi
                   className={`side__leaf${activeHub === name ? " on" : ""}`}
                   data-state={h.Online_bool ? "connected" : "disabled"}
                   onClick={() => navigate(`/hub/${seg(name)}`)}
-                  title={`${name} — ${h.Online_bool ? "online" : "offline"}`}
+                  title={`${name} — ${h.Online_bool ? t("Online") : t("Offline")}`}
                 >
                   <span className="side__dot" />
                   <span className="side__label">{name}</span>
@@ -158,24 +160,27 @@ function Side({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => voi
           <Link
             to={activeHub ? `/hub/${seg(activeHub)}` : "/"}
             className={`side__item${active === "hub" ? " on" : ""}`}
-            title="Hubs"
-            aria-label="Hubs"
+            title={t("Virtual Hubs")}
+            aria-label={t("Virtual Hubs")}
           >
             <IconHub size={19} />
-            <span className="side__label">Hubs</span>
+            <span className="side__label">{t("Virtual Hubs")}</span>
           </Link>
         )}
 
-        {DESTINATIONS.map((d) => item(d.to, d.label, d.icon, d.match(active)))}
+        {DESTINATIONS.map((d) => item(d.to, t(d.label), d.icon, d.match(active)))}
       </nav>
 
       <div className="side__foot">
-        <ThemeToggle />
+        <div style={{ display: "flex", gap: "var(--s1)", alignItems: "center" }}>
+          <ThemeToggle />
+          <LanguageButton />
+        </div>
         <button
           className="side__user"
           onClick={logout}
-          title={`${user ?? ""} — sign out`}
-          aria-label="Sign out"
+          title={`${user ?? ""} — ${t("Sign out")}`}
+          aria-label={t("Sign out")}
         >
           <span className="side__coin">{(user ?? "?").slice(0, 1)}</span>
           <span className="side__label truncate">{user}</span>
@@ -192,6 +197,7 @@ function Side({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => voi
 
 function MainBar() {
   const route = useRoute();
+  const { t } = useI18n();
   const live =
     route.path === "/" || route.parts[0] === "hub" || route.parts[0] === "connections";
   return (
@@ -200,7 +206,7 @@ function MainBar() {
       {live && (
         <span className="mchip mchip--live">
           <span className="mchip__dot" style={{ background: "var(--ok)" }} />
-          Live
+          实时
         </span>
       )}
       <VersionPill />
@@ -211,25 +217,26 @@ function MainBar() {
 /** One server, one verdict. */
 function HealthChip() {
   const { health, probe } = useServer();
+  const { t } = useI18n();
   if (health === "probing") return null;
   if (health === "online") {
     return (
       <span className="mchip mchip--ok">
         <IconCheck size={13} />
-        VPN server up
+        {t("Your VPN server is healthy.")}
       </span>
     );
   }
   if (health === "unconfigured") {
     return (
       <Link to="/connect" className="mchip">
-        not connected
+        {t("not connected to SoftEther yet")}
       </Link>
     );
   }
   return (
     <span className="mchip mchip--err" title={probe?.error ?? ""}>
-      VPN server down
+      {t("The VPN server is not answering.")}
     </span>
   );
 }
@@ -238,17 +245,18 @@ function HealthChip() {
 
 function TopBar() {
   const route = useRoute();
+  const { t } = useI18n();
   const p = route.parts;
 
   const isPushed = p.length > 0 && !(p[0] === "settings" && p.length === 1) && p[0] !== "users";
   let title = "Dashboard";
   if (p[0] === "users") title = "Users";
   else if (p[0] === "settings") title = "Settings";
-  else if (p[0] === "connect") title = "Connect";
+  else if (p[0] === "connect") title = "Connect to SoftEther";
   else if (p[0] === "server-settings") title = "Server settings";
   else if (p[0] === "connections") title = "Connections";
   else if (p[0] === "logs") title = "Logs";
-  else if (p[0] === "console") title = "Console";
+  else if (p[0] === "console") title = "API console";
   else if (p[0] === "hub" && p[1]) {
     title = p[2] === "user" && p[3] ? p[3] : p[1];
   }
@@ -256,26 +264,30 @@ function TopBar() {
   return (
     <header className="topbar">
       {isPushed && p.length > 0 ? (
-        <button className="topbar__back" onClick={back} aria-label="Back">
+        <button className="topbar__back" onClick={back} aria-label={t("Back")}>
           <IconBack size={20} />
         </button>
       ) : (
         <BrandMark size={28} />
       )}
-      <span className="topbar__title">{title}</span>
-      <ThemeToggle />
-      <VersionPill compact />
+      <span className="topbar__title">{t(title)}</span>
+      <div style={{ marginInlineStart: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+        <LanguageButton />
+        <ThemeToggle />
+        <VersionPill compact />
+      </div>
     </header>
   );
 }
 
 function TabBar() {
   const route = useRoute();
+  const { t } = useI18n();
   const active = route.parts[0] ?? "";
   const tab = (match: (p: string) => boolean, to: string, label: string, icon: React.ReactNode) => (
     <Link to={to} className="tab" aria-current={match(active) ? "page" : undefined}>
       {icon}
-      <span>{label}</span>
+      <span>{t(label)}</span>
     </Link>
   );
   return (

@@ -12,6 +12,7 @@ import { Sheet } from "../ui/Sheet";
 import { IconRefresh, IconSearch } from "../ui/Icon";
 import { useToast } from "../lib/toast";
 import { useRate, type PollRate } from "../lib/rates";
+import { useI18n } from "../lib/i18n";
 
 /** The standard page header. */
 export function PageHead({
@@ -47,9 +48,10 @@ export function SectionTitle({ children, count, actions }: { children: ReactNode
 }
 
 export function LoadingBlock({ label = "loading" }: { label?: string }) {
+  const { t } = useI18n();
   return (
     <div className="loading">
-      <span className="spin" /> {label}
+      <span className="spin" /> {t(label)}
     </div>
   );
 }
@@ -125,10 +127,11 @@ export function SearchBox({ value, onChange, placeholder }: { value: string; onC
 }
 
 export function RefreshButton({ onClick, busy }: { onClick: () => void; busy?: boolean }) {
+  const { t } = useI18n();
   return (
-    <button className="btn btn--sm" onClick={onClick} disabled={busy} title="Refresh">
+    <button className="btn btn--sm" onClick={onClick} disabled={busy} title={t("Refresh")}>
       {busy ? <span className="spin" /> : <IconRefresh size={14} />}
-      Refresh
+      {t("Refresh")}
     </button>
   );
 }
@@ -155,6 +158,7 @@ export function ConfirmSheet({
   onConfirm: () => Promise<void> | void;
   danger?: boolean;
 }) {
+  const { t } = useI18n();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const armed = !typed || text === typed;
@@ -174,7 +178,7 @@ export function ConfirmSheet({
       footer={
         <>
           <button className="btn" onClick={onClose}>
-            Cancel
+            {t("Cancel")}
           </button>
           <button className={`btn ${danger ? "btn--danger" : "btn--primary"}`} disabled={!armed || busy} onClick={go}>
             {busy && <span className="spin" />}
