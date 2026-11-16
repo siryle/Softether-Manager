@@ -15,6 +15,7 @@ from fastapi import APIRouter, Body, HTTPException
 from pydantic import BaseModel
 
 from ..audit import record
+from ..db import get_db
 from ..deps import CurrentUser
 from ..se import rpc
 
@@ -75,6 +76,53 @@ def overview(user: dict = CurrentUser) -> Wire:
             message = detail.get("message") if isinstance(detail, dict) else str(detail or exc)
             out[key] = {"ok": False, "error": message}
     return out
+
+
+@router.get("/traffic")
+def server_traffic(hours: int = 24, user: dict = CurrentUser) -> Wire:
+    """The whole server's throughput over a window, derived from the sampler's
+    snapshots across all hubs."""
+    hours = max(1, min(hours, 24 * 90))
+    rows = get_db().query_all(
+        'SELECT SUM("SendBytes") as "SendBytes", SUM("RecvBytes") as "RecvBytes", '
+        'SUM("NumSessions") as "NumSessions", "SampledDate" '
+        'FROM "HubTrafficSample" '
+        "WHERE \"SampledDate\" >= datetime('now', :window) "
+        'GROUP BY "SampledDate" '
+        'ORDER BY "SampledDate"',
+        {"window": f"-{hours} hours"},
+    )
+    points: list[dict[str, Any]] = []
+    total_send = total_recv = 0
+    previous: Optional[dict[str, Any]] = None
+    for row in rows:
+        send_bytes = row["SendBytes"] or 0
+        recv_bytes = row["RecvBytes"] or 0
+        if previous is not None:
+            send_delta = send_bytes - previous["SendBytes"]
+            recv_delta = recv_bytes - previous["RecvBytes"]
+            if send_delta < 0:
+                send_delta = send_bytes
+            if recv_delta < 0:
+                recv_delta = recv_bytes
+            total_send += send_delta
+            total_recv += recv_delta
+            points.append(
+                {
+                    "t": row["SampledDate"],
+                    "send": send_delta,
+                    "recv": recv_delta,
+                    "sessions": row["NumSessions"] or 0,
+                }
+            )
+        previous = {"SendBytes": send_bytes, "RecvBytes": recv_bytes}
+    return {
+        "hours": hours,
+        "points": points,
+        "total_send": total_send,
+        "total_recv": total_recv,
+        "samples": len(rows),
+    }
 
 
 # --- listeners ----------------------------------------------------------------

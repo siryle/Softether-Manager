@@ -4,7 +4,8 @@ import { useCallback, useMemo, useState } from "react";
 import { CpuCard, DiskCard, MemoryCard, NetworkCard, SwapCard } from "../components/ResourceCards";
 import { Empty, ErrorAlert, Field, LoadingBlock, SectionTitle, usePoll } from "../components/bits";
 import { QuotaStatePill, quotaKey, useQuotaIndex } from "../components/QuotaCard";
-import { api, type Wire } from "../lib/api";
+import { RangeSeg, TrafficChart } from "../components/TrafficChart";
+import { api, type Wire, type Usage } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useI18n, t } from "../lib/i18n";
 import { useServer } from "../lib/server";
@@ -34,6 +35,8 @@ export function Dashboard() {
   const { t } = useI18n();
   const [resources, setResources] = useState<Wire | null>(null);
   const [overview, setOverview] = useState<Wire | null>(null);
+  const [trafficHours, setTrafficHours] = useState(24);
+  const [serverUsage, setServerUsage] = useState<Usage | null>(null);
   const [creatingHub, setCreatingHub] = useState(false);
   // Every limit on the server in one request, so each hub row can say
   // where it stands without a call per hub.
@@ -48,6 +51,13 @@ export function Dashboard() {
     if (health === "online") setOverview(await api.overview().catch(() => null));
   }, [health]);
   usePoll(loadOverview, "detail", [health]);
+
+  const loadTraffic = useCallback(async () => {
+    if (health === "online") {
+      setServerUsage(await api.serverTraffic(trafficHours).catch(() => null));
+    }
+  }, [health, trafficHours]);
+  usePoll(loadTraffic, "detail", [health, trafficHours]);
 
   const history = useMemo(() => {
     const points = (resources?.history as Wire[]) ?? [];
@@ -74,18 +84,29 @@ export function Dashboard() {
     return (new Date(status.CurrentTime_dt).getTime() - new Date(status.StartTime_dt).getTime()) / 1000;
   }, [status]);
 
-  const hour = new Date().getHours();
-  const greeting =
-    hour < 5 ? t("Good night") : hour < 12 ? t("Good morning") : hour < 18 ? t("Good afternoon") : t("Good evening");
-
   return (
     <div className="page">
       <div className="hello">
         <div style={{ minWidth: 0 }}>
-          <h1 className="hello__t">{greeting}{user ? `, ${user}` : ""}</h1>
-          <div className="hello__s">
+          <h1 className="hello__t">
+            {t("Server overview")}{probe?.hostname ? ` · ${probe.hostname}` : ""}
+          </h1>
+          <div className="hello__s" style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginTop: "4px" }}>
             {probe?.online ? (
-              <>{t("Your VPN server is healthy.")} <span className="mono">{probe.hostname} · {probe.version}</span></>
+              <>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--ok)", display: "inline-block" }} />
+                  <span className="mono">{probe.hostname} · {t("Running")}</span>
+                </span>
+                <span style={{ color: "var(--text-faint)" }}>|</span>
+                <span className="mono">{probe.version}</span>
+                {uptimeSeconds ? (
+                  <>
+                    <span style={{ color: "var(--text-faint)" }}>|</span>
+                    <span className="mono">{t("Uptime")}: {formatDuration(uptimeSeconds)}</span>
+                  </>
+                ) : null}
+              </>
             ) : health === "offline" ? (
               t("The VPN server is not answering.")
             ) : (
@@ -128,6 +149,26 @@ export function Dashboard() {
                 value={formatBytes((status?.["Send.UnicastBytes_u64"] ?? 0) + (status?.["Send.BroadcastBytes_u64"] ?? 0))}
                 sub={t("since the server started")}
               />
+            </div>
+
+            <div className="card panelcard">
+              <div className="panelcard__h">
+                <div style={{ minWidth: 0 }}>
+                  <div className="panelcard__t">{t("Throughput Telemetry")}</div>
+                  <div className="panelcard__s">{t("real-time bandwidth and traffic history")}</div>
+                </div>
+                <RangeSeg hours={trafficHours} onChange={setTrafficHours} />
+              </div>
+              <div style={{ padding: "0 var(--s4) var(--s4)" }}>
+                {serverUsage ? (
+                  <TrafficChart
+                    usage={serverUsage}
+                    emptyLabel={t("No server-wide traffic recorded in this time window yet.")}
+                  />
+                ) : (
+                  <LoadingBlock label={t("Loading throughput telemetry")} />
+                )}
+              </div>
             </div>
 
             <div className="card panelcard">
@@ -301,7 +342,7 @@ function Kpi({ label, value, sub }: { label: string; value: React.ReactNode; sub
   return (
     <div className="kpi">
       <div className="kpi__l">{label}</div>
-      <div className="kpi__v">{value}</div>
+      <div className="kpi__v mono">{value}</div>
       {sub && <div className="kpi__s">{sub}</div>}
     </div>
   );

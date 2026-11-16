@@ -41,6 +41,7 @@
   border-radius: var(--r-card);
   background: var(--card-grad);
   box-shadow: var(--nm-raise-sm);
+  border: 1px solid var(--glass-line);
   min-width: 0;
 }
 .kpi__l {
@@ -53,6 +54,7 @@
   font-size: var(--t-kpi);
   font-weight: 800;
   letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
   line-height: 1.05;
   color: var(--text);
   overflow: hidden;

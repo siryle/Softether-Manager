@@ -76,6 +76,12 @@ const zhCN: Record<string, string> = {
     "SoftEther 管理员密码可在“服务器设置 → 加密”中修改；在此修改后将自动同步该连接密码。",
 
   // --- Dashboard ---
+  "Server overview": "服务器概览",
+  "Throughput Telemetry": "双向吞吐速率遥测",
+  "real-time bandwidth and traffic history": "实时带宽与时序流量分布",
+  "No server-wide traffic recorded in this time window yet.": "当前时间窗口内暂无服务器级聚合流量采样。",
+  "Loading throughput telemetry": "正在加载流量遥测采样...",
+  "Running": "运行中",
   "Good morning": "早上好",
   "Good afternoon": "下午好",
   "Good evening": "晚上好",

@@ -266,6 +266,7 @@ export const api = {
 
   // -- server-level SoftEther -----------------------------------------------------
   overview: () => request("GET", "/server/overview"),
+  serverTraffic: (hours = 24) => request<Usage>("GET", `/server/traffic?hours=${hours}`),
   serverInfo: () => request("GET", "/server/info"),
   serverStatus: () => request("GET", "/server/status"),
   caps: () => request("GET", "/server/caps"),
