@@ -19,7 +19,6 @@ import { useI18n, t } from "../lib/i18n";
 import { Link } from "../lib/router";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../lib/toast";
-import { useUpdate } from "../lib/update";
 import { formatDate, timeAgo } from "../lib/util";
 import { IconRefresh } from "../ui/Icon";
 import { Pill } from "../ui/Status";
@@ -50,7 +49,6 @@ export function Settings({ section }: { section?: string }) {
         <DomainCard />
         <MonitoringCard />
         <VpnFileTemplateCard />
-        <UpdatesCard />
         <AuditCard />
         <AboutCard />
       </div>
@@ -1041,41 +1039,6 @@ function MonitoringCard() {
             <button className="btn btn--primary" onClick={() => void save()}>{t("Save monitoring settings")}</button>
           </div>
         )}
-      </div>
-    </section>
-  );
-}
-
-function UpdatesCard() {
-  const { t } = useI18n();
-  const { status, check, isChecking, open } = useUpdate();
-  const checkInfo = status?.check;
-  return (
-    <section id="s-updates">
-      <SectionTitle>{t("Updates")}</SectionTitle>
-      <div className="card" style={{ padding: "var(--s4)", maxWidth: 560 }}>
-        <KV
-          rows={[
-            [t("running"), String(checkInfo?.current_version ?? "—")],
-            [t("latest release"), String(checkInfo?.latest?.version || t("unknown"))],
-            [t("source"), String(checkInfo?.source ?? "—")],
-            [t("last check"), checkInfo?.checked_at ? timeAgo(String(checkInfo.checked_at)) : t("never")],
-          ]}
-        />
-        {checkInfo?.update_available ? (
-          <div className="alert alert--info" style={{ marginTop: "var(--s3)" }}>
-            <div className="alert__t">{String(checkInfo.latest.version)} {t("is available.")}</div>
-            {t("Open the updater from the version pill, or the button below.")}
-          </div>
-        ) : null}
-        {checkInfo?.note ? <div className="hint">{String(checkInfo.note)}</div> : null}
-        {checkInfo?.error ? <div className="hint hint--err">{String(checkInfo.error)}</div> : null}
-        <div style={{ display: "flex", gap: "var(--s2)", marginTop: "var(--s3)" }}>
-          <button className="btn" onClick={() => void check()} disabled={isChecking}>
-            {isChecking && <span className="spin" />} {t("Check now")}
-          </button>
-          <button className="btn btn--primary" onClick={open}>{t("Open updater")}</button>
-        </div>
       </div>
     </section>
   );

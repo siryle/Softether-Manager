@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../lib/auth";
 import { useServer } from "../lib/server";
 import { Link, navigate, seg, useRoute } from "../lib/router";
-import { useUpdate } from "../lib/update";
 import { LanguageButton, useI18n, t } from "../lib/i18n";
 import { api, type Wire } from "../lib/api";
 import { formatBytes } from "../lib/util";
@@ -87,7 +86,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Link to="/" className="topbar__brand" aria-label="SoftEther Manager">
             <BrandMark size={28} />
             <span className="topbar__brand-title">SoftEther Manager</span>
-            <span className="topbar__brand-ver">v1.0.12</span>
+            <span className="topbar__brand-ver">v1.0.13</span>
           </Link>
 
           {probe?.online && (
@@ -132,7 +131,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           <LanguageButton />
           <ThemeToggle />
-          <VersionPill compact />
 
           {user && (
             <div className="topbar__user">
@@ -309,30 +307,6 @@ export function ThemeToggle() {
       aria-label={dark ? t("Switch to light theme") : t("Switch to dark theme")}
     >
       {dark ? <IconSun size={15} /> : <IconMoon size={15} />}
-    </button>
-  );
-}
-
-export function VersionPill({ compact }: { compact?: boolean }) {
-  const { status, open, applying } = useUpdate();
-  const available = Boolean(status?.check?.update_available);
-  const v = String(status?.check?.current_version ?? "");
-
-  return (
-    <button
-      className={`verpill${available ? " verpill--new" : ""}`}
-      onClick={open}
-      title={
-        applying
-          ? t("An update is running")
-          : available
-            ? t("Version {version} is available", { version: String(status?.check?.latest?.version ?? "") })
-            : t("Check for updates")
-      }
-    >
-      {applying && <span className="spin" style={{ width: 11, height: 11 }} />}
-      <span className="truncate">{compact ? v.replace(/^v/, "") : v || "1.0.12"}</span>
-      {available && <span className="verpill__dot" />}
     </button>
   );
 }

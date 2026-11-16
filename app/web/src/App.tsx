@@ -4,12 +4,10 @@ import { AuthProvider, useAuth } from "./lib/auth";
 import { ServerProvider } from "./lib/server";
 import { RouterProvider, useRoute } from "./lib/router";
 import { ToastProvider } from "./lib/toast";
-import { UpdateProvider } from "./lib/update";
 import { RatesProvider } from "./lib/rates";
 import { ThemeProvider } from "./ui/theme";
 import { I18nProvider } from "./lib/i18n";
 import { AppShell } from "./components/AppShell";
-import { UpdateDialog } from "./components/UpdateDialog";
 import { Login } from "./screens/Login";
 import { Dashboard } from "./screens/Dashboard";
 import { AllUsers } from "./screens/AllUsers";
@@ -30,11 +28,9 @@ export default function App() {
           <ToastProvider>
             <AuthProvider>
               <RatesProvider>
-              <ServerProvider>
-                <UpdateProvider>
+                <ServerProvider>
                   <Routed />
-                </UpdateProvider>
-              </ServerProvider>
+                </ServerProvider>
               </RatesProvider>
             </AuthProvider>
           </ToastProvider>
@@ -91,10 +87,5 @@ function Routed() {
     }
   }
 
-  return (
-    <>
-      <AppShell>{screen}</AppShell>
-      <UpdateDialog />
-    </>
-  );
+  return <AppShell>{screen}</AppShell>;
 }
