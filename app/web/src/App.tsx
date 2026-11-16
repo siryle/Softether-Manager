@@ -17,6 +17,7 @@ import { Connections } from "./screens/Connections";
 import { Logs } from "./screens/Logs";
 import { Console } from "./screens/Console";
 import { HubDetail } from "./screens/HubDetail";
+import { Hubs } from "./screens/Hubs";
 import { UserDetail } from "./screens/UserDetail";
 import { Settings } from "./screens/Settings";
 
@@ -46,6 +47,7 @@ export default function App() {
  *   /                         the dashboard: this machine + its SoftEther
  *   /connect                  connect the panel to the local SoftEther
  *   /users                    every user, across all hubs
+ *   /hubs                     all Virtual Hubs
  *   /hub/:hub[/:tab]          one Virtual Hub
  *   /hub/:hub/user/:name      one user
  *   /server-settings[/:sec]   server-wide SoftEther settings
@@ -68,6 +70,8 @@ function Routed() {
     screen = <Connect />;
   } else if (p[0] === "users") {
     screen = <AllUsers />;
+  } else if (p[0] === "hubs") {
+    screen = <Hubs />;
   } else if (p[0] === "settings") {
     screen = <Settings section={p[1]} />;
   } else if (p[0] === "server-settings") {

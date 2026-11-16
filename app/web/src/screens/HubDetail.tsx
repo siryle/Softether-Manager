@@ -81,7 +81,7 @@ export function HubDetail({ hub, tab }: { hub: string; tab: string }) {
         }
         sub={
           <>
-            <Link to={`/`} className="linkish">← {t("Dashboard")}</Link>
+            <Link to="/hubs" className="linkish">← {t("Virtual Hubs")}</Link>
             {status && (
               <>
                 {" "}· {t(HUB_TYPES[Number(status.HubType_u32 ?? 0)]?.split(" ")[0] ?? "")} {t("Hub")}

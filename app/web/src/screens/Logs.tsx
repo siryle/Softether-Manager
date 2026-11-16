@@ -60,9 +60,9 @@ export function Logs() {
   return (
     <div className="page">
       <PageHead title={t("Logs")} sub={<Link to="/" className="linkish">← {t("Dashboard")}</Link>} />
+      <SectionTitle count={files?.length}>{t("Files")}</SectionTitle>
       <div className="logsplit">
         <div>
-          <SectionTitle count={files?.length}>{t("Files")}</SectionTitle>
           {files === null ? (
             <LoadingBlock />
           ) : files.length === 0 ? (

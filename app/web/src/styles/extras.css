@@ -511,6 +511,11 @@
   flex: none;
   color: var(--text-faint);
 }
+@media (max-width: 767px) {
+  .hub-topology-row__go {
+    display: none;
+  }
+}
 
 /* ── hub tab strip — scrollable on mobile ─────────────────────────────────── */
 .tabs {
@@ -692,10 +697,24 @@
 .logsplit {
   display: grid;
   gap: var(--s4);
+  grid-template-columns: minmax(0, 1fr);
+}
+.logsplit > * {
+  min-width: 0;
+}
+.logsplit .row {
+  width: 100%;
+  text-align: start;
+}
+.logsplit .row__name {
+  flex-wrap: nowrap;
+}
+.logsplit .row__name svg {
+  flex: none;
 }
 @media (min-width: 960px) {
   .logsplit {
-    grid-template-columns: minmax(280px, 380px) 1fr;
+    grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
     align-items: start;
   }
   .logsplit__view .term {

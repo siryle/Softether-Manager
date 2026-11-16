@@ -172,14 +172,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </Link>
 
                 <Link
-                  to="/"
-                  className={`side__item${active === "hub" ? " on" : ""}`}
+                  to="/hubs"
+                  className={`side__item${active === "hubs" || active === "hub" ? " on" : ""}`}
                 >
                   <span className="side__item-left">
                     <IconHub size={16} />
                     <span>{t("Virtual Hubs")}</span>
                   </span>
-                  <span className="side__count">{hubs?.length ?? 1}</span>
+                  <span className="side__count">{hubs?.length ?? "—"}</span>
                 </Link>
 
                 <Link
@@ -288,7 +288,8 @@ function TabBar() {
   );
   return (
     <nav className="tabbar" aria-label={t("Primary")}>
-      {tab((p) => p === "" || p === "hub" || p === "connect", "/", "Dashboard", <IconPanels size={18} />)}
+      {tab((p) => p === "" || p === "connect", "/", "Dashboard", <IconPanels size={18} />)}
+      {tab((p) => p === "hubs" || p === "hub", "/hubs", "Virtual Hubs", <IconHub size={18} />)}
       {tab((p) => p === "users", "/users", "Users", <IconUsers size={18} />)}
       {tab((p) => p === "connections", "/connections", "Connections", <IconPulse size={18} />)}
       {tab((p) => p === "settings" || p === "server-settings", "/settings", "Settings", <IconSettings size={18} />)}
