@@ -20,7 +20,11 @@ type Level = "info" | "ok" | "err" | "mgr";
 
 function classify(line: string): Level {
   if (line.startsWith("* ")) return "mgr";
-  if (line.startsWith("x ") || /(error|fail|denied|cannot|could not|refused)/i.test(line)) return "err";
+  if (line.startsWith("x ")) return "err";
+  const code = /\berror code\s*:\s*(-?\d+)\b/i.exec(line);
+  if (code) return Number(code[1]) === 0 ? "ok" : "err";
+  if (/Returned error message:\s*["']No error\.?["']/i.test(line)) return "ok";
+  if (/(error|fail|denied|cannot|could not|refused)/i.test(line)) return "err";
   if (/^\$ /.test(line)) return "mgr";
   if (/(succeeded|success|installed|registered|finished|answering|reached)/i.test(line)) return "ok";
   return "info";

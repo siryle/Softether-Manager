@@ -14,7 +14,7 @@ import {
 } from "../components/bits";
 import { PolicyEditor, extractPolicy } from "../components/PolicyEditor";
 import { QuotaEnforceSwitch, QuotaSummary, netBytes } from "../components/QuotaCard";
-import { RangeSeg, TrafficChart } from "../components/TrafficChart";
+import { RangeSeg, TrafficChart, useTrafficUsage } from "../components/TrafficChart";
 import { UserSheet } from "../components/UserSheet";
 import { VpnFileSheet } from "../components/VpnFileSheet";
 import { api, type Quota, type Usage, type Wire } from "../lib/api";
@@ -130,7 +130,6 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
   const [sessions, setSessions] = useState<Wire[] | null>(null);
   const [history, setHistory] = useState<Wire[] | null>(null);
   const [historyExhausted, setHistoryExhausted] = useState(false);
-  const [usage, setUsage] = useState<Usage | null>(null);
   const [quota, setQuota] = useState<Quota | null>(null);
   const [hours, setHours] = useState(24);
   const [editing, setEditing] = useState(false);
@@ -159,10 +158,7 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
   }, [hub, name, policyDirty]);
   usePoll(load, "detail", [hub, name]);
 
-  const loadUsage = useCallback(async () => {
-    setUsage(await api.userUsage(hub, name, hours).catch(() => null));
-  }, [hub, name, hours]);
-  usePoll(loadUsage, "list", [hub, name, hours]);
+  const usage = useTrafficUsage(() => api.userUsage(hub, name, hours), "list", [hub, name, hours]);
 
   // A busy account accumulates hundreds of logins; the newest few answer the
   // usual question, and the rest are one button away.

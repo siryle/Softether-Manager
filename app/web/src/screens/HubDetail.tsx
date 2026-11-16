@@ -3,8 +3,8 @@
 import { useCallback, useState } from "react";
 import { LoadingBlock, PageHead, SectionTitle, usePoll } from "../components/bits";
 import { QuotaStatePill, quotaKey, useQuotaIndex } from "../components/QuotaCard";
-import { RangeSeg, TrafficChart } from "../components/TrafficChart";
-import { api, type Usage, type Wire } from "../lib/api";
+import { RangeSeg, TrafficChart, useTrafficUsage } from "../components/TrafficChart";
+import { api, type Wire } from "../lib/api";
 import { HUB_TYPES } from "../lib/se";
 import { Link, navigate, seg } from "../lib/router";
 import { formatBytes, formatCount, formatDate } from "../lib/util";
@@ -138,12 +138,7 @@ export function HubDetail({ hub, tab }: { hub: string; tab: string }) {
 function HubOverview({ hub, status }: { hub: string; status: Wire | null }) {
   const { t } = useI18n();
   const [hours, setHours] = useState(24);
-  const [usage, setUsage] = useState<Usage | null>(null);
-
-  const load = useCallback(async () => {
-    setUsage(await api.hubTraffic(hub, hours).catch(() => null));
-  }, [hub, hours]);
-  usePoll(load, "list", [hub, hours]);
+  const usage = useTrafficUsage(() => api.hubTraffic(hub, hours), "list", [hub, hours]);
 
   if (!status) return <LoadingBlock label="asking the hub" />;
 

@@ -77,6 +77,12 @@ func TestSoftEtherLiveQuotaReset(t *testing.T) {
 		return ""
 	}
 	key := waitForSession()
+	a.sampleTraffic(ctx)
+	for _, table := range []string{"HubTrafficSample", "UserTrafficSample"} {
+		if integer(one(a.db, `SELECT COUNT(*) n FROM `+table+` WHERE ServerID=1`)["n"]) != 1 {
+			t.Fatal("real SoftEther traffic counters were not recorded", table)
+		}
+	}
 	path := "/api/v1/quotas/user/DEFAULT/admin"
 	for _, scenario := range []string{"new baseline", "existing baseline", "already restored policy"} {
 		t.Run(scenario, func(t *testing.T) {

@@ -2,8 +2,8 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { Empty, ErrorAlert, LoadingBlock, usePoll } from "../components/bits";
-import { RangeSeg, TrafficChart } from "../components/TrafficChart";
-import { api, type Wire, type Usage } from "../lib/api";
+import { RangeSeg, TrafficChart, useTrafficUsage } from "../components/TrafficChart";
+import { api, type Wire } from "../lib/api";
 import { useI18n, t } from "../lib/i18n";
 import { useServer } from "../lib/server";
 import { Link } from "../lib/router";
@@ -28,7 +28,6 @@ export function Dashboard() {
   const [resources, setResources] = useState<Wire | null>(null);
   const [overview, setOverview] = useState<Wire | null>(null);
   const [trafficHours, setTrafficHours] = useState(24);
-  const [serverUsage, setServerUsage] = useState<Usage | null>(null);
   const [creatingHub, setCreatingHub] = useState(false);
 
   const loadResources = useCallback(async () => {
@@ -41,12 +40,10 @@ export function Dashboard() {
   }, [health]);
   usePoll(loadOverview, "detail", [health]);
 
-  const loadTraffic = useCallback(async () => {
-    if (health === "online") {
-      setServerUsage(await api.serverTraffic(trafficHours).catch(() => null));
-    }
-  }, [health, trafficHours]);
-  usePoll(loadTraffic, "detail", [health, trafficHours]);
+  const serverUsage = useTrafficUsage(
+    () => health === "online" ? api.serverTraffic(trafficHours) : Promise.resolve(null),
+    "detail", [health, trafficHours],
+  );
 
   const section = (key: string): Wire | null =>
     overview?.[key]?.ok ? (overview[key].data as Wire) : null;
@@ -146,7 +143,7 @@ export function Dashboard() {
         <div className="panel-card__h">
           <div>
             <h2 className="panel-card__t">{t("Throughput Telemetry")}</h2>
-            <p className="panel-card__s">{t("5-minute rolling samples · Smooth bandwidth distribution")}</p>
+            <p className="panel-card__s">{t(trafficHours >= 48 ? "Past {days} days · Recorded samples only; gaps are left blank." : "Past {hours} hours · Recorded samples only; gaps are left blank.", { days: trafficHours / 24, hours: trafficHours })}</p>
           </div>
           <div className="flex items-center gap-4 text-xs font-mono">
             <RangeSeg hours={trafficHours} onChange={setTrafficHours} />

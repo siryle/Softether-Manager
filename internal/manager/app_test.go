@@ -380,6 +380,7 @@ type fakeSoftEther struct {
 	failSessionStatus     bool
 	userUsePolicy         bool
 	ignoreRestore         bool
+	missingTraffic        bool
 }
 
 func attachSoftEther(t *testing.T, a *App) *fakeSoftEther {
@@ -421,6 +422,10 @@ func attachSoftEther(t *testing.T, a *App) *fakeSoftEther {
 			out = M{"HubList": []M{{"HubName_str": "Office / 上海", "NumUsers_u32": 1, "NumSessions_u32": 1}}}
 		case "GetHub", "GetHubStatus":
 			out = M{"Online_bool": fake.hubOnline, "Send.UnicastBytes_u64": fake.send, "Recv.UnicastBytes_u64": fake.recv, "NumUsers_u32": 1, "NumSessions_u32": 1}
+			if fake.missingTraffic {
+				delete(out, "Send.UnicastBytes_u64")
+				delete(out, "Recv.UnicastBytes_u64")
+			}
 		case "SetHubOnline":
 			if boolean(params["Online_bool"]) && fake.failRestore {
 				writeJSON(w, 200, M{"jsonrpc": "2.0", "id": req["id"], "error": M{"code": 1, "message": "ERR_BUSY"}})
@@ -455,6 +460,9 @@ func attachSoftEther(t *testing.T, a *App) *fakeSoftEther {
 			}
 		case "EnumUser":
 			out = M{"UserList": []M{{"Name_str": "Alice", "Ex.Send.UnicastBytes_u64": fake.send, "Ex.Recv.UnicastBytes_u64": fake.recv, "NumLogin_u32": 1}}}
+			if fake.missingTraffic {
+				out["UserList"] = []M{{"Name_str": "Alice", "NumLogin_u32": 1}}
+			}
 		case "EnumSession":
 			out = M{"SessionList": []M{{"Name_str": "SID/ABC", "Username_str": "ALICE", "UniqueId_bin": "stable-key", "ClientIP_ip": "192.0.2.1", "CreatedTime_dt": now(), "PacketSize_u64": fake.send + fake.recv}}}
 		case "GetSessionStatus":

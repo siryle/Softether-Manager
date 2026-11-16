@@ -133,13 +133,16 @@ export interface Probe {
 
 export interface UsagePoint {
   t: string;
-  send: number;
-  recv: number;
+  send: number | null;
+  recv: number | null;
   sessions?: number;
 }
 
 export interface Usage {
   hours: number;
+  start?: string;
+  end?: string;
+  sample_interval_seconds?: number;
   points: UsagePoint[];
   total_send: number;
   total_recv: number;

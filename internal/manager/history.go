@@ -11,7 +11,7 @@ import (
 
 func fold(s string) string { return cases.Fold().String(s) }
 func parseTime(s string) time.Time {
-	for _, layout := range []string{time.RFC3339Nano, "2006-01-02T15:04:05.999999", "2006-01-02 15:04:05"} {
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05.999999999Z07:00", "2006-01-02T15:04:05.999999", "2006-01-02 15:04:05"} {
 		if t, err := time.Parse(layout, s); err == nil {
 			return t
 		}
@@ -51,41 +51,7 @@ func (a *App) registerHistory() {
 		}
 		a.endpoint("GET "+path, func(_ http.ResponseWriter, r *http.Request, _ M) any {
 			hours := queryInt(r, "hours", 24, 1, 2160)
-			serverID := a.serverIDFromContext(r.Context())
-			cutoff := time.Now().UTC().Add(-time.Duration(hours) * time.Hour).Format(time.RFC3339)
-			statement := `SELECT SendBytes,RecvBytes,NumSessions,SampledDate FROM HubTrafficSample WHERE ServerID=? AND datetime(SampledDate)>=datetime(?)`
-			args := []any{serverID, cutoff}
-			if kind == "server" {
-				statement = `WITH counters AS (
- SELECT HubName,SendBytes,RecvBytes,NumSessions,SampledDate,
- LAG(SendBytes) OVER (PARTITION BY HubName ORDER BY SampledDate,HubTrafficSampleID) previous_send,
- LAG(RecvBytes) OVER (PARTITION BY HubName ORDER BY SampledDate,HubTrafficSampleID) previous_recv
- FROM HubTrafficSample WHERE ServerID=? AND datetime(SampledDate)>=datetime(?)
-) SELECT SampledDate t,
- SUM(CASE WHEN previous_send IS NULL THEN 0 WHEN SendBytes<previous_send THEN SendBytes ELSE SendBytes-previous_send END) send,
- SUM(CASE WHEN previous_recv IS NULL THEN 0 WHEN RecvBytes<previous_recv THEN RecvBytes ELSE RecvBytes-previous_recv END) recv,
- SUM(NumSessions) sessions FROM counters GROUP BY SampledDate ORDER BY SampledDate`
-				points := query(a.db, statement, args...)
-				var sent, received int64
-				for _, point := range points {
-					sent += integer(point["send"])
-					received += integer(point["recv"])
-				}
-				count := len(points)
-				if count > 0 {
-					points = points[1:]
-				}
-				return M{"hours": hours, "points": points, "total_send": sent, "total_recv": received, "samples": count}
-			} else {
-				statement += " AND HubName=?"
-				args = append(args, r.PathValue("hub"))
-			}
-			if kind == "user" {
-				statement = `SELECT SendBytes,RecvBytes,SampledDate FROM UserTrafficSample WHERE ServerID=? AND datetime(SampledDate)>=datetime(?) AND HubName=? AND UserName=? COLLATE NOCASE`
-				args = []any{serverID, cutoff, r.PathValue("hub"), r.PathValue("name")}
-			}
-			statement += " ORDER BY SampledDate"
-			return usage(query(a.db, statement, args...), hours, "SendBytes", "RecvBytes", kind != "user")
+			return a.trafficUsage(a.serverIDFromContext(r.Context()), kind, r.PathValue("hub"), r.PathValue("name"), hours)
 		})
 	}
 	for _, userOnly := range []bool{false, true} {
@@ -123,6 +89,9 @@ func (a *App) registerHistory() {
 		}
 		hours := max(int64(1), int64(end.Sub(parseTime(str(session["started_date"]))).Hours()+0.5))
 		out := usage(rows, hours, "UploadBytes", "DownloadBytes", false)
+		out["start"] = parseTime(str(session["started_date"])).UTC().Format(time.RFC3339Nano)
+		out["end"] = end.UTC().Format(time.RFC3339Nano)
+		out["sample_interval_seconds"] = max(int64(5), integer(a.setting("session_interval_seconds")))
 		out["session"] = session
 		combined := []M{}
 		var total int64
@@ -219,11 +188,18 @@ func (a *App) sampleTraffic(ctx context.Context) {
 						}
 					}()
 					status := a.rpc(serverCtx, "GetHubStatus", M{"HubName_str": hub})
-					send, recv := bytesFor(status, "")
-					execute(a.db, `INSERT INTO HubTrafficSample(ServerID,HubName,SendBytes,RecvBytes,NumSessions,NumUsers,SampledDate) VALUES(?,?,?,?,?,?,?)`, serverID, hub, send, recv, integer(status["NumSessions_u32"]), integer(status["NumUsers_u32"]), stamp)
+					if send, recv, valid := sampledTraffic(status, ""); valid {
+						execute(a.db, `INSERT INTO HubTrafficSample(ServerID,HubName,SendBytes,RecvBytes,NumSessions,NumUsers,SampledDate) VALUES(?,?,?,?,?,?,?)`, serverID, hub, send, recv, integer(status["NumSessions_u32"]), integer(status["NumUsers_u32"]), stamp)
+					} else {
+						log.Printf("traffic sample %d/%s: missing or invalid hub counters", serverID, hub)
+					}
 					for _, u := range list(a.rpc(serverCtx, "EnumUser", M{"HubName_str": hub})["UserList"]) {
 						name := str(u["Name_str"])
-						sBytes, rBytes := bytesFor(u, "Ex.")
+						sBytes, rBytes, valid := sampledTraffic(u, "Ex.")
+						if !valid {
+							log.Printf("traffic sample %d/%s/%s: missing or invalid user counters", serverID, hub, name)
+							continue
+						}
 						execute(a.db, `INSERT INTO UserTrafficSample(ServerID,HubName,UserName,SendBytes,RecvBytes,NumLogin,SampledDate) VALUES(?,?,?,?,?,?,?)`, serverID, hub, name, sBytes, rBytes, integer(u["NumLogin_u32"]), stamp)
 					}
 				}()

@@ -3,28 +3,34 @@
 import { t } from "../lib/i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Usage } from "../lib/api";
+import type { PollRate } from "../lib/rates";
 import { formatBytes } from "../lib/util";
-
-/**
- * Throughput over time: two 2px lines with a soft area fill, upload and
- * download, on a recessive grid. One y-axis. Colour follows the series
- * (--chart-send / --chart-recv, validated for CVD separation); identity is
- * also carried by the legend, so colour never stands alone. Hovering raises
- * a crosshair with both values at that sample.
- *
- * The SVG's viewBox tracks the element's real width (one unit = one CSS
- * pixel), so axis text renders at its set size instead of scaling up with
- * the chart.
- */
+import { usePoll } from "./bits";
 
 const H = 190;
 const PAD = { top: 12, right: 10, bottom: 24, left: 64 };
+type PlotPoint = { t: string; at: number; send: number; recv: number };
 
+/** Range changes hide the previous series immediately and discard its pending responses. */
+export function useTrafficUsage(load: () => Promise<Usage | null>, rate: PollRate, deps: unknown[]) {
+  const selection = useMemo(() => ({}), deps);
+  const current = useRef(selection);
+  current.current = selection;
+  const request = useRef(0);
+  const [result, setResult] = useState<{ selection: object; usage: Usage | null } | null>(null);
+  usePoll(async () => {
+    const id = ++request.current;
+    const usage = await load().catch(() => null);
+    if (current.current === selection && request.current === id) setResult({ selection, usage });
+  }, rate, deps);
+  return result && result.selection === selection ? result.usage : null;
+}
+
+/** Recorded intervals only: missing samples break the paths rather than being interpolated. */
 export function TrafficChart({ usage, emptyLabel }: { usage: Usage; emptyLabel?: string }) {
   const [hover, setHover] = useState<number | null>(null);
   const [width, setWidth] = useState(720);
   const holder = useRef<HTMLDivElement>(null);
-  const points = usage.points;
 
   useEffect(() => {
     const el = holder.current;
@@ -38,24 +44,39 @@ export function TrafficChart({ usage, emptyLabel }: { usage: Usage; emptyLabel?:
   }, []);
 
   const model = useMemo(() => {
-    if (points.length < 2) return null;
+    const t1 = Date.parse(usage.end ?? usage.points[usage.points.length - 1]?.t ?? "");
+    const t0 = usage.start ? Date.parse(usage.start) : t1 - usage.hours * 3600_000;
+    if (!Number.isFinite(t0) || !Number.isFinite(t1) || t1 <= t0) return null;
     const innerW = width - PAD.left - PAD.right;
     const innerH = H - PAD.top - PAD.bottom;
-    const t0 = new Date(points[0].t).getTime();
-    const t1 = new Date(points[points.length - 1].t).getTime();
-    const span = Math.max(1, t1 - t0);
-    const max = Math.max(1, ...points.map((p) => Math.max(p.send, p.recv)));
-    const x = (t: string) => PAD.left + ((new Date(t).getTime() - t0) / span) * innerW;
-    const y = (v: number) => PAD.top + innerH - (v / max) * innerH;
-    const line = (key: "send" | "recv") =>
-      points.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p[key]).toFixed(1)}`).join("");
-    const area = (key: "send" | "recv") =>
-      `${line(key)}L${x(points[points.length - 1].t).toFixed(1)},${PAD.top + innerH}L${x(
-        points[0].t,
-      ).toFixed(1)},${PAD.top + innerH}Z`;
-    const ticks = [0.25, 0.5, 0.75, 1].map((f) => ({ v: max * f, y: y(max * f) }));
-    return { x, y, max, line, area, ticks, innerH, t0, t1 };
-  }, [points, width]);
+    const maxGap = (usage.sample_interval_seconds ?? 300) * 1500;
+    const segments: PlotPoint[][] = [];
+    let segment: PlotPoint[] = [];
+    for (const p of usage.points) {
+      const at = Date.parse(p.t);
+      if (p.send === null || p.recv === null || !Number.isFinite(p.send) || !Number.isFinite(p.recv) || p.send < 0 || p.recv < 0 || !Number.isFinite(at) || at < t0 || at > t1) {
+        segment = [];
+        continue;
+      }
+      const previous = segment[segment.length - 1];
+      if (previous && (at <= previous.at || at - previous.at > maxGap)) segment = [];
+      if (!segment.length) segments.push(segment);
+      segment.push({ t: p.t, at, send: p.send, recv: p.recv });
+    }
+    const points = segments.flat();
+    if (!points.length) return null;
+    const max = points.reduce((top, p) => Math.max(top, p.send, p.recv), 1);
+    const x = (at: number) => PAD.left + ((at - t0) / (t1 - t0)) * innerW;
+    const y = (value: number) => PAD.top + innerH - (value / max) * innerH;
+    const path = (run: PlotPoint[], key: "send" | "recv") =>
+      run.map((p, i) => `${i ? "L" : "M"}${x(p.at).toFixed(1)},${y(p[key]).toFixed(1)}`).join("");
+    const line = (key: "send" | "recv") => segments.map(run => path(run, key)).join("");
+    const area = (key: "send" | "recv") => segments.filter(run => run.length > 1).map(run =>
+      `${path(run, key)}L${x(run[run.length - 1].at).toFixed(1)},${PAD.top + innerH}L${x(run[0].at).toFixed(1)},${PAD.top + innerH}Z`,
+    ).join("");
+    const ticks = [0.25, 0.5, 0.75, 1].map(f => ({ v: max * f, y: y(max * f) }));
+    return { x, y, line, area, ticks, innerW, innerH, t0, t1, points, segments };
+  }, [usage, width]);
 
   if (!model) {
     return (
@@ -65,124 +86,71 @@ export function TrafficChart({ usage, emptyLabel }: { usage: Usage; emptyLabel?:
     );
   }
 
-  const onMove = (e: React.PointerEvent) => {
+  const formatTime = (at: number, tooltip = false) => {
+    const date = new Date(at);
+    const day = usage.hours >= 24 ? date.toLocaleDateString(undefined, { month: "numeric", day: "numeric" }) : "";
+    const clock = tooltip || usage.hours <= 24 ? date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "";
+    return [day, clock].filter(Boolean).join(" ");
+  };
+  const onMove = (event: React.PointerEvent) => {
     const svg = holder.current?.querySelector("svg");
     if (!svg) return;
     const rect = svg.getBoundingClientRect();
-    const px = e.clientX - rect.left;
+    const px = (event.clientX - rect.left) * width / rect.width;
+    const at = model.t0 + (px - PAD.left) / model.innerW * (model.t1 - model.t0);
+    if (!model.segments.some(run => run.length === 1 ? Math.abs(model.x(run[0].at) - px) <= 4 : at >= run[0].at && at <= run[run.length - 1].at)) {
+      setHover(null);
+      return;
+    }
     let best = 0;
-    let bestDistance = Infinity;
-    points.forEach((p, i) => {
-      const d = Math.abs(model.x(p.t) - px);
-      if (d < bestDistance) {
-        bestDistance = d;
-        best = i;
-      }
+    let distance = Infinity;
+    model.points.forEach((point, index) => {
+      const next = Math.abs(model.x(point.at) - px);
+      if (next < distance) { distance = next; best = index; }
     });
     setHover(best);
   };
-
-  const h = hover != null ? points[hover] : null;
+  const h = hover !== null ? model.points[hover] : null;
 
   return (
     <div className="chart" ref={holder}>
       <div className="chart__legend">
-        <span className="chart__key">
-          <i style={{ background: "var(--chart-recv)" }} /> {t("Download")}
-          <b className="mono">{formatBytes(usage.total_recv)}</b>
-        </span>
-        <span className="chart__key">
-          <i style={{ background: "var(--chart-send)" }} /> {t("Upload")}
-          <b className="mono">{formatBytes(usage.total_send)}</b>
-        </span>
-        {h && (
-          <span className="chart__hoverv mono">
-            {new Date(h.t).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
-            {" · ↓"}
-            {formatBytes(h.recv)} · ↑{formatBytes(h.send)}
-          </span>
-        )}
+        <span className="chart__key"><i style={{ background: "var(--chart-recv)" }} /> {t("Download")}<b className="mono">{formatBytes(usage.total_recv)}</b></span>
+        <span className="chart__key"><i style={{ background: "var(--chart-send)" }} /> {t("Upload")}<b className="mono">{formatBytes(usage.total_send)}</b></span>
+        {h && <span className="chart__hoverv mono">{formatTime(h.at, true)}{" · ↓"}{formatBytes(h.recv)} · ↑{formatBytes(h.send)}</span>}
       </div>
-      <svg
-        viewBox={`0 0 ${width} ${H}`}
-        width={width}
-        height={H}
-        className="chart__svg"
-        role="img"
-        aria-label={t("Traffic over the last {hours} hours: {down} downloaded, {up} uploaded.", {
-          hours: String(usage.hours),
-          down: formatBytes(usage.total_recv),
-          up: formatBytes(usage.total_send),
-        })}
-        onPointerMove={onMove}
-        onPointerLeave={() => setHover(null)}
-      >
-        {model.ticks.map((t) => (
-          <g key={t.y}>
-            <line x1={PAD.left} x2={width - PAD.right} y1={t.y} y2={t.y} className="chart__grid" />
-            <text x={PAD.left - 8} y={t.y + 3.5} className="chart__tick" textAnchor="end">
-              {formatBytes(t.v)}
-            </text>
+      <svg viewBox={`0 0 ${width} ${H}`} width={width} height={H} className="chart__svg" role="img"
+        aria-label={t("Traffic over the last {hours} hours: {down} downloaded, {up} uploaded.", { hours: String(usage.hours), down: formatBytes(usage.total_recv), up: formatBytes(usage.total_send) })}
+        onPointerMove={onMove} onPointerLeave={() => setHover(null)}>
+        {model.ticks.map(tick => (
+          <g key={tick.y}>
+            <line x1={PAD.left} x2={width - PAD.right} y1={tick.y} y2={tick.y} className="chart__grid" />
+            <text x={PAD.left - 8} y={tick.y + 3.5} className="chart__tick" textAnchor="end">{formatBytes(tick.v)}</text>
           </g>
         ))}
-        <line
-          x1={PAD.left}
-          x2={width - PAD.right}
-          y1={PAD.top + model.innerH}
-          y2={PAD.top + model.innerH}
-          className="chart__axis"
-        />
-        {[0, 0.5, 1].map((f) => {
-          const t = new Date(model.t0 + (model.t1 - model.t0) * f);
-          return (
-            <text
-              key={f}
-              x={PAD.left + (width - PAD.left - PAD.right) * f}
-              y={H - 7}
-              className="chart__tick"
-              textAnchor={f === 0 ? "start" : f === 1 ? "end" : "middle"}
-            >
-              {t.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
-            </text>
-          );
-        })}
+        <line x1={PAD.left} x2={width - PAD.right} y1={PAD.top + model.innerH} y2={PAD.top + model.innerH} className="chart__axis" />
+        {[0, 0.5, 1].map(f => <text key={f} x={PAD.left + model.innerW * f} y={H - 7} className="chart__tick" textAnchor={f === 0 ? "start" : f === 1 ? "end" : "middle"}>{formatTime(model.t0 + (model.t1 - model.t0) * f)}</text>)}
         <path d={model.area("recv")} fill="var(--chart-recv)" opacity={0.12} />
         <path d={model.area("send")} fill="var(--chart-send)" opacity={0.12} />
         <path d={model.line("recv")} fill="none" stroke="var(--chart-recv)" strokeWidth={2} strokeLinejoin="round" />
         <path d={model.line("send")} fill="none" stroke="var(--chart-send)" strokeWidth={2} strokeLinejoin="round" />
-        {h && (
-          <g>
-            <line x1={model.x(h.t)} x2={model.x(h.t)} y1={PAD.top} y2={PAD.top + model.innerH} className="chart__cross" />
-            <circle cx={model.x(h.t)} cy={model.y(h.recv)} r={4} fill="var(--chart-recv)" stroke="var(--glass)" strokeWidth={2} />
-            <circle cx={model.x(h.t)} cy={model.y(h.send)} r={4} fill="var(--chart-send)" stroke="var(--glass)" strokeWidth={2} />
-          </g>
-        )}
+        {model.segments.filter(run => run.length === 1).map(run => <g key={run[0].t}>
+          <circle cx={model.x(run[0].at)} cy={model.y(run[0].recv)} r={3} fill="var(--chart-recv)" />
+          <circle cx={model.x(run[0].at)} cy={model.y(run[0].send)} r={3} fill="var(--chart-send)" />
+        </g>)}
+        {h && <g>
+          <line x1={model.x(h.at)} x2={model.x(h.at)} y1={PAD.top} y2={PAD.top + model.innerH} className="chart__cross" />
+          <circle cx={model.x(h.at)} cy={model.y(h.recv)} r={4} fill="var(--chart-recv)" stroke="var(--glass)" strokeWidth={2} />
+          <circle cx={model.x(h.at)} cy={model.y(h.send)} r={4} fill="var(--chart-send)" stroke="var(--glass)" strokeWidth={2} />
+        </g>}
       </svg>
     </div>
   );
 }
 
-/** The range picker every usage chart shares. */
-export function RangeSeg({ hours, onChange }: { hours: number; onChange: (h: number) => void }) {
-  const options = [
-    { h: 6, label: "6h" },
-    { h: 24, label: "24h" },
-    { h: 24 * 7, label: "7d" },
-    { h: 24 * 30, label: "30d" },
-  ];
-  return (
-    <div className="seg" role="tablist" aria-label={t("Time range")}>
-      {options.map((o) => (
-        <button
-          key={o.h}
-          role="tab"
-          aria-selected={hours === o.h}
-          className={hours === o.h ? "on" : ""}
-          onClick={() => onChange(o.h)}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
+export function RangeSeg({ hours, onChange }: { hours: number; onChange: (hours: number) => void }) {
+  const options = [{ h: 6, label: "6h" }, { h: 24, label: "24h" }, { h: 168, label: "7d" }, { h: 720, label: "30d" }];
+  return <div className="seg" role="tablist" aria-label={t("Time range")}>
+    {options.map(option => <button key={option.h} role="tab" aria-selected={hours === option.h} className={hours === option.h ? "on" : ""} onClick={() => onChange(option.h)}>{option.label}</button>)}
+  </div>;
 }

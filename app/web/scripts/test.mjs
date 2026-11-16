@@ -42,7 +42,9 @@ function backend(text = async () => "{}") {
 function component(file, exports, states, modules) {
   let index = 0;
   let refIndex = 0;
+  let memoIndex = 0;
   const refs = [];
+  const memos = [];
   const placeholder = () => null;
   const stubs = new Proxy({}, { get: () => placeholder });
   const loaded = load(file, {}, {
@@ -53,6 +55,14 @@ function component(file, exports, states, modules) {
         return [states[slot], value => { states[slot] = typeof value === "function" ? value(states[slot]) : value; }];
       },
       useEffect() {}, useCallback: fn => fn,
+      useMemo: (fn, deps) => {
+        const slot = memoIndex++;
+        const previous = memos[slot];
+        if (!previous || !deps || previous.deps.length !== deps.length || deps.some((value, i) => !Object.is(value, previous.deps[i]))) {
+          memos[slot] = { deps: deps ?? [], value: fn() };
+        }
+        return memos[slot].value;
+      },
       useRef: value => refs[refIndex++] ??= { current: value },
     },
     "./bits": stubs,
@@ -71,6 +81,7 @@ function component(file, exports, states, modules) {
   loaded[exports] = (...args) => {
     index = 0;
     refIndex = 0;
+    memoIndex = 0;
     return render(...args);
   };
   return loaded;
@@ -181,4 +192,78 @@ test("a removed limit still shows pending VPN access restoration", () => {
   const summary = QuotaSummary({ quota, subject: "user" });
   assert.ok(find(summary, node => node.props?.label === "access restoration pending"));
   assert.ok(find(summary, node => node.type === "div" && node.props.className === "alert alert--warn"));
+});
+
+test("SoftEther success codes are not colored as server errors", () => {
+  const { classify } = load("../src/components/Terminal.tsx", {}, { "../lib/i18n": { t: value => value } }, "\nexport { classify };");
+  for (const [line, level] of [
+    ['Method: "EnumHub", Returned error code: 0 (0 = success), Returned error message: "No error."', "ok"],
+    ['Returned error message: "No error."', "ok"],
+    ['Method: "EnumSession", Returned error code: 13, Returned error message: "Timeout."', "err"],
+    ['Returned error code: -32603', "err"],
+    ['Cannot connect to SoftEther', "err"],
+  ]) assert.equal(classify(line), level, line);
+});
+
+function chart(usage) {
+  const { TrafficChart } = component("../src/components/TrafficChart.tsx", "TrafficChart", [], {
+    "../lib/util": load("../src/lib/util.ts", {}, { "./i18n": { t: value => value } }),
+  });
+  return TrafficChart({ usage });
+}
+
+const chartEnd = Date.parse("2026-11-16T22:45:00Z");
+const point = (minutes, send = 10, recv = 5) => ({ t: new Date(chartEnd + minutes * 60_000).toISOString(), send, recv });
+const chartUsage = (hours, points) => ({ hours, start: new Date(chartEnd - hours * 3600_000).toISOString(), end: new Date(chartEnd).toISOString(), sample_interval_seconds: 300, points, total_send: 100, total_recv: 50, samples: points.length });
+
+test("empty and missing history never generate a chart", () => {
+  for (const points of [[], [point(-5, null, null)]]) {
+    const tree = chart(chartUsage(720, points));
+    assert.equal(find(tree, node => node.type === "svg"), null);
+    assert.ok(find(tree, node => node.props?.className?.includes("chart--empty")));
+  }
+});
+
+test("short recorded history is positioned inside the requested time window", () => {
+  for (const hours of [6, 24, 168, 720]) {
+    const tree = chart(chartUsage(hours, [point(-5), point(0)]));
+    const path = find(tree, node => node.type === "path" && node.props.stroke === "var(--chart-send)");
+    const firstX = Number(/^M([\d.]+)/.exec(path.props.d)[1]);
+    assert.ok(firstX > 700, `${hours}h stretched five minutes across the whole chart: ${firstX}`);
+  }
+});
+
+test("missing observations split both chart lines and area fills", () => {
+  const tree = chart(chartUsage(24, [point(-20), point(-15), point(-10, null, null), point(-5), point(0)]));
+  const line = find(tree, node => node.type === "path" && node.props.stroke === "var(--chart-send)");
+  const area = find(tree, node => node.type === "path" && node.props.fill === "var(--chart-send)");
+  assert.equal((line.props.d.match(/M/g) ?? []).length, 2);
+  assert.equal((area.props.d.match(/Z/g) ?? []).length, 2);
+});
+
+test("weekly history labels include calendar dates", () => {
+  const usage = chartUsage(168, [point(-5), point(0)]);
+  const tree = chart(usage);
+  const label = find(tree, node => node.type === "text" && node.props.y === 183);
+  assert.equal(label.props.children, new Date(usage.start).toLocaleDateString(undefined, { month: "numeric", day: "numeric" }));
+});
+
+test("a stale history response cannot replace the newly selected range", async () => {
+  let poll;
+  const { useTrafficUsage } = component("../src/components/TrafficChart.tsx", "useTrafficUsage", [], {
+    "./bits": { usePoll: fn => { poll = fn; } }, "../lib/util": {},
+  });
+  const old = deferred();
+  const next = deferred();
+  assert.equal(useTrafficUsage(() => old.promise, "list", [6]), null);
+  const oldRequest = poll();
+  assert.equal(useTrafficUsage(() => next.promise, "list", [24]), null);
+  const nextRequest = poll();
+  next.resolve(chartUsage(24, [point(-5), point(0)]));
+  await nextRequest;
+  assert.equal(useTrafficUsage(() => next.promise, "list", [24]).hours, 24);
+  old.resolve(chartUsage(6, [point(-5), point(0)]));
+  await oldRequest;
+  assert.equal(useTrafficUsage(() => next.promise, "list", [24]).hours, 24);
+  assert.equal(useTrafficUsage(() => Promise.resolve(null), "list", [720]), null);
 });
