@@ -188,6 +188,7 @@ export interface QuotaIn {
   unit: QuotaUnit;
   metric: QuotaMetric;
   enabled: boolean;
+  reset?: boolean;
 }
 
 /** The panel's own domain and certificate, every stage reported on its own. */

@@ -167,10 +167,9 @@ export function draftAmount(draft: QuotaDraft): number {
 /**
  * Apply a draft to one config, as part of whatever save is in progress.
  *
- * The ceiling first, the reset second, so a reset always lands on the limit
- * the operator just chose. Removing a ceiling keeps the record if it still
- * holds a baseline — that is the backend's call, and it is what lets a reset
- * survive an operator who later decides against a limit.
+ * A limit and its optional reset are saved together, so old usage cannot
+ * trigger a temporary cut-off before the reset is applied. Removing a ceiling
+ * keeps the record if it still holds a baseline.
  */
 export async function saveUserQuotaDraft(
   api: ServerApi,
@@ -185,7 +184,9 @@ export async function saveUserQuotaDraft(
       unit: draft.unit,
       metric: draft.metric,
       enabled: draft.enforce,
+      reset: draft.reset,
     });
+    return;
   } else if (existed) {
     await api.deleteUserQuota(hub, name);
   }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useServerApi, ApiError, type Quota, type Wire } from "../lib/api";
 import { AUTH_TYPE_OPTIONS, isNever, userBytes } from "../lib/se";
 import { useToast } from "../lib/toast";
@@ -80,7 +80,11 @@ export function UserSheet({
   const [busy, setBusy] = useState(false);
   const [quota, setQuota] = useState<Quota | null>(null);
   const [quotaDraft, setQuotaDraft] = useState<QuotaDraft>(EMPTY_DRAFT);
-  const [quotaTouched, setQuotaTouched] = useState(false);
+  const quotaTouched = useRef(false);
+  const [quotaLoaded, setQuotaLoaded] = useState(!editing);
+  const profile = [realname, note, group, authType, radiusUser, ntUser, commonName, expires];
+  const initialProfile = useRef(profile);
+  const profileChanged = Boolean(password || certBase64) || profile.some((value, index) => value !== initialProfile.current[index]);
   const { push } = useToast();
 
   useEffect(() => {
@@ -102,10 +106,14 @@ export function UserSheet({
         setQuota(q);
         // Only seed the form if it has not been touched: the read is fast, but
         // an operator who got there first must not have their edit overwritten.
-        setQuotaDraft((current) => (quotaTouched ? current : draftOf(q)));
+        setQuotaDraft((current) => (quotaTouched.current ? current : draftOf(q)));
+        setQuotaLoaded(true);
       })
       .catch((e) => {
-        if (!stale && (!(e instanceof ApiError) || e.status !== 404)) {
+        if (stale) return;
+        if (e instanceof ApiError && e.status === 404) {
+          setQuotaLoaded(true);
+        } else {
           push("err", e instanceof Error ? e.message : String(e));
         }
       });
@@ -116,6 +124,7 @@ export function UserSheet({
   }, [editing, hub, existing, push]);
 
   const save = async () => {
+    if (!quotaLoaded) return;
     setError(null);
     setBusy(true);
     try {
@@ -143,7 +152,7 @@ export function UserSheet({
       // half-configured behind it.
       if (quotaDraft.on) draftAmount(quotaDraft);
       if (editing) {
-        await api.setUser(hub, userName, body);
+        if (profileChanged) await api.setUser(hub, userName, body);
       } else {
         if (authType === 1 && !password) throw new Error("A password-authenticated user needs a password.");
         body.Name_str = userName;
@@ -190,9 +199,9 @@ export function UserSheet({
           <button
             className="btn btn--primary"
             onClick={save}
-            disabled={busy || (!editing && !name.trim())}
+            disabled={busy || !quotaLoaded || (!editing && !name.trim())}
           >
-            {busy && <span className="spin" />}
+            {(busy || !quotaLoaded) && <span className="spin" />}
             {editing ? t("Save") : t("Create user")}
           </button>
         </>
@@ -279,15 +288,15 @@ export function UserSheet({
           <input className="input mono" type="datetime-local" value={expires} onChange={(e) => setExpires(e.target.value)} />
         </Field>
 
-        <UserQuotaBlock
+        {quotaLoaded && <UserQuotaBlock
           quota={quota}
           draft={quotaDraft}
           raw={existing ? userBytes(existing) : undefined}
           onChange={(next) => {
             setQuotaDraft(next);
-            setQuotaTouched(true);
+            quotaTouched.current = true;
           }}
-        />
+        />}
       </div>
     </Sheet>
   );

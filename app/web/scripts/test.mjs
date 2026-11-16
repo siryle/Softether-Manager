@@ -41,24 +41,39 @@ function backend(text = async () => "{}") {
 
 function component(file, exports, states, modules) {
   let index = 0;
+  let refIndex = 0;
+  const refs = [];
   const placeholder = () => null;
   const stubs = new Proxy({}, { get: () => placeholder });
-  return load(file, {}, {
+  const loaded = load(file, {}, {
     react: {
-      useState: initial => [states[index++] ?? (typeof initial === "function" ? initial() : initial), () => {}],
-      useEffect() {}, useCallback: fn => fn, useRef: value => ({ current: value }),
+      useState: initial => {
+        const slot = index++;
+        if (!(slot in states)) states[slot] = typeof initial === "function" ? initial() : initial;
+        return [states[slot], value => { states[slot] = typeof value === "function" ? value(states[slot]) : value; }];
+      },
+      useEffect() {}, useCallback: fn => fn,
+      useRef: value => refs[refIndex++] ??= { current: value },
     },
+    "./bits": stubs,
     "../components/bits": stubs,
     "../../components/bits": stubs,
     "../ui/Sheet": stubs, "../../ui/Sheet": stubs,
     "../ui/Icon": stubs, "../../ui/Icon": stubs,
     "../ui/Status": stubs, "../ui/Switch": stubs,
     "../lib/router": stubs,
-    "../lib/i18n": { t: value => value }, "../../lib/i18n": { t: value => value },
-    "../lib/toast": { useToast: () => ({ guard: fn => fn() }) },
+    "../lib/i18n": { t: value => value, useI18n: () => ({ t: value => value }) }, "../../lib/i18n": { t: value => value, useI18n: () => ({ t: value => value }) },
+    "../lib/toast": { useToast: () => ({ guard: fn => fn(), push() {} }) },
     "../../lib/toast": { useToast: () => ({ guard: fn => fn() }) },
     ...modules,
   }, `\nexport { ${exports} };`);
+  const render = loaded[exports];
+  loaded[exports] = (...args) => {
+    index = 0;
+    refIndex = 0;
+    return render(...args);
+  };
+  return loaded;
 }
 
 function find(element, predicate) {
@@ -109,4 +124,50 @@ test("RADIUS address edits retain the existing shared secret", async () => {
   assert.ok(save);
   await save.props.onClick();
   assert.equal(JSON.parse(client.requests[0].body).RadiusSecret_str, "existing shared secret");
+});
+
+function userEditor(client, draft) {
+  const quota = component("../src/components/QuotaCard.tsx", "saveUserQuotaDraft", [], {
+    "../lib/api": { api: client.api }, "../lib/util": {},
+  });
+  const states = [];
+  states[15] = draft;
+  states[16] = true;
+  const { UserSheet } = component("../src/components/UserSheet.tsx", "UserSheet", states, {
+    "../lib/api": { ...client, useServerApi: () => client.createServerApi(1) },
+    "../lib/se": load("../src/lib/se.ts"), "../lib/util": {}, "./QuotaCard": quota,
+  });
+  const props = { hub: "DEFAULT", existing: { Name_str: "admin", Realname_utf: "Admin", AuthType_u32: 1 }, onClose() {}, onSaved() {} };
+  return () => UserSheet(props);
+}
+
+const resetDraft = { on: false, limit: "", unit: "GB", metric: "total", enforce: true, reset: true };
+
+test("resetting transfer alone never rewrites the VPN user profile", async () => {
+  const client = backend();
+  const render = userEditor(client, { ...resetDraft });
+  const sheet = render();
+  const save = find(sheet.props.footer, node => node.type === "button" && node.props.className.includes("btn--primary"));
+  await save.props.onClick();
+  assert.deepEqual(client.requests.map(r => [r.method, r.url]), [["POST", "api/v1/quotas/user/DEFAULT/admin/reset"]]);
+});
+
+test("an actual profile edit still saves alongside a transfer reset", async () => {
+  const client = backend();
+  const render = userEditor(client, { ...resetDraft });
+  const name = find(render(), node => node.type === "input" && node.props.value === "Admin");
+  name.props.onChange({ target: { value: "Renamed admin" } });
+  const save = find(render().props.footer, node => node.type === "button" && node.props.className.includes("btn--primary"));
+  await save.props.onClick();
+  assert.deepEqual(client.requests.map(r => r.method), ["PUT", "POST"]);
+  assert.equal(JSON.parse(client.requests[0].body).Realname_utf, "Renamed admin");
+});
+
+test("a limit and transfer reset are sent as one operation", async () => {
+  const client = backend();
+  const render = userEditor(client, { ...resetDraft, on: true, limit: "1" });
+  const save = find(render().props.footer, node => node.type === "button" && node.props.className.includes("btn--primary"));
+  await save.props.onClick();
+  assert.deepEqual(client.requests.map(r => [r.method, r.url]), [["PUT", "api/v1/quotas/user/DEFAULT/admin"]]);
+  assert.equal(JSON.parse(client.requests[0].body).reset, true);
 });

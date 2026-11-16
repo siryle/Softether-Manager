@@ -256,8 +256,16 @@ func (a *App) registerQuotas() {
 				defer lock.Unlock()
 				hub, name := r.PathValue("hub"), r.PathValue("name")
 				row := a.quotaRow(serverID, subject, hub, name)
+				reset := action == "reset"
 				if action == "set" {
 					b := readBody(w, r)
+					if value, exists := b["reset"]; exists {
+						on, ok := value.(bool)
+						if !ok {
+							fail(422, "reset must be a boolean.")
+						}
+						reset = on
+					}
 					amount := number(b["limit"])
 					if _, ok := b["limit"]; !ok || math.IsNaN(amount) || math.IsInf(amount, 0) || amount < 0 || amount > 1e6 {
 						fail(422, "Limit must be between 0 and 1000000.")
@@ -294,14 +302,15 @@ func (a *App) registerQuotas() {
 					if row == nil {
 						a.saveQuota(serverID, subject, hub, name, 0, "total", true)
 					}
-					check(a.refreshQuota(r.Context(), serverID, subject, hub, name))
-					row = a.quotaRow(serverID, subject, hub, name)
-					a.releaseQuota(r.Context(), row)
-					execute(a.db, `UPDATE TrafficQuota SET BaseSendBytes=LastSendBytes,BaseRecvBytes=LastRecvBytes,CycleStartDate=?,ExceededDate=NULL,UpdatedDate=? WHERE TrafficQuotaID=?`, now(), now(), row["TrafficQuotaID"])
 				} else if row == nil {
 					fail(404, "No traffic limit is set on this subject.")
 				}
 				check(a.refreshQuota(r.Context(), serverID, subject, hub, name))
+				if reset {
+					row = a.quotaRow(serverID, subject, hub, name)
+					a.releaseQuota(r.Context(), row)
+					execute(a.db, `UPDATE TrafficQuota SET BaseSendBytes=LastSendBytes,BaseRecvBytes=LastRecvBytes,CycleStartDate=?,ExceededDate=NULL,UpdatedDate=? WHERE TrafficQuotaID=?`, now(), now(), row["TrafficQuotaID"])
+				}
 				if action != "get" {
 					a.enforceQuota(r.Context(), a.quotaRow(serverID, subject, hub, name))
 					a.audit(u, "quota."+action, subject, hub, name)
