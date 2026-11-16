@@ -1035,22 +1035,6 @@
     var(--nm-inset-sm),
     0 0 0 2px var(--accent-line);
 }
-.switch__word {
-  font-size: var(--t-micro);
-  font-weight: 700;
-  white-space: nowrap;
-  min-width: 2.4em;
-  text-align: start;
-}
-.switch--on .switch__word {
-  color: var(--accent);
-}
-@media (hover: hover) and (pointer: fine) {
-  .switch:not(:disabled):hover .switch__word {
-    color: var(--text);
-  }
-}
-
 /* the verdict after a change */
 .outcome {
   display: inline-block;

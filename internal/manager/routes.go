@@ -56,10 +56,11 @@ func (a *App) registerCustomRPC() {
 		all := a.rpc(r.Context(), "EnumListener", nil)["ListenerList"]
 		for _, entry := range list(all) {
 			if integer(entry["Ports_u32"]) == int64(port) {
-				entry["enabled"] = boolean(entry["Enables_bool"])
-				entry["ListenerList"] = all
+				out := clone(entry)
+				out["enabled"] = boolean(entry["Enables_bool"])
+				out["ListenerList"] = all
 				a.audit(u, "listener.toggled", "server", "", str(port))
-				return entry
+				return out
 			}
 		}
 		fail(404, "No listener on this port.")

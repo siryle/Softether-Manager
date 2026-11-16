@@ -364,6 +364,7 @@ type fakeSoftEther struct {
 	mu                    sync.Mutex
 	calls                 []M
 	logSettings           M
+	listeners             []M
 	hubOnline, userAccess bool
 	send, recv            int64
 	failRestore           bool
@@ -392,6 +393,14 @@ func attachSoftEther(t *testing.T, a *App) *fakeSoftEther {
 		params := object(req["params"])
 		out := clone(params)
 		switch method {
+		case "EnumListener":
+			out = M{"ListenerList": fake.listeners}
+		case "EnableListener":
+			for _, listener := range fake.listeners {
+				if integer(listener["Ports_u32"]) == integer(params["Port_u32"]) {
+					listener["Enables_bool"] = boolean(params["Enable_bool"])
+				}
+			}
 		case "SetHubLog":
 			fake.logSettings = clone(params)
 		case "GetHubLog":

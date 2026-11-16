@@ -158,6 +158,40 @@ func TestHubLogSettingsSave(t *testing.T) {
 	}
 }
 
+func TestListenerToggleReturnsJSON(t *testing.T) {
+	a := testApp(t)
+	token := admin(t, a)
+	fake := attachSoftEther(t, a)
+	fake.mu.Lock()
+	fake.listeners = []M{
+		{"Ports_u32": 1194, "Enables_bool": true, "Errors_bool": false},
+		{"Ports_u32": 5555, "Enables_bool": true, "Errors_bool": false},
+	}
+	fake.mu.Unlock()
+	for _, enabled := range []bool{false, true, false} {
+		status, out, rec := call(t, a, "PUT", "/api/v1/server/listeners/1194", M{"enable": enabled}, token)
+		if status != 200 || !json.Valid(rec.Body.Bytes()) {
+			t.Fatalf("toggle enabled=%t: status=%d body=%q", enabled, status, rec.Body.String())
+		}
+		if out["enabled"] != enabled || out["Enables_bool"] != enabled || integer(out["Ports_u32"]) != 1194 {
+			t.Fatalf("toggle response: %v", out)
+		}
+		listeners := list(out["ListenerList"])
+		if len(listeners) != 2 || listeners[0]["Enables_bool"] != enabled || listeners[1]["Enables_bool"] != true {
+			t.Fatalf("listener states: %v", listeners)
+		}
+		for _, listener := range listeners {
+			if _, exists := listener["ListenerList"]; exists {
+				t.Fatal("response metadata was added to a listener in the list")
+			}
+		}
+		status, out, _ = call(t, a, "GET", "/api/v1/server/listeners", nil, token)
+		if status != 200 || list(out["ListenerList"])[0]["Enables_bool"] != enabled {
+			t.Fatalf("listener readback: %d %v", status, out)
+		}
+	}
+}
+
 func TestUnsignedWireValues(t *testing.T) {
 	for _, tc := range []struct {
 		name, key, value string

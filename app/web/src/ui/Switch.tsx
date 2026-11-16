@@ -128,8 +128,8 @@ export function useToggle({ value, apply, reload, noun, onWord = "on", offWord =
   return { pending: target !== null, target, outcome, toggle };
 }
 
-/** The control itself: a pressed track with a raised knob, the word beside it
- *  saying what state it is in -- or what state it is moving to. */
+/** The control itself: a pressed track with a raised knob.
+ *  State text is exposed through the tooltip and accessibility attributes. */
 export function Switch({
   on,
   pending,
@@ -139,7 +139,6 @@ export function Switch({
   label,
   onWord = "on",
   offWord = "off",
-  word = true,
 }: {
   on: boolean;
   pending?: boolean;
@@ -150,8 +149,6 @@ export function Switch({
   label: string;
   onWord?: string;
   offWord?: string;
-  /** Render the state word next to the track. */
-  word?: boolean;
 }) {
   const { t } = useI18n();
   const busy = Boolean(pending);
@@ -192,7 +189,6 @@ export function Switch({
           ) : null}
         </span>
       </span>
-      {word && <span className="switch__word">{text}</span>}
     </button>
   );
 }

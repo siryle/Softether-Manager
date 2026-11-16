@@ -76,32 +76,34 @@ function ListenersCard() {
       >
         {t("TCP listeners")}
       </SectionTitle>
-      <div className="card" style={{ padding: "var(--s3) var(--s4)" }}>
+      <div className="card listeners-card" style={{ padding: "var(--s3) var(--s4)" }}>
         {listeners === null ? (
           <LoadingBlock />
         ) : (
-          listeners.map((l) => (
-            <div key={String(l.Ports_u32)} className="lrow">
-              <span className="mono" style={{ fontSize: "var(--t-data)", fontWeight: 600 }}>{String(l.Ports_u32)}</span>
-              {l.Errors_bool ? (
-                <span title={t("The port is enabled but could not be opened — something else holds it.")}><Pill kind="err" label="cannot open" /></span>
-              ) : (
-                <OnlinePill online={Boolean(l.Enables_bool)} onLabel="listening" offLabel="disabled" />
-              )}
-              <span style={{ flex: 1 }} />
-              <ListenerSwitch listener={l} reload={load} />
-              <button
-                className="btn btn--sm btn--ghost"
-                onClick={() => void guard(async () => {
-                  await api.deleteListener(Number(l.Ports_u32));
-                  await load();
-                }, t("Listener {port} deleted.", { port: String(l.Ports_u32) }))}
-                aria-label={t("Delete listener")}
-              >
-                <IconTrash size={14} />
-              </button>
-            </div>
-          ))
+          <div className="listener-grid">
+            {listeners.map((l) => (
+              <div key={String(l.Ports_u32)} className="lrow">
+                <span className="mono" style={{ fontSize: "var(--t-data)", fontWeight: 600 }}>{String(l.Ports_u32)}</span>
+                {l.Errors_bool ? (
+                  <span title={t("The port is enabled but could not be opened — something else holds it.")}><Pill kind="err" label="cannot open" /></span>
+                ) : (
+                  <OnlinePill online={Boolean(l.Enables_bool)} onLabel="listening" offLabel="disabled" />
+                )}
+                <span style={{ flex: 1 }} />
+                <ListenerSwitch listener={l} reload={load} />
+                <button
+                  className="btn btn--sm btn--ghost"
+                  onClick={() => void guard(async () => {
+                    await api.deleteListener(Number(l.Ports_u32));
+                    await load();
+                  }, t("Listener {port} deleted.", { port: String(l.Ports_u32) }))}
+                  aria-label={t("Delete listener")}
+                >
+                  <IconTrash size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
         )}
         {special && (
           <div style={{ marginTop: "var(--s3)" }}>
@@ -267,29 +269,86 @@ function AzureSwitch({ azure, onFresh }: { azure: Wire; onFresh: (fresh: Wire) =
   );
 }
 
-function ProtocolsCard() {
-  const [ipsec, setIpsec] = useState<Wire | null>(null);
-  const [openvpn, setOpenvpn] = useState<Wire | null>(null);
+function AzureDdnsCard() {
   const [azure, setAzure] = useState<Wire | null>(null);
   const [ddns, setDdns] = useState<Wire | null>(null);
-  const [hubs, setHubs] = useState<string[]>([]);
-  const [secret, setSecret] = useState("");
-  const [dirty, setDirty] = useState<Record<string, boolean>>({});
+  const [azureError, setAzureError] = useState<string | null>(null);
+  const [ddnsError, setDdnsError] = useState<string | null>(null);
   const [ddnsHost, setDdnsHost] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
   const { guard } = useToast();
 
   const load = useCallback(async () => {
-    const [i, o, a, d, h] = await Promise.all([
+    setRefreshing(true);
+    await Promise.all([
+      api.azure().then((r) => {
+        setAzure(r);
+        setAzureError(null);
+      }).catch((e: unknown) => setAzureError(e instanceof Error ? e.message : String(e))),
+      api.ddns().then((r) => {
+        setDdns(r);
+        setDdnsError(null);
+      }).catch((e: unknown) => setDdnsError(e instanceof Error ? e.message : String(e))),
+    ]);
+    setRefreshing(false);
+  }, []);
+  usePoll(load, "list", []);
+
+  return (
+    <div className="card" style={{ padding: "var(--s4)" }}>
+      <div className="section__t" style={{ marginBottom: "var(--s3)" }}>{t("VPN Azure & dynamic DNS")}</div>
+      {azureError ? (
+        <ErrorAlert><span role="alert">{t("Could not load VPN Azure: {error}", { error: azureError })}</span></ErrorAlert>
+      ) : azure ? (
+        <AzureSwitch azure={azure} onFresh={setAzure} />
+      ) : <LoadingBlock label="Loading VPN Azure" />}
+      {ddnsError ? (
+        <ErrorAlert><span role="alert">{t("Could not load dynamic DNS: {error}", { error: ddnsError })}</span></ErrorAlert>
+      ) : ddns ? (
+        <>
+          <KV rows={[
+            ["DDNS hostname", String(ddns.CurrentHostName_str || "—")],
+            ["FQDN", String(ddns.CurrentFqdn_str || "—")],
+            ["IPv4", String(ddns.CurrentIPv4_str || "—")],
+            ["last error", Number(ddns.Err_IPv4_u32 ?? 0) === 0 ? t("none") : String(ddns.ErrStr_IPv4_utf || t("code {n}", { n: String(ddns.Err_IPv4_u32) }))],
+          ]} />
+          <Field label="Change DDNS hostname" hint="The name half of <name>.softether.net — it must be globally unused.">
+            <div style={{ display: "flex", gap: "var(--s2)" }}>
+              <input className="input mono" value={ddnsHost} onChange={(e) => setDdnsHost(e.target.value)} placeholder={String(ddns.CurrentHostName_str ?? "")} autoCapitalize="none" spellCheck={false} />
+              <button className="btn" disabled={!ddnsHost.trim()} onClick={() => void guard(async () => {
+                await api.setDdnsHostname(ddnsHost.trim());
+                setDdnsHost("");
+                await load();
+              }, "DDNS hostname changed.")}>
+                {t("Apply")}
+              </button>
+            </div>
+          </Field>
+        </>
+      ) : <LoadingBlock label="Loading dynamic DNS" />}
+      {(azureError || ddnsError) && (
+        <button className="btn" disabled={refreshing} onClick={() => void load()}>{t("Retry")}</button>
+      )}
+    </div>
+  );
+}
+
+function ProtocolsCard() {
+  const [ipsec, setIpsec] = useState<Wire | null>(null);
+  const [openvpn, setOpenvpn] = useState<Wire | null>(null);
+  const [hubs, setHubs] = useState<string[]>([]);
+  const [secret, setSecret] = useState("");
+  const [dirty, setDirty] = useState<Record<string, boolean>>({});
+  const { guard } = useToast();
+
+  const load = useCallback(async () => {
+    const [i, o, h] = await Promise.all([
       api.ipsec().catch(() => null),
       api.openvpn().catch(() => null),
-      api.azure().catch(() => null),
-      api.ddns().catch(() => null),
       api.hubs().catch(() => null),
     ]);
     if (!dirty.ipsec && i) { setIpsec(i); setSecret(String(i.IPsec_Secret_str ?? "")); }
     if (!dirty.openvpn && o) setOpenvpn(o);
-    if (a) setAzure(a);
-    if (d) setDdns(d);
     if (h) setHubs(((h.HubList as Wire[]) ?? []).map((x) => String(x.HubName_str)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -376,35 +435,7 @@ function ProtocolsCard() {
           )}
         </div>
 
-        {/* Azure + DDNS */}
-        <div className="card" style={{ padding: "var(--s4)" }}>
-          <div className="section__t" style={{ marginBottom: "var(--s3)" }}>{t("VPN Azure & dynamic DNS")}</div>
-          {!azure || !ddns ? (
-            <LoadingBlock />
-          ) : (
-            <>
-              <AzureSwitch azure={azure} onFresh={setAzure} />
-              <KV rows={[
-                ["DDNS hostname", String(ddns.CurrentHostName_str || "—")],
-                ["FQDN", String(ddns.CurrentFqdn_str || "—")],
-                ["IPv4", String(ddns.CurrentIPv4_str || "—")],
-                ["last error", Number(ddns.Err_IPv4_u32 ?? 0) === 0 ? t("none") : String(ddns.ErrStr_IPv4_utf || t("code {n}", { n: String(ddns.Err_IPv4_u32) }))],
-              ]} />
-              <Field label="Change DDNS hostname" hint="The name half of <name>.softether.net — it must be globally unused.">
-                <div style={{ display: "flex", gap: "var(--s2)" }}>
-                  <input className="input mono" value={ddnsHost} onChange={(e) => setDdnsHost(e.target.value)} placeholder={String(ddns.CurrentHostName_str ?? "")} autoCapitalize="none" spellCheck={false} />
-                  <button className="btn" disabled={!ddnsHost.trim()} onClick={() => void guard(async () => {
-                    await api.setDdnsHostname(ddnsHost.trim());
-                    setDdnsHost("");
-                    await load();
-                  }, "DDNS hostname changed.")}>
-                    {t("Apply")}
-                  </button>
-                </div>
-              </Field>
-            </>
-          )}
-        </div>
+        <AzureDdnsCard />
       </div>
     </section>
   );
