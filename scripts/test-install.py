@@ -22,11 +22,21 @@ class InstallerTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.bin = self.root / "bin"
         self.bin.mkdir()
+        (self.root / "tmp").mkdir()
         self.env = dict(os.environ, PATH=str(self.bin) + os.pathsep + os.environ["PATH"],
-                        TEST_INSTALL_ROOT=str(self.root), EXPECTED_PASSWORD='  test "password" \\ 密码  ')
+                        TEST_INSTALL_ROOT=str(self.root), TMPDIR=str(self.root / "tmp"), REAL_MKTEMP=shutil.which("mktemp"), EXPECTED_PASSWORD='  test "password" \\ 密码  ')
+        self.executable("mktemp", '''#!/bin/sh
+if [ "$#" -eq 1 ] && [ "$1" = -d ]; then
+  exec "$REAL_MKTEMP" -d "$TMPDIR/sem.XXXXXX"
+fi
+exec "$REAL_MKTEMP" "$@"
+''')
         self.executable("uname", '#!/bin/sh\ncase "$1" in -s) echo Linux;; -m) echo x86_64;; esac\n')
         self.executable("systemctl", '''#!/bin/sh
 printf '%s\n' "$*" >> "$TEST_INSTALL_ROOT/services.log"
+if [ "$1" = stop ] && [ -n "$FAIL_ROLLBACK_STOP" ] && [ "$(cat "$TEST_INSTALL_ROOT/data/account" 2>/dev/null)" = 'failed migration' ]; then
+  exit 1
+fi
 if [ "$1" = restart ] && [ "$2" = softether-manager ]; then
   test -f "$TEST_INSTALL_ROOT/data/account" || exit 1
   if [ -n "$FAIL_NEW_START" ] && [ "$(head -n1 "$TEST_INSTALL_ROOT/app/VERSION")" = 1.0.0 ]; then
@@ -169,6 +179,37 @@ exec "$REAL_CP" "$@"
         self.assertIn("restoring the previous installation", result.stderr)
         self.assertTrue((self.root / "services.log").read_text().rstrip().endswith("restart softether-manager"))
         self.assertFalse(list(self.root.glob("app.previous.*")))
+
+    def test_rollback_never_replaces_data_when_service_cannot_stop(self):
+        first = self.run_install()
+        self.assertEqual(first.returncode, 0, first.stderr)
+        (self.root / "app/VERSION").write_text("0.9.0\n")
+        self.env.update(FAIL_NEW_START="1", FAIL_ROLLBACK_STOP="1")
+        result = self.run_install("--upgrade")
+        self.assertEqual(result.returncode, 17, result.stderr)
+        self.assertEqual((self.root / "app/VERSION").read_text(), "1.0.0\n")
+        self.assertEqual((self.root / "data/account").read_text(), "failed migration")
+        self.assertTrue((self.root / "services.log").read_text().rstrip().endswith("stop softether-manager"))
+        self.assertTrue(list(self.root.glob("app.previous.*")))
+        self.assertTrue(list((self.root / "tmp").glob("*/previous-data/account")))
+        self.assertIn("Recovery needs attention", result.stderr)
+
+    def test_rollback_does_not_start_service_after_data_restore_fails(self):
+        first = self.run_install()
+        self.assertEqual(first.returncode, 0, first.stderr)
+        (self.root / "app/VERSION").write_text("0.9.0\n")
+        self.env.update(FAIL_NEW_START="1", REAL_CP=shutil.which("cp"))
+        self.executable("cp", '''#!/bin/sh
+case "$*" in *previous-data*"$TEST_INSTALL_ROOT/data"*) exit 99;; esac
+exec "$REAL_CP" "$@"
+''')
+        result = self.run_install("--upgrade")
+        self.assertEqual(result.returncode, 17, result.stderr)
+        services = (self.root / "services.log").read_text().splitlines()
+        self.assertNotEqual(services[-1], "restart softether-manager")
+        self.assertFalse((self.root / "data/account").exists())
+        self.assertTrue(list((self.root / "tmp").glob("*/previous-data/account")))
+        self.assertIn("Recovery needs attention", result.stderr)
 
     def test_bad_softether_checksum_never_unpacks_or_builds(self):
         # Execute the production VPN installer function with a deliberately bad archive.

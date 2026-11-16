@@ -700,6 +700,7 @@ const zhCN: Record<string, string> = {
   "generating the certificate key": "正在生成证书密钥",
 
   // --- Connection files ---
+  "Release this server's enforced quotas before changing its address, disabling it, or removing the connection.": "请先解除该服务器已执行的配额限制，再修改地址、停用或移除连接。",
   "Reload the access list before saving changes.": "请重新加载访问规则后再保存。",
   "The access list changed. Reload it before saving changes.": "访问规则已被修改，请重新加载后再保存。",
   "This hub is over its traffic limit. Raise or reset the limit before bringing it online.": "该 HUB 的流量已超限，请提高限额或清零后再上线。",

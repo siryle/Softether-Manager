@@ -27,7 +27,8 @@ and live network throughput, each with a few minutes of sparkline history.
 list. Search and switch from the top bar; each browser tab selects its own target.
 Traffic, quotas, sessions, VPN credentials and audit records are isolated by server.
 Panel accounts, domain and HTTPS settings are shared. Resource telemetry always
-refers to the panel host.
+refers to the panel host. Release any enforced quotas before changing a server's
+address, disabling it or removing its connection, so the panel can restore VPN access first.
 
 **Manages SoftEther.** The panel is built on a complete client for the
 SoftEther JSON-RPC suite, organised by where things

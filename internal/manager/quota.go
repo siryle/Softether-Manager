@@ -53,6 +53,11 @@ func (a *App) saveQuota(serverID int64, subject, hub, name string, limit int64, 
 	}
 	execute(a.db, `INSERT INTO TrafficQuota(ServerID,SubjectType,HubName,UserName,UserKey,LimitBytes,Metric,IsEnabled,CycleStartDate,CreatedDate,UpdatedDate) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(ServerID,SubjectType,HubName,UserKey) DO UPDATE SET UserName=excluded.UserName,LimitBytes=excluded.LimitBytes,Metric=excluded.Metric,IsEnabled=excluded.IsEnabled,UpdatedDate=excluded.UpdatedDate`, serverID, subject, hub, name, fold(name), limit, metric, enabled, now(), now(), now())
 }
+func (a *App) requireReleasedQuotas(serverID int64) {
+	if one(a.db, `SELECT 1 FROM TrafficQuota WHERE ServerID=? AND RestoreState!='' LIMIT 1`, serverID) != nil {
+		fail(409, "Release this server's enforced quotas before changing its address, disabling it, or removing the connection.")
+	}
+}
 func (a *App) quotaLock(serverID int64) *sync.Mutex {
 	a.quotaMu.Lock()
 	defer a.quotaMu.Unlock()

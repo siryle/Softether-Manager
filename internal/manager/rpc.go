@@ -207,6 +207,9 @@ func (a *App) saveConnection(host string, port int, password *string, auth strin
 	defer a.connectionMu.Unlock()
 	id := a.serverIDFromContext(c)
 	row := a.serverRow(id)
+	if !strings.EqualFold(str(row["Host"]), host) || integer(row["Port"]) != int64(port) {
+		a.requireReleasedQuotas(id)
+	}
 	if one(a.db, `SELECT ServerID FROM Server WHERE lower(Host)=lower(?) AND Port=? AND ServerID!=?`, host, port, id) != nil {
 		fail(409, "A server with this address and port already exists.")
 	}

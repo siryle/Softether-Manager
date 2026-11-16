@@ -266,19 +266,25 @@ func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string)
 		}
 		seen[key] = true
 		var down, up int64
+		sampled := false
 		if series {
 			func() {
-				defer func() { _ = recover() }()
+				defer func() {
+					if p := recover(); p != nil {
+						log.Printf("session traffic %d/%s/%s: %v", serverID, hub, key, p)
+					}
+				}()
 				status := a.rpc(ctx, "GetSessionStatus", M{"HubName_str": hub, "Name_str": s["Name_str"]})
 				down, up = bytesFor(status, "")
+				sampled = true
 			}()
 		}
 		started := str(s["CreatedTime_dt"])
 		if started == "" {
 			started = stamp
 		}
-		execute(a.db, `INSERT INTO VpnSessionSample(ServerID,HubName,UserName,SessionKey,ClientIP,ClientHostname,StartedDate,LastSeenDate,BytesTotal,PacketsTotal,DownloadBytes,UploadBytes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(ServerID,HubName,SessionKey) DO UPDATE SET LastSeenDate=excluded.LastSeenDate,BytesTotal=excluded.BytesTotal,PacketsTotal=excluded.PacketsTotal,DownloadBytes=excluded.DownloadBytes,UploadBytes=excluded.UploadBytes`, serverID, hub, str(s["Username_str"]), key, str(s["ClientIP_ip"]), str(s["Hostname_str"]), started, stamp, integer(s["PacketSize_u64"]), integer(s["PacketNum_u64"]), down, up)
-		if series {
+		execute(a.db, `INSERT INTO VpnSessionSample(ServerID,HubName,UserName,SessionKey,ClientIP,ClientHostname,StartedDate,LastSeenDate,BytesTotal,PacketsTotal,DownloadBytes,UploadBytes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(ServerID,HubName,SessionKey) DO UPDATE SET LastSeenDate=excluded.LastSeenDate,BytesTotal=excluded.BytesTotal,PacketsTotal=excluded.PacketsTotal,DownloadBytes=CASE WHEN ? THEN excluded.DownloadBytes ELSE VpnSessionSample.DownloadBytes END,UploadBytes=CASE WHEN ? THEN excluded.UploadBytes ELSE VpnSessionSample.UploadBytes END`, serverID, hub, str(s["Username_str"]), key, str(s["ClientIP_ip"]), str(s["Hostname_str"]), started, stamp, integer(s["PacketSize_u64"]), integer(s["PacketNum_u64"]), down, up, sampled, sampled)
+		if sampled {
 			row := one(a.db, `SELECT VpnSessionSampleID FROM VpnSessionSample WHERE ServerID=? AND HubName=? AND SessionKey=?`, serverID, hub, key)
 			if row != nil {
 				execute(a.db, `INSERT INTO VpnSessionTrafficSample(VpnSessionSampleID,DownloadBytes,UploadBytes,TotalBytes,SampledDate) VALUES(?,?,?,?,?)`, row["VpnSessionSampleID"], down, up, integer(s["PacketSize_u64"]), stamp)

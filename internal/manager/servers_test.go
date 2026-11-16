@@ -301,7 +301,11 @@ func TestMultiServerSamplesQuotasAndCredentials(t *testing.T) {
 	if status != 404 {
 		t.Fatal("another server's session history was accessible")
 	}
-	status, out, _ := callServer(t, a, second, "DELETE", "/api/v1/servers/"+str(first), nil, token)
+	status, out, _ := callServer(t, a, first, "PUT", "/api/v1/quotas/user/VPN/Alice/enabled", M{"enabled": false}, token)
+	if status != 200 || boolean(out["blocked"]) {
+		t.Fatalf("release before removal: %d %v", status, out)
+	}
+	status, out, _ = callServer(t, a, second, "DELETE", "/api/v1/servers/"+str(first), nil, token)
 	if status != 200 {
 		t.Fatalf("remove: %d %v", status, out)
 	}

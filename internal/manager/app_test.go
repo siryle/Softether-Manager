@@ -377,6 +377,7 @@ type fakeSoftEther struct {
 	radius                M
 	access, ac            []M
 	failRestore           bool
+	failSessionStatus     bool
 }
 
 func attachSoftEther(t *testing.T, a *App) *fakeSoftEther {
@@ -441,6 +442,10 @@ func attachSoftEther(t *testing.T, a *App) *fakeSoftEther {
 		case "EnumSession":
 			out = M{"SessionList": []M{{"Name_str": "SID/ABC", "Username_str": "ALICE", "UniqueId_bin": "stable-key", "ClientIP_ip": "192.0.2.1", "CreatedTime_dt": now(), "PacketSize_u64": fake.send + fake.recv}}}
 		case "GetSessionStatus":
+			if fake.failSessionStatus {
+				writeJSON(w, 200, M{"jsonrpc": "2.0", "id": req["id"], "error": M{"code": 1, "message": "ERR_BUSY"}})
+				return
+			}
 			out = M{"Send.UnicastBytes_u64": fake.send, "Recv.UnicastBytes_u64": fake.recv}
 		case "GetHubRadius":
 			out = clone(fake.radius)

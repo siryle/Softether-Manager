@@ -88,6 +88,9 @@ func (a *App) registerServers() {
 				existing = a.serverRow(serverID(r))
 			}
 			row := a.serverInput(existing, body)
+			if method == "PUT" && (!strings.EqualFold(str(existing["Host"]), str(row["Host"])) || integer(existing["Port"]) != integer(row["Port"]) || (boolean(existing["IsEnabled"]) && !boolean(row["IsEnabled"]))) {
+				a.requireReleasedQuotas(integer(existing["ServerID"]))
+			}
 			if !boolean(body["skip_test"]) && (method == "POST" || body["host"] != nil || body["port"] != nil || body["password"] != nil || body["auth"] != nil) {
 				pwd, err := a.decrypt(str(row["EncryptedPassword"]))
 				check(err)
@@ -146,6 +149,7 @@ func (a *App) registerServers() {
 		if id == a.serverIDFromContext(r.Context()) {
 			fail(409, "Switch to another server before removing the current connection.")
 		}
+		a.requireReleasedQuotas(id)
 		replacement := one(a.db, `SELECT * FROM Server WHERE ServerID!=? AND IsEnabled=1 ORDER BY SortOrder,ServerID LIMIT 1`, id)
 		if boolean(row["IsDefault"]) && replacement == nil {
 			fail(409, "Choose an enabled default server first.")

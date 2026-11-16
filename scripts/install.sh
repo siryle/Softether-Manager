@@ -750,21 +750,24 @@ cleanup_install() {
   set +e
   if (( result != 0 && ROLLBACK == 1 )); then
     warn "Installation failed; restoring the previous installation and data."
-    systemctl stop "$SERVICE_NAME" >/dev/null 2>&1
-    if ! rm -rf "$APP_DIR" || ! mv "$PREVIOUS_APP" "$APP_DIR"; then recovery_failed=1; fi
-    if [[ -d "$STAGING/previous-data" ]]; then
-      if ! rm -rf "$ROLLBACK_DATA_DIR" || ! cp -a "$STAGING/previous-data" "$ROLLBACK_DATA_DIR"; then recovery_failed=1; fi
-    fi
-    for i in "${!BACKUP_FILES[@]}"; do
-      if [[ -f "$STAGING/previous-file-$i" ]]; then
-        cp -a "$STAGING/previous-file-$i" "${BACKUP_FILES[$i]}" || recovery_failed=1
-      else
-        rm -f "${BACKUP_FILES[$i]}" || recovery_failed=1
+    if systemctl stop "$SERVICE_NAME" >/dev/null 2>&1; then
+      if ! rm -rf "$APP_DIR" || ! mv "$PREVIOUS_APP" "$APP_DIR"; then recovery_failed=1; fi
+      if [[ -d "$STAGING/previous-data" ]]; then
+        if ! rm -rf "$ROLLBACK_DATA_DIR" || ! cp -a "$STAGING/previous-data" "$ROLLBACK_DATA_DIR"; then recovery_failed=1; fi
       fi
-    done
-    systemctl daemon-reload || recovery_failed=1
+      for i in "${!BACKUP_FILES[@]}"; do
+        if [[ -f "$STAGING/previous-file-$i" ]]; then
+          cp -a "$STAGING/previous-file-$i" "${BACKUP_FILES[$i]}" || recovery_failed=1
+        else
+          rm -f "${BACKUP_FILES[$i]}" || recovery_failed=1
+        fi
+      done
+      systemctl daemon-reload || recovery_failed=1
+    else
+      recovery_failed=1
+    fi
   fi
-  if (( result != 0 && SERVICE_STOPPED == 1 )); then
+  if (( result != 0 && SERVICE_STOPPED == 1 && recovery_failed == 0 )); then
     systemctl restart "$SERVICE_NAME" || recovery_failed=1
   fi
   [[ -z "$NEW_APP" ]] || rm -rf "$NEW_APP"
