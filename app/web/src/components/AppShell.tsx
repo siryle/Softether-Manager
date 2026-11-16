@@ -12,6 +12,7 @@ import {
   IconHub,
   IconLogs,
   IconMoon,
+  IconNode,
   IconPanels,
   IconPulse,
   IconSearch,
@@ -35,7 +36,7 @@ import { useTheme } from "../ui/theme";
  *
  * Sidebar:
  *   - Core Network: Dashboard, Hubs, Users, Sessions (with count badges)
- *   - System Management: Logs, API Console, Panel Settings
+ *   - System Management: Server Configuration, Logs, API Console, Panel Settings
  *   - Bottom Hardware Telemetry box (CPU & RAM status)
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -211,6 +212,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <div className="side__gtitle">{t("System Management")}</div>
               <nav className="side__nav">
                 <Link
+                  to="/server-settings"
+                  className={`side__item${active === "server-settings" ? " on" : ""}`}
+                  aria-current={active === "server-settings" ? "page" : undefined}
+                >
+                  <span className="side__item-left">
+                    <IconNode size={16} />
+                    <span>{t("Server configuration")}</span>
+                  </span>
+                </Link>
+
+                <Link
                   to="/logs"
                   className={`side__item${active === "logs" ? " on" : ""}`}
                 >
@@ -232,7 +244,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
                 <Link
                   to="/settings"
-                  className={`side__item${active === "settings" || active === "server-settings" ? " on" : ""}`}
+                  className={`side__item${active === "settings" ? " on" : ""}`}
+                  aria-current={active === "settings" ? "page" : undefined}
                 >
                   <span className="side__item-left">
                     <IconSettings size={16} />
@@ -291,8 +304,9 @@ function TabBar() {
       {tab((p) => p === "" || p === "connect", "/", "Dashboard", <IconPanels size={18} />)}
       {tab((p) => p === "hubs" || p === "hub", "/hubs", "Virtual Hubs", <IconHub size={18} />)}
       {tab((p) => p === "users", "/users", "Users", <IconUsers size={18} />)}
-      {tab((p) => p === "connections", "/connections", "Connections", <IconPulse size={18} />)}
-      {tab((p) => p === "settings" || p === "server-settings", "/settings", "Settings", <IconSettings size={18} />)}
+      {tab((p) => p === "connections", "/connections", "Sessions", <IconPulse size={18} />)}
+      {tab((p) => p === "server-settings", "/server-settings", "Server", <IconNode size={18} />)}
+      {tab((p) => p === "settings", "/settings", "Settings", <IconSettings size={18} />)}
     </nav>
   );
 }

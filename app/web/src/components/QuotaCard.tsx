@@ -134,7 +134,7 @@ export interface QuotaDraft {
 
 export const EMPTY_DRAFT: QuotaDraft = {
   on: false,
-  limit: "50",
+  limit: "",
   unit: "GB",
   metric: "total",
   enforce: true,
@@ -616,29 +616,41 @@ export function QuotaCard({ hub, onChanged }: { hub: string; onChanged?: () => v
   if (!loaded) return null;
 
   return (
-    <div className="card" style={{ padding: "var(--s4)", maxWidth: 640 }}>
+    <div className="card" style={{ padding: "var(--s4)" }}>
       {quota?.has_limit && <QuotaEnforceSwitch quota={quota} subject="hub" onChanged={(next) => { absorb(next); onChanged?.(); }} />}
       {quota?.has_limit ? (
         <QuotaSummary quota={quota} subject="hub" />
       ) : (
         <p className="lede" style={{ marginBottom: "var(--s3)" }}>
-          {t("No traffic limit on this hub. Set one and the panel counts what moves — from SoftEther's own counters, so it survives a restart — and takes the hub offline the moment the ceiling is reached.")}
+          {t("Unlimited. Traffic usage will not take this hub offline. Enable a traffic limit only when you need one.")}
         </p>
       )}
 
-      <QuotaFields draft={draft} onChange={change} />
-
       {!quota?.has_limit && (
         <CheckRow
-          checked={draft.enforce}
-          onChange={(v) => change({ ...draft, enforce: v })}
-          label="Enforce this limit from the start"
-          hint="Off, the counter runs and the meter fills, but the hub is never taken offline — useful for watching what it would use before committing to a ceiling. It can be switched either way afterwards."
+          checked={draft.on}
+          onChange={(on) => on ? change({ ...draft, on }) : adopt(quota)}
+          label="Enable a traffic limit on this hub"
+          hint="Off means unlimited. A limit takes effect only after you enter an amount and save."
         />
       )}
 
+      {draft.on && (
+        <>
+          <QuotaFields draft={draft} onChange={change} />
+          {!quota?.has_limit && (
+            <CheckRow
+              checked={draft.enforce}
+              onChange={(v) => change({ ...draft, enforce: v })}
+              label="Enforce this limit from the start"
+              hint="Off, the counter runs and the meter fills, but the hub is never taken offline — useful for watching what it would use before committing to a ceiling. It can be switched either way afterwards."
+            />
+          )}
+        </>
+      )}
+
       <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap", marginTop: "var(--s3)" }}>
-        {(dirty || !quota?.has_limit) && (
+        {draft.on && (dirty || !quota?.has_limit) && (
           <button className="btn btn--primary" onClick={() => void save()} disabled={saving}>
             {saving && <span className="spin" />} {quota?.has_limit ? t("Save limit") : t("Set the limit")}
           </button>

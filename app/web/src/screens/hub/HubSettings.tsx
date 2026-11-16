@@ -18,15 +18,17 @@ import { IconTrash } from "../../ui/Icon";
  */
 export function HubSettings({ hub, onChanged }: { hub: string; onChanged: () => void }) {
   return (
-    <>
-      <BasicsCard hub={hub} onChanged={onChanged} />
-      <QuotaSection hub={hub} onChanged={onChanged} />
-      <LogCard hub={hub} />
-      <MessageCard hub={hub} />
-      <OptionsCard hub={hub} kind="admin" />
-      <OptionsCard hub={hub} kind="ext" />
+    <div className="hub-settings">
+      <div className="hub-settings-pair">
+        <section><BasicsCard hub={hub} onChanged={onChanged} /></section>
+        <section><QuotaSection hub={hub} onChanged={onChanged} /></section>
+      </div>
+      <section><LogCard hub={hub} /></section>
+      <section><MessageCard hub={hub} /></section>
+      <section><OptionsCard hub={hub} kind="admin" /></section>
+      <section><OptionsCard hub={hub} kind="ext" /></section>
       <DangerCard hub={hub} />
-    </>
+    </div>
   );
 }
 
@@ -78,7 +80,7 @@ function BasicsCard({ hub, onChanged }: { hub: string; onChanged: () => void }) 
   return (
     <>
       <SectionTitle>{t("Hub")}</SectionTitle>
-      <div className="card" style={{ padding: "var(--s4)", maxWidth: 640 }}>
+      <div className="card" style={{ padding: "var(--s4)" }}>
         <div className="row2">
           <Field label="Max concurrent sessions" hint="0 means unlimited.">
             <input className="input mono" type="number" min={0} value={Number(data.MaxSession_u32) || 0} onChange={(e) => set("MaxSession_u32", Number(e.target.value))} />
@@ -158,7 +160,7 @@ function LogCard({ hub }: { hub: string }) {
   return (
     <>
       <SectionTitle>{t("Logging")}</SectionTitle>
-      <div className="card" style={{ padding: "var(--s4)", maxWidth: 640 }}>
+      <div className="card" style={{ padding: "var(--s4)" }}>
         <CheckRow checked={Boolean(data.SaveSecurityLog_bool)} onChange={(v) => set("SaveSecurityLog_bool", v)}
           label="Security log" hint="Logins, disconnections, administrative changes." />
         {Boolean(data.SaveSecurityLog_bool) && (
@@ -177,25 +179,27 @@ function LogCard({ hub }: { hub: string }) {
                 {SWITCH_TYPES.map((s) => <option key={s.v} value={s.v}>{t(s.l)}</option>)}
               </select>
             </Field>
-            {PACKET_KINDS.map((k) => (
-              <Field key={k.i} label={k.l}>
-                <div className="seg seg--packet-log" role="group" aria-label={t(k.l)}>
-                  {["No logging", "Headers only", "Full packet"].map((lbl, v) => (
-                    <button
-                      key={lbl}
-                      className={packetConfig[k.i] === v ? "on" : ""}
-                      aria-pressed={packetConfig[k.i] === v}
-                      onClick={() => {
-                        packetConfig[k.i] = v;
-                        set("PacketLogConfig_u32", packetConfig);
-                      }}
-                    >
-                      {t(lbl)}
-                    </button>
-                  ))}
-                </div>
-              </Field>
-            ))}
+            <div className="hub-log-kinds">
+              {PACKET_KINDS.map((k) => (
+                <Field key={k.i} label={k.l}>
+                  <div className="seg seg--packet-log" role="group" aria-label={t(k.l)}>
+                    {["No logging", "Headers only", "Full packet"].map((lbl, v) => (
+                      <button
+                        key={lbl}
+                        className={packetConfig[k.i] === v ? "on" : ""}
+                        aria-pressed={packetConfig[k.i] === v}
+                        onClick={() => {
+                          packetConfig[k.i] = v;
+                          set("PacketLogConfig_u32", packetConfig);
+                        }}
+                      >
+                        {t(lbl)}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+              ))}
+            </div>
           </>
         )}
         {dirty && <button className="btn btn--primary" onClick={() => void save()}>{t("Save log settings")}</button>}
@@ -220,7 +224,7 @@ function MessageCard({ hub }: { hub: string }) {
   return (
     <>
       <SectionTitle>{t("Message of the day")}</SectionTitle>
-      <div className="card" style={{ padding: "var(--s4)", maxWidth: 640 }}>
+      <div className="card" style={{ padding: "var(--s4)" }}>
         <Field label="Shown to clients when they connect" hint="Empty shows nothing.">
           <textarea className="textarea" rows={4} value={message} onChange={(e) => { setMessage(e.target.value); setDirty(true); }} />
         </Field>

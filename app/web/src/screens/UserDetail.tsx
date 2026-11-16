@@ -210,7 +210,7 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
   const bytes = netBytes(userBytes(user), quota);
 
   return (
-    <div className="page">
+    <div className="page user-detail">
       <PageHead
         title={<span className="mono">{name}</span>}
         sub={
@@ -247,25 +247,27 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
             <span className="chip"><i>{t("group")}</i>{String(user.GroupName_str || "—")}</span>
             <span className="chip"><i>{t("Expires")}</i>{isNever(user.ExpireTime_dt as string) ? t("never") : formatDate(user.ExpireTime_dt as string)}</span>
           </div>
-          <div className="idcard__foot">
+        </div>
+
+        <div className="card user-summary">
+          <div className="user-summary__stats">
             <div className="stat"><span className="stat__n">{formatCount(Number(user.NumLogin_u32))}</span><span className="micro">{t("logins")}</span></div>
             <div className="stat"><span className="stat__n">{formatBytes(bytes.recv)}</span><span className="micro">{t("downloaded")}</span></div>
             <div className="stat"><span className="stat__n">{formatBytes(bytes.send)}</span><span className="micro">{t("uploaded")}</span></div>
             <div className="stat"><span className="stat__n">{sessions?.length ?? 0}</span><span className="micro">{t("online now")}</span></div>
           </div>
-        </div>
-
-        <div className="card" style={{ padding: "var(--s4)" }}>
-          <KV
-            rows={[
-              [t("Created"), formatDate(user.CreatedTime_dt as string)],
-              [t("Updated"), formatDate(user.UpdatedTime_dt as string)],
-              [t("Note"), String(user.Note_utf || "—")],
-              ...(Number(user.AuthType_u32) === 3 && user.CommonName_utf ? [[t("required CN"), String(user.CommonName_utf)] as [string, string]] : []),
-              ...(Number(user.AuthType_u32) === 4 ? [[t("RADIUS user"), String(user.RadiusUsername_utf || name)] as [string, string]] : []),
-              ...(Number(user.AuthType_u32) === 5 ? [[t("NT user"), String(user.NtUsername_utf || name)] as [string, string]] : []),
-            ]}
-          />
+          <div className="user-summary__details">
+            <KV
+              rows={[
+                [t("Created"), formatDate(user.CreatedTime_dt as string)],
+                [t("Updated"), formatDate(user.UpdatedTime_dt as string)],
+                [t("Note"), String(user.Note_utf || "—")],
+                ...(Number(user.AuthType_u32) === 3 && user.CommonName_utf ? [[t("required CN"), String(user.CommonName_utf)] as [string, string]] : []),
+                ...(Number(user.AuthType_u32) === 4 ? [[t("RADIUS user"), String(user.RadiusUsername_utf || name)] as [string, string]] : []),
+                ...(Number(user.AuthType_u32) === 5 ? [[t("NT user"), String(user.NtUsername_utf || name)] as [string, string]] : []),
+              ]}
+            />
+          </div>
         </div>
       </div>
 
@@ -278,7 +280,7 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
           >
             {t("Traffic limit")}
           </SectionTitle>
-          <div className="card" style={{ padding: "var(--s4)", maxWidth: 640 }}>
+          <div className="card" style={{ padding: "var(--s4)" }}>
             <QuotaEnforceSwitch quota={quota} subject="user" onChanged={setQuota} />
             <QuotaSummary quota={quota} subject="user" net={bytes} />
           </div>

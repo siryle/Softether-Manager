@@ -130,26 +130,23 @@ export function HubSecureNat({ hub }: { hub: string }) {
       </div>
 
       <SectionTitle>{t("Virtual router")}</SectionTitle>
-      <div className="card" style={{ padding: "var(--s4)", maxWidth: 720 }}>
-        <div className="row2">
+      <div className="card securenat-options">
+        <div className="securenat-fields">
           <Field label="Virtual IP" hint="The router's own address inside the hub.">
             <input className="input mono" value={String(options.Ip_ip ?? "")} onChange={(e) => set("Ip_ip", e.target.value)} spellCheck={false} inputMode="decimal" />
           </Field>
           <Field label="Subnet mask">
             <input className="input mono" value={String(options.Mask_ip ?? "")} onChange={(e) => set("Mask_ip", e.target.value)} spellCheck={false} inputMode="decimal" />
           </Field>
-        </div>
-        <div className="row2">
           <Field label="MTU">
             <input className="input mono" type="number" min={576} max={1500} value={Number(options.Mtu_u32 ?? 1500)} onChange={(e) => set("Mtu_u32", Number(e.target.value))} />
           </Field>
-          <div />
         </div>
 
         <CheckRow checked={Boolean(options.UseNat_bool)} onChange={(v) => set("UseNat_bool", v)}
           label="Virtual NAT" hint="Clients reach the internet through the hub, translated to the host's address." />
         {Boolean(options.UseNat_bool) && (
-          <div className="row2">
+          <div className="securenat-fields">
             <Field label="TCP timeout (s)">
               <input className="input mono" type="number" min={1} value={Number(options.NatTcpTimeout_u32 ?? 1800)} onChange={(e) => set("NatTcpTimeout_u32", Number(e.target.value))} />
             </Field>
@@ -163,15 +160,13 @@ export function HubSecureNat({ hub }: { hub: string }) {
           label="Virtual DHCP server" hint="Hands addresses to clients as they connect." />
         {Boolean(options.UseDhcp_bool) && (
           <>
-            <div className="row2">
+            <div className="securenat-fields">
               <Field label="Lease range start">
                 <input className="input mono" value={String(options.DhcpLeaseIPStart_ip ?? "")} onChange={(e) => set("DhcpLeaseIPStart_ip", e.target.value)} spellCheck={false} inputMode="decimal" />
               </Field>
               <Field label="Lease range end">
                 <input className="input mono" value={String(options.DhcpLeaseIPEnd_ip ?? "")} onChange={(e) => set("DhcpLeaseIPEnd_ip", e.target.value)} spellCheck={false} inputMode="decimal" />
               </Field>
-            </div>
-            <div className="row2">
               <Field label="Gateway to push" hint="Usually the virtual IP above.">
                 <input className="input mono" value={String(options.DhcpGatewayAddress_ip ?? "")} onChange={(e) => set("DhcpGatewayAddress_ip", e.target.value)} spellCheck={false} inputMode="decimal" />
               </Field>
@@ -179,17 +174,17 @@ export function HubSecureNat({ hub }: { hub: string }) {
                 <input className="input mono" type="number" min={60} value={Number(options.DhcpExpireTimeSpan_u32 ?? 7200)} onChange={(e) => set("DhcpExpireTimeSpan_u32", Number(e.target.value))} />
               </Field>
             </div>
-            <div className="row2">
+            <div className="securenat-fields">
               <Field label="DNS server">
                 <input className="input mono" value={String(options.DhcpDnsServerAddress_ip ?? "")} onChange={(e) => set("DhcpDnsServerAddress_ip", e.target.value)} spellCheck={false} inputMode="decimal" />
               </Field>
               <Field label="DNS server 2">
                 <input className="input mono" value={String(options.DhcpDnsServerAddress2_ip ?? "")} onChange={(e) => set("DhcpDnsServerAddress2_ip", e.target.value)} spellCheck={false} inputMode="decimal" />
               </Field>
+              <Field label="Domain name">
+                <input className="input mono" value={String(options.DhcpDomainName_str ?? "")} onChange={(e) => set("DhcpDomainName_str", e.target.value)} spellCheck={false} />
+              </Field>
             </div>
-            <Field label="Domain name">
-              <input className="input mono" value={String(options.DhcpDomainName_str ?? "")} onChange={(e) => set("DhcpDomainName_str", e.target.value)} spellCheck={false} />
-            </Field>
             <Field label="Static routes to push" hint="Comma-separated network/mask/gateway triples, e.g. 192.168.5.0/255.255.255.0/10.0.0.2">
               <input className="input mono" value={String(options.DhcpPushRoutes_str ?? "")} onChange={(e) => { set("DhcpPushRoutes_str", e.target.value); set("ApplyDhcpPushRoutes_bool", true); }} spellCheck={false} />
             </Field>

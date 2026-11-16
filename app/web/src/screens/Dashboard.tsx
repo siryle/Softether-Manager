@@ -8,14 +8,7 @@ import { useI18n, t } from "../lib/i18n";
 import { useServer } from "../lib/server";
 import { Link } from "../lib/router";
 import { formatBytes, formatCount, formatDuration } from "../lib/util";
-import {
-  IconChevron,
-  IconLogs,
-  IconPlus,
-  IconPulse,
-  IconSettings,
-  IconTerminal,
-} from "../ui/Icon";
+import { IconPlus, IconSettings } from "../ui/Icon";
 
 import { CreateHubSheet, HubList } from "./Hubs";
 
@@ -27,7 +20,7 @@ import { CreateHubSheet, HubList } from "./Hubs";
  * 3. 24h Dual Throughput Telemetry Chart: Full-width landmark (One Bright Moment).
  * 4. 2-Column Operational Grid:
  *    - Left: Virtual HUB Topology table & Host Machine performance sensors.
- *    - Right: Access Protocols & Ports list, Server Bootstrap info, and Quick Tools.
+ *    - Right: Access Protocols & Ports list and Server Bootstrap info.
  */
 export function Dashboard() {
   const { probe, health, refresh } = useServer();
@@ -338,16 +331,6 @@ export function Dashboard() {
             </div>
           </div>
 
-          {/* Quick Tools */}
-          <div className="panel-card space-y-2">
-            <div className="panel-card__t">{t("Tools")}</div>
-            <div className="divide-y divide-hairline">
-              <ToolRow to="/connections" icon={<IconPulse size={15} />} title={t("Connections")} sub={t("TCP connections into the server, live")} />
-              <ToolRow to="/logs" icon={<IconLogs size={15} />} title={t("Logs")} sub={t("server, hub security and packet logs")} />
-              <ToolRow to="/console" icon={<IconTerminal size={15} />} title={t("API console")} sub={t("every RPC method, callable raw")} />
-              <ToolRow to="/server-settings" icon={<IconSettings size={15} />} title={t("Server settings")} sub={t("listeners, certificate, bridges…")} />
-            </div>
-          </div>
         </div>
       </div>
 
@@ -361,20 +344,5 @@ export function Dashboard() {
         />
       )}
     </div>
-  );
-}
-
-function ToolRow({ to, icon, title, sub }: { to: string; icon: React.ReactNode; title: string; sub: string }) {
-  return (
-    <Link to={to} className="flex items-center justify-between py-2.5 hover:text-primary transition-colors text-xs">
-      <div className="flex items-center gap-2.5 min-w-0">
-        <span className="text-blue-500 shrink-0">{icon}</span>
-        <div className="min-w-0">
-          <div className="font-medium text-primary truncate">{title}</div>
-          <div className="text-[11px] text-muted truncate">{sub}</div>
-        </div>
-      </div>
-      <IconChevron size={14} className="text-muted shrink-0" />
-    </Link>
   );
 }
