@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import tarfile
@@ -28,6 +29,10 @@ class InstallerTests(unittest.TestCase):
 printf '%s\n' "$*" >> "$TEST_INSTALL_ROOT/services.log"
 if [ "$1" = restart ] && [ "$2" = softether-manager ]; then
   test -f "$TEST_INSTALL_ROOT/data/account" || exit 1
+  if [ -n "$FAIL_NEW_START" ] && [ "$(head -n1 "$TEST_INSTALL_ROOT/app/VERSION")" = 1.0.0 ]; then
+    printf 'failed migration' > "$TEST_INSTALL_ROOT/data/account"
+    exit 1
+  fi
 fi
 ''')
         self.executable("curl", '''#!/bin/sh
@@ -130,6 +135,40 @@ else:
         result = self.run_install()
         self.assertEqual(result.returncode, 16, result.stderr)
         self.assertFalse((self.root / "app").exists())
+
+    def test_copy_failure_keeps_running_application_untouched(self):
+        first = self.run_install()
+        self.assertEqual(first.returncode, 0, first.stderr)
+        old_frontend = self.root / "app/app/web/out/index.html"
+        old_frontend.write_text("previous frontend")
+        before_log = (self.root / "services.log").read_text()
+        self.env["REAL_CP"] = shutil.which("cp")
+        self.executable("cp", '''#!/bin/sh
+case "$*" in *app.new.*app/web/out*) exit 99;; esac
+exec "$REAL_CP" "$@"
+''')
+        result = self.run_install("--upgrade")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(old_frontend.read_text(), "previous frontend")
+        self.assertEqual((self.root / "services.log").read_text(), before_log)
+        self.assertFalse(list(self.root.glob("app.new.*")))
+
+    def test_failed_upgrade_restores_application_data_and_service(self):
+        first = self.run_install()
+        self.assertEqual(first.returncode, 0, first.stderr)
+        (self.root / "app/VERSION").write_text("0.9.0\n")
+        (self.root / "app/app/web/out/index.html").write_text("previous frontend")
+        previous_env = (self.root / "panel.env").read_bytes()
+        self.env["FAIL_NEW_START"] = "1"
+        result = self.run_install("--upgrade")
+        self.assertEqual(result.returncode, 17, result.stderr)
+        self.assertEqual((self.root / "app/VERSION").read_text(), "0.9.0\n")
+        self.assertEqual((self.root / "app/app/web/out/index.html").read_text(), "previous frontend")
+        self.assertEqual((self.root / "data/account").read_text(), "operator")
+        self.assertEqual((self.root / "panel.env").read_bytes(), previous_env)
+        self.assertIn("restoring the previous installation", result.stderr)
+        self.assertTrue((self.root / "services.log").read_text().rstrip().endswith("restart softether-manager"))
+        self.assertFalse(list(self.root.glob("app.previous.*")))
 
     def test_bad_softether_checksum_never_unpacks_or_builds(self):
         # Execute the production VPN installer function with a deliberately bad archive.

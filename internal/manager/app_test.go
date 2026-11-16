@@ -373,12 +373,15 @@ type fakeSoftEther struct {
 	listeners             []M
 	hubOnline, userAccess bool
 	send, recv            int64
+	userHash              string
+	radius                M
+	access, ac            []M
 	failRestore           bool
 }
 
 func attachSoftEther(t *testing.T, a *App) *fakeSoftEther {
 	t.Helper()
-	fake := &fakeSoftEther{hubOnline: true, userAccess: true, send: 600, recv: 400}
+	fake := &fakeSoftEther{hubOnline: true, userAccess: true, send: 600, recv: 400, userHash: hashedPassword("secret", "Alice"), radius: M{"RadiusSecret_str": "existing-radius-secret"}, access: []M{}, ac: []M{}}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req M
 		decoder := json.NewDecoder(r.Body)
@@ -422,8 +425,14 @@ func attachSoftEther(t *testing.T, a *App) *fakeSoftEther {
 			}
 			fake.hubOnline = boolean(params["Online_bool"])
 		case "GetUser":
-			out = M{"Name_str": params["Name_str"], "AuthType_u32": 1, "UsePolicy_bool": true, "policy:Access_bool": fake.userAccess, "Send.UnicastBytes_u64": fake.send, "Recv.UnicastBytes_u64": fake.recv}
+			out = M{"Name_str": params["Name_str"], "AuthType_u32": 1, "HashedKey_bin": fake.userHash, "UsePolicy_bool": true, "policy:Access_bool": fake.userAccess, "Send.UnicastBytes_u64": fake.send, "Recv.UnicastBytes_u64": fake.recv}
 		case "SetUser":
+			// SoftEther gives a supplied hash precedence over Auth_Password.
+			if hash := str(params["HashedKey_bin"]); hash != "" {
+				fake.userHash = hash
+			} else if password, ok := params["Auth_Password_str"]; ok {
+				fake.userHash = hashedPassword(str(password), str(params["Name_str"]))
+			}
 			if v, ok := params["policy:Access_bool"]; ok {
 				fake.userAccess = boolean(v)
 			}
@@ -433,6 +442,32 @@ func attachSoftEther(t *testing.T, a *App) *fakeSoftEther {
 			out = M{"SessionList": []M{{"Name_str": "SID/ABC", "Username_str": "ALICE", "UniqueId_bin": "stable-key", "ClientIP_ip": "192.0.2.1", "CreatedTime_dt": now(), "PacketSize_u64": fake.send + fake.recv}}}
 		case "GetSessionStatus":
 			out = M{"Send.UnicastBytes_u64": fake.send, "Recv.UnicastBytes_u64": fake.recv}
+		case "GetHubRadius":
+			out = clone(fake.radius)
+		case "SetHubRadius":
+			fake.radius = clone(params)
+			fake.radius["RadiusSecret_str"] = str(params["RadiusSecret_str"])
+		case "EnumAccess":
+			out = M{"AccessList": fake.access}
+		case "AddAccess":
+			for _, rule := range list(params["AccessListSingle"]) {
+				rule["Id_u32"] = len(fake.access) + 1
+				fake.access = append(fake.access, rule)
+			}
+		case "SetAccessList":
+			fake.access = list(params["AccessList"])
+		case "DeleteAccess":
+			kept := []M{}
+			for _, rule := range fake.access {
+				if integer(rule["Id_u32"]) != integer(params["Id_u32"]) {
+					kept = append(kept, rule)
+				}
+			}
+			fake.access = kept
+		case "GetAcList":
+			out = M{"ACList": fake.ac}
+		case "SetAcList":
+			fake.ac = list(params["ACList"])
 		case "ReadLogFile":
 			out = M{"Buffer_bin": base64.StdEncoding.EncodeToString([]byte("test log\n"))}
 		case "GetServerInfo":

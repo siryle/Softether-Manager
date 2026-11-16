@@ -112,7 +112,27 @@ func (m *tlsManager) certificate(domain string) (M, *tls.Certificate) {
 		return out, nil
 	}
 	dir := m.certDir(domain)
-	cert, err := tls.LoadX509KeyPair(filepath.Join(dir, "fullchain.pem"), filepath.Join(dir, "privkey.pem"))
+	meta := M{}
+	var cert tls.Certificate
+	bundle, err := os.ReadFile(filepath.Join(dir, "bundle.pem"))
+	if os.IsNotExist(err) {
+		cert, err = tls.LoadX509KeyPair(filepath.Join(dir, "fullchain.pem"), filepath.Join(dir, "privkey.pem"))
+		if b, e := os.ReadFile(filepath.Join(dir, "meta.json")); e == nil {
+			_ = json.Unmarshal(b, &meta)
+		}
+	} else if err == nil {
+		cert, err = tls.X509KeyPair(bundle, bundle)
+		for rest := bundle; len(rest) > 0; {
+			block, remaining := pem.Decode(rest)
+			if block == nil {
+				break
+			}
+			if block.Type == "SEM METADATA" {
+				_ = json.Unmarshal(block.Bytes, &meta)
+			}
+			rest = remaining
+		}
+	}
 	if err != nil || len(cert.Certificate) == 0 {
 		return out, nil
 	}
@@ -121,10 +141,6 @@ func (m *tlsManager) certificate(domain string) (M, *tls.Certificate) {
 		return out, nil
 	}
 	cert.Leaf = leaf
-	meta := M{}
-	if b, e := os.ReadFile(filepath.Join(dir, "meta.json")); e == nil {
-		_ = json.Unmarshal(b, &meta)
-	}
 	matches := leaf.VerifyHostname(domain) == nil
 	staging := boolean(meta["staging"])
 	out = M{"present": true, "domain": domain, "issued_at": str(meta["issued_at"]), "not_before": leaf.NotBefore.UTC().Format(time.RFC3339), "expires_at": leaf.NotAfter.UTC().Format(time.RFC3339), "days_left": int(time.Until(leaf.NotAfter).Hours() / 24), "renew_at": leaf.NotAfter.Add(-30 * 24 * time.Hour).UTC().Format(time.RFC3339), "issuer": leaf.Issuer.String(), "serial": leaf.SerialNumber.String(), "staging": staging, "expired": time.Now().After(leaf.NotAfter), "stale": !matches || time.Now().After(leaf.NotAfter) || time.Now().Before(leaf.NotBefore) || staging != boolean(m.app.setting("acme_staging")), "matches_domain": matches}
@@ -442,12 +458,19 @@ func (m *tlsManager) issue(ctx context.Context, domain string) {
 	}
 	keyDER, err := x509.MarshalPKCS8PrivateKey(certKey)
 	check(err)
-	dir := m.certDir(domain)
-	check(atomicWrite(filepath.Join(dir, "privkey.pem"), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), 0600))
-	check(atomicWrite(filepath.Join(dir, "fullchain.pem"), chain, 0600))
-	meta, err := json.Marshal(M{"domain": domain, "staging": staging, "issued_at": now(), "directory": directory})
-	check(err)
-	check(atomicWrite(filepath.Join(dir, "meta.json"), meta, 0600))
+	check(saveCertificate(m.certDir(domain), chain, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), M{"domain": domain, "staging": staging, "issued_at": now(), "directory": directory}))
+}
+
+func saveCertificate(dir string, chain, key []byte, meta M) error {
+	if _, err := tls.X509KeyPair(chain, key); err != nil {
+		return err
+	}
+	encoded, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	bundle := append(append(append([]byte{}, chain...), key...), pem.EncodeToMemory(&pem.Block{Type: "SEM METADATA", Bytes: encoded})...)
+	return atomicWrite(filepath.Join(dir, "bundle.pem"), bundle, 0600)
 }
 func loadOrCreateKey(path string) (crypto.Signer, error) {
 	b, err := os.ReadFile(path)

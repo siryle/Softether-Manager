@@ -739,7 +739,44 @@ esac
 # ---------------------------------------------------------------- download
 
 STAGING="$(mktemp -d)"
-trap 'rm -rf "$STAGING"' EXIT
+NEW_APP=""
+PREVIOUS_APP=""
+ROLLBACK=0
+SERVICE_STOPPED=0
+ROLLBACK_DATA_DIR="$DATA_DIR"
+BACKUP_FILES=("$ENV_PATH" "$UNIT_PATH" "$CLI_PATH" "$CLI_ENV_PATH" "$CACHED_INSTALLER")
+cleanup_install() {
+  local result=$? recovery_failed=0 i
+  set +e
+  if (( result != 0 && ROLLBACK == 1 )); then
+    warn "Installation failed; restoring the previous installation and data."
+    systemctl stop "$SERVICE_NAME" >/dev/null 2>&1
+    if ! rm -rf "$APP_DIR" || ! mv "$PREVIOUS_APP" "$APP_DIR"; then recovery_failed=1; fi
+    if [[ -d "$STAGING/previous-data" ]]; then
+      if ! rm -rf "$ROLLBACK_DATA_DIR" || ! cp -a "$STAGING/previous-data" "$ROLLBACK_DATA_DIR"; then recovery_failed=1; fi
+    fi
+    for i in "${!BACKUP_FILES[@]}"; do
+      if [[ -f "$STAGING/previous-file-$i" ]]; then
+        cp -a "$STAGING/previous-file-$i" "${BACKUP_FILES[$i]}" || recovery_failed=1
+      else
+        rm -f "${BACKUP_FILES[$i]}" || recovery_failed=1
+      fi
+    done
+    systemctl daemon-reload || recovery_failed=1
+  fi
+  if (( result != 0 && SERVICE_STOPPED == 1 )); then
+    systemctl restart "$SERVICE_NAME" || recovery_failed=1
+  fi
+  [[ -z "$NEW_APP" ]] || rm -rf "$NEW_APP"
+  if (( recovery_failed == 1 )); then
+    warn "Recovery needs attention. Backups were kept at $STAGING and $PREVIOUS_APP."
+  else
+    [[ -z "$PREVIOUS_APP" ]] || rm -rf "$PREVIOUS_APP"
+    rm -rf "$STAGING"
+  fi
+  return "$result"
+}
+trap cleanup_install EXIT
 
 step "Downloading $ASSET ($VERSION)"
 if ! fetch_release_asset "$ASSET" "$STAGING/$ASSET"; then
@@ -771,21 +808,36 @@ INSTALLED_VERSION="${INSTALLED_VERSION:-unknown}"
 
 # ---------------------------------------------------------------- install
 
-if (( UPGRADE_EXISTING == 1 )); then
-  step "Stopping the service"
-  systemctl stop "$SERVICE_NAME" 2>/dev/null || true
-fi
+# Prepare the entire application on the destination filesystem before stopping the old service.
+step "Preparing the new application"
+mkdir -p "$(dirname "$APP_DIR")"
+NEW_APP="$(mktemp -d "${APP_DIR}.new.XXXXXX")"
+chmod 0755 "$NEW_APP"
+install -m 0755 "$SOURCE_TREE/bin/softether-manager-linux-$MANAGER_ARCH" "$NEW_APP/softether-manager"
+mkdir -p "$NEW_APP/app/web" "$NEW_APP/scripts"
+cp -a "$SOURCE_TREE/app/web/out" "$NEW_APP/app/web/out"
+[[ -d "$SOURCE_TREE/scripts" ]] && cp -a "$SOURCE_TREE/scripts/." "$NEW_APP/scripts/"
+[[ -f "$SOURCE_TREE/VERSION" ]] && cp -a "$SOURCE_TREE/VERSION" "$NEW_APP/VERSION"
+[[ -f "$SOURCE_TREE/README.md" ]] && cp -a "$SOURCE_TREE/README.md" "$NEW_APP/README.md"
 
+if (( UPGRADE_EXISTING == 1 )) && [[ -d "$APP_DIR" ]]; then
+  step "Stopping the service and backing up the current installation"
+  systemctl stop "$SERVICE_NAME"
+  SERVICE_STOPPED=1
+  ROLLBACK_DATA_DIR="$(read_env_value "$ENV_PATH" SEM_DATA_DIR || true)"
+  ROLLBACK_DATA_DIR="${ROLLBACK_DATA_DIR:-$DATA_DIR}"
+  [[ ! -d "$ROLLBACK_DATA_DIR" ]] || cp -a "$ROLLBACK_DATA_DIR" "$STAGING/previous-data"
+  for i in "${!BACKUP_FILES[@]}"; do
+    [[ ! -f "${BACKUP_FILES[$i]}" ]] || cp -a "${BACKUP_FILES[$i]}" "$STAGING/previous-file-$i"
+  done
+  PREVIOUS_APP="$(mktemp -d "${APP_DIR}.previous.XXXXXX")"
+  rmdir "$PREVIOUS_APP"
+  mv "$APP_DIR" "$PREVIOUS_APP"
+  ROLLBACK=1
+fi
 step "Installing to $APP_DIR"
-install -d -m 0755 "$APP_DIR"
-install -m 0755 "$SOURCE_TREE/bin/softether-manager-linux-$MANAGER_ARCH" "$MANAGER_BIN.new"
-mv -f "$MANAGER_BIN.new" "$MANAGER_BIN"
-rm -rf "$APP_DIR/app/web/out"
-mkdir -p "$APP_DIR/app/web" "$APP_DIR/scripts"
-cp -a "$SOURCE_TREE/app/web/out" "$APP_DIR/app/web/out"
-[[ -d "$SOURCE_TREE/scripts" ]] && cp -a "$SOURCE_TREE/scripts/." "$APP_DIR/scripts/"
-[[ -f "$SOURCE_TREE/VERSION" ]] && cp -a "$SOURCE_TREE/VERSION" "$APP_DIR/VERSION"
-[[ -f "$SOURCE_TREE/README.md" ]] && cp -a "$SOURCE_TREE/README.md" "$APP_DIR/README.md"
+mv "$NEW_APP" "$APP_DIR"
+NEW_APP=""
 
 # The data directory holds the SQLite database and the generated keys. It is
 # created here so the service's first start writes into a directory that
@@ -1011,6 +1063,9 @@ if [[ $READY -eq 0 ]]; then
   systemctl status "$SERVICE_NAME" --no-pager -n 25 >&2 || true
   fail "$EXIT_SERVICE_FAILED" "The service started but the panel never answered at $HEALTH_URL."
 fi
+
+ROLLBACK=0
+SERVICE_STOPPED=0
 
 # ---------------------------------------------------------------- result
 

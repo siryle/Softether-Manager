@@ -23,9 +23,9 @@ var rpcSpec []byte
 var routeSpec []byte
 
 type RPCClient struct {
-	http                *http.Client
-	url, password, auth string
-	id                  atomic.Uint64
+	http                                   *http.Client
+	url, password, auth, encryptedPassword string
+	id                                     atomic.Uint64
 }
 
 func NewRPCClient(host string, port int, password, auth string) *RPCClient {
@@ -147,13 +147,17 @@ func (a *App) clientFor(serverID int64) (*RPCClient, error) {
 		return nil, httpError{409, "The server connection is not configured."}
 	}
 	if c := a.rpcClients[serverID]; c != nil {
-		return c, nil
+		if c.url == "https://"+net.JoinHostPort(str(row["Host"]), str(row["Port"]))+"/api/" && c.auth == str(row["AuthType"]) && c.encryptedPassword == str(row["EncryptedPassword"]) {
+			return c, nil
+		}
+		a.invalidateClientLocked(serverID)
 	}
 	pwd, err := a.decrypt(str(row["EncryptedPassword"]))
 	if err != nil {
 		return nil, err
 	}
 	c := a.newRPCClient(str(row["Host"]), int(integer(row["Port"])), pwd, str(row["AuthType"]))
+	c.encryptedPassword = str(row["EncryptedPassword"])
 	a.rpcClients[serverID] = c
 	return c, nil
 }
@@ -173,6 +177,16 @@ func (a *App) client(ctx ...context.Context) *RPCClient {
 	return client
 }
 func (a *App) rpc(ctx context.Context, method string, params M) M {
+	if (method == "SetUser" || method == "CreateUser") && params["Auth_Password_str"] != nil {
+		params = clone(params)
+		delete(params, "HashedKey_bin")
+		delete(params, "NtLmSecureHash_bin")
+	}
+	if method == "SetHubRadius" && params["RadiusSecret_str"] == nil {
+		params = clone(params)
+		current := a.rpc(ctx, "GetHubRadius", M{"HubName_str": params["HubName_str"]})
+		params["RadiusSecret_str"] = str(current["RadiusSecret_str"])
+	}
 	out, err := a.client(ctx).Call(ctx, method, params)
 	check(err)
 	return out
@@ -268,6 +282,12 @@ func (a *App) registerRPCRoutes() {
 					body = readBody(w, r)
 				}
 			}
+			if route.RPC == "DeleteAccess" {
+				a.accessMu.Lock()
+				defer a.accessMu.Unlock()
+				body = readBody(w, r)
+				a.checkAccessVersion(r.Context(), r.PathValue("hub"), "AccessList", str(body["expected_version"]))
+			}
 			params := M{}
 			if route.Body {
 				params = clone(body)
@@ -303,7 +323,13 @@ func (a *App) registerRPCRoutes() {
 				}
 			}
 			validateWire(params)
+			a.guardHubOnline(r.Context(), route.RPC, params)
 			out := a.rpc(r.Context(), route.RPC, params)
+			if route.RPC == "EnumAccess" {
+				out["version"] = accessVersion(out["AccessList"])
+			} else if route.RPC == "GetAcList" {
+				out["version"] = accessVersion(out["ACList"])
+			}
 			if route.Audit != "" {
 				a.audit(user, route.Audit, "server", r.PathValue("hub"), r.PathValue("name"))
 			}

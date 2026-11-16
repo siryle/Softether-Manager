@@ -221,19 +221,14 @@ func (a *App) sampleTraffic(ctx context.Context) {
 					status := a.rpc(serverCtx, "GetHubStatus", M{"HubName_str": hub})
 					send, recv := bytesFor(status, "")
 					execute(a.db, `INSERT INTO HubTrafficSample(ServerID,HubName,SendBytes,RecvBytes,NumSessions,NumUsers,SampledDate) VALUES(?,?,?,?,?,?,?)`, serverID, hub, send, recv, integer(status["NumSessions_u32"]), integer(status["NumUsers_u32"]), stamp)
-					a.observeQuota(serverID, "hub", hub, "", send, recv)
 					for _, u := range list(a.rpc(serverCtx, "EnumUser", M{"HubName_str": hub})["UserList"]) {
 						name := str(u["Name_str"])
 						sBytes, rBytes := bytesFor(u, "Ex.")
 						execute(a.db, `INSERT INTO UserTrafficSample(ServerID,HubName,UserName,SendBytes,RecvBytes,NumLogin,SampledDate) VALUES(?,?,?,?,?,?,?)`, serverID, hub, name, sBytes, rBytes, integer(u["NumLogin_u32"]), stamp)
-						a.observeQuota(serverID, "user", hub, name, sBytes, rBytes)
 					}
 				}()
 			}
 		}()
-	}
-	if boolean(a.setting("quota_enforcement_enabled")) {
-		a.enforceQuotas(ctx)
 	}
 }
 func (a *App) sampleSessions(ctx context.Context) {

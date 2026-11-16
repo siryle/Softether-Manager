@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, ApiError, type Quota, type Wire } from "../lib/api";
+import { useServerApi, ApiError, type Quota, type Wire } from "../lib/api";
 import { AUTH_TYPE_OPTIONS, isNever, userBytes } from "../lib/se";
 import { useToast } from "../lib/toast";
 import { useI18n } from "../lib/i18n";
@@ -55,6 +55,7 @@ export function UserSheet({
   onClose: () => void;
   onSaved: (name: string) => void;
 }) {
+  const api = useServerApi();
   const { t } = useI18n();
   const editing = Boolean(existing);
   const [name, setName] = useState(String(existing?.Name_str ?? ""));
@@ -160,7 +161,7 @@ export function UserSheet({
         }
       }
       try {
-        await saveUserQuotaDraft(hub, userName, quotaDraft, Boolean(quota));
+        await saveUserQuotaDraft(api, hub, userName, quotaDraft, Boolean(quota));
       } catch (e) {
         setError(
           editing

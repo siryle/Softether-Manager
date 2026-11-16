@@ -8,6 +8,8 @@
  * :3000 and the API on :8000.
  */
 
+import { useMemo, useState } from "react";
+
 const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 const SERVER_ID_KEY = "sem_server_id";
 
@@ -58,9 +60,13 @@ export class ApiError extends Error {
 
 export type Wire = Record<string, any>;
 
-async function request<T = Wire>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T = Wire>(method: string, path: string, body?: unknown, serverId = getStoredServerId()): Promise<T> {
+  const scoped = !path.startsWith("/auth/") && !path.startsWith("/system/") && !path.startsWith("/servers");
+  const assertServer = () => {
+    if (scoped && (serverId === null || serverId !== getStoredServerId())) throw new DOMException("Server changed", "AbortError");
+  };
+  assertServer();
   const headers: Record<string, string> = {};
-  const serverId = getStoredServerId();
   if (serverId) headers["X-Server-ID"] = String(serverId);
   if (body !== undefined) headers["Content-Type"] = "application/json";
 
@@ -71,8 +77,8 @@ async function request<T = Wire>(method: string, path: string, body?: unknown): 
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
-  const scoped = !path.startsWith("/auth/") && !path.startsWith("/system/") && !path.startsWith("/servers");
-  if (scoped && serverId !== getStoredServerId()) throw new DOMException("Server changed", "AbortError");
+  const text = await res.text();
+  assertServer();
 
   if (res.status === 401) {
     clearLegacyToken();
@@ -85,7 +91,7 @@ async function request<T = Wire>(method: string, path: string, body?: unknown): 
     let detail = `Request failed (${res.status})`;
     let seError = "";
     try {
-      const data = await res.json();
+      const data = JSON.parse(text);
       if (typeof data?.detail === "string") detail = data.detail;
       else if (data?.detail?.message) {
         detail = data.detail.message;
@@ -98,7 +104,6 @@ async function request<T = Wire>(method: string, path: string, body?: unknown): 
   }
 
   if (res.status === 204) return undefined as T;
-  const text = await res.text();
   return text ? (JSON.parse(text) as T) : (undefined as T);
 }
 
@@ -263,7 +268,22 @@ export interface DomainIn {
 
 const hubPath = (hub: string) => `/hubs/${encodeURIComponent(hub)}`;
 
-export const api = {
+export function createServerApi(serverId: number | null) {
+  const request = <T = Wire>(method: string, path: string, body?: unknown) =>
+    sendRequest<T>(method, path, body, serverId);
+  return apiMethods(request);
+}
+
+const sendRequest = request;
+
+// Screens remount on a server switch; their pending operations keep this original scope.
+export function useServerApi() {
+  const [serverId] = useState(getStoredServerId);
+  return useMemo(() => createServerApi(serverId), [serverId]);
+}
+
+function apiMethods(request: typeof sendRequest) {
+  return {
   // -- auth ------------------------------------------------------------------
   authState: () => request<{ setup_required: boolean }>("GET", "/auth/state"),
   setup: (username: string, password: string) =>
@@ -484,13 +504,13 @@ export const api = {
   // -- access control -----------------------------------------------------------------------
   accessList: (hub: string) => request("GET", `${hubPath(hub)}/access`),
   addAccess: (hub: string, rule: Wire) => request("POST", `${hubPath(hub)}/access`, rule),
-  setAccessList: (hub: string, rules: Wire[]) =>
-    request("PUT", `${hubPath(hub)}/access`, { AccessList: rules }),
-  deleteAccess: (hub: string, ruleId: number) =>
-    request("DELETE", `${hubPath(hub)}/access/${ruleId}`),
+  setAccessList: (hub: string, rules: Wire[], version: string) =>
+    request("PUT", `${hubPath(hub)}/access`, { AccessList: rules, expected_version: version }),
+  deleteAccess: (hub: string, ruleId: number, version: string) =>
+    request("DELETE", `${hubPath(hub)}/access/${ruleId}`, { expected_version: version }),
   acList: (hub: string) => request("GET", `${hubPath(hub)}/ac-list`),
-  setAcList: (hub: string, rules: Wire[]) =>
-    request("PUT", `${hubPath(hub)}/ac-list`, { ACList: rules }),
+  setAcList: (hub: string, rules: Wire[], version: string) =>
+    request("PUT", `${hubPath(hub)}/ac-list`, { ACList: rules, expected_version: version }),
 
   // -- CA / CRL ---------------------------------------------------------------------------------
   cas: (hub: string) => request("GET", `${hubPath(hub)}/ca`),
@@ -552,6 +572,8 @@ export const api = {
     request("DELETE", `/quotas/user/${encodeURIComponent(hub)}/${encodeURIComponent(name)}`),
   resetUserTransfer: (hub: string, name: string) =>
     request<Quota>("POST", `/quotas/user/${encodeURIComponent(hub)}/${encodeURIComponent(name)}/reset`),
+  };
+}
 
-
-};
+export const api = apiMethods(sendRequest);
+export type ServerApi = ReturnType<typeof createServerApi>;

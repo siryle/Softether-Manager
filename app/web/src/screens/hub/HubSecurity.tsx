@@ -3,7 +3,7 @@
 import { t } from "../../lib/i18n";
 import { useCallback, useState } from "react";
 import { ConfirmSheet, Empty, ErrorAlert, Field, KV, LoadingBlock, SectionTitle, usePoll } from "../../components/bits";
-import { api, type Wire } from "../../lib/api";
+import { api, useServerApi, type Wire } from "../../lib/api";
 import { useToast } from "../../lib/toast";
 import { downloadBase64, fileToBase64, formatDate } from "../../lib/util";
 import { IconDownload, IconPlus, IconShield, IconTrash } from "../../ui/Icon";
@@ -26,6 +26,7 @@ export function HubSecurity({ hub }: { hub: string }) {
 /* ── trusted CAs ──────────────────────────────────────────────────────────── */
 
 function CaSection({ hub }: { hub: string }) {
+  const api = useServerApi();
   const [cas, setCas] = useState<Wire[] | null>(null);
   const [deleting, setDeleting] = useState<Wire | null>(null);
   const { guard, push } = useToast();
@@ -259,8 +260,8 @@ function RadiusSection({ hub }: { hub: string }) {
         RadiusServerName_str: config.RadiusServerName_str ?? "",
         RadiusPort_u32: Number(config.RadiusPort_u32) || 1812,
         RadiusRetryInterval_u32: Number(config.RadiusRetryInterval_u32) || 500,
+        RadiusSecret_str: secret || String(config.RadiusSecret_str ?? ""),
       };
-      if (secret) body.RadiusSecret_str = secret;
       await api.setRadius(hub, body);
       setDirty(false);
       setSecret("");

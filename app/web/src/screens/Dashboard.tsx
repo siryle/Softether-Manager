@@ -197,17 +197,17 @@ export function Dashboard() {
                   <div className="flex justify-between text-xs">
                     <span className="text-muted">{t("CPU load")}</span>
                     <span className="font-mono font-medium text-primary">
-                      {(Number(resources.cpu?.overall?.percent) || 0).toFixed(1)}%
+                      {(Number(resources.cpu?.overall?.usage_percent) || 0).toFixed(1)}%
                     </span>
                   </div>
                   <div className="w-full bg-slate-500/20 h-1.5 rounded-full overflow-hidden">
                     <div
                       className="bg-blue-500 h-full transition-all"
-                      style={{ width: `${Math.min(100, Math.max(0, Number(resources.cpu?.overall?.percent) || 0))}%` }}
+                      style={{ width: `${Math.min(100, Math.max(0, Number(resources.cpu?.overall?.usage_percent) || 0))}%` }}
                     />
                   </div>
                   <div className="text-[10px] text-muted font-mono truncate">
-                    {t("Load")}: {resources.cpu?.load_1m ?? "—"} (1m) · {resources.cpu?.load_5m ?? "—"} (5m)
+                    {t("Load")}: {resources.load?.one ?? "—"} (1m) · {resources.load?.five ?? "—"} (5m)
                   </div>
                 </div>
 

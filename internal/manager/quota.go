@@ -6,6 +6,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"sync"
 )
 
 func (a *App) quotaRow(serverID int64, subject, hub, name string) M {
@@ -52,10 +53,16 @@ func (a *App) saveQuota(serverID int64, subject, hub, name string, limit int64, 
 	}
 	execute(a.db, `INSERT INTO TrafficQuota(ServerID,SubjectType,HubName,UserName,UserKey,LimitBytes,Metric,IsEnabled,CycleStartDate,CreatedDate,UpdatedDate) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(ServerID,SubjectType,HubName,UserKey) DO UPDATE SET UserName=excluded.UserName,LimitBytes=excluded.LimitBytes,Metric=excluded.Metric,IsEnabled=excluded.IsEnabled,UpdatedDate=excluded.UpdatedDate`, serverID, subject, hub, name, fold(name), limit, metric, enabled, now(), now(), now())
 }
-func (a *App) observeQuota(serverID int64, subject, hub, name string, send, recv int64) {
+func (a *App) quotaLock(serverID int64) *sync.Mutex {
 	a.quotaMu.Lock()
 	defer a.quotaMu.Unlock()
-	a.observeQuotaLocked(serverID, subject, hub, name, send, recv)
+	if a.quotaLocks == nil {
+		a.quotaLocks = make(map[int64]*sync.Mutex)
+	}
+	if a.quotaLocks[serverID] == nil {
+		a.quotaLocks[serverID] = &sync.Mutex{}
+	}
+	return a.quotaLocks[serverID]
 }
 func (a *App) observeQuotaLocked(serverID int64, subject, hub, name string, send, recv int64) {
 	if serverID == 0 {
@@ -63,21 +70,24 @@ func (a *App) observeQuotaLocked(serverID int64, subject, hub, name string, send
 	}
 	execute(a.db, `UPDATE TrafficQuota SET BaseSendBytes=CASE WHEN ?<LastSendBytes THEN BaseSendBytes-LastSendBytes ELSE BaseSendBytes END,BaseRecvBytes=CASE WHEN ?<LastRecvBytes THEN BaseRecvBytes-LastRecvBytes ELSE BaseRecvBytes END,LastSendBytes=?,LastRecvBytes=?,UpdatedDate=? WHERE ServerID=? AND SubjectType=? AND HubName=? AND UserKey=?`, send, recv, send, recv, now(), serverID, subject, hub, fold(name))
 }
-func (a *App) refreshQuota(ctx context.Context, serverID int64, subject, hub, name string) {
-	defer func() {
-		if p := recover(); p != nil {
-			log.Printf("quota reading %d/%s/%s: %v", serverID, hub, name, p)
-		}
-	}()
+func (a *App) refreshQuota(ctx context.Context, serverID int64, subject, hub, name string) error {
 	method := "GetHubStatus"
 	params := M{"HubName_str": hub}
 	if subject == "user" {
 		method = "GetUser"
 		params["Name_str"] = name
 	}
-	out := a.rpc(ctx, method, params)
+	client, err := a.clientFor(serverID)
+	if err != nil {
+		return err
+	}
+	out, err := client.Call(ctx, method, params)
+	if err != nil {
+		return err
+	}
 	send, recv := bytesFor(out, "")
 	a.observeQuotaLocked(serverID, subject, hub, name, send, recv)
+	return nil
 }
 func userWriteBody(row M) M {
 	out := M{}
@@ -92,7 +102,7 @@ func userWriteBody(row M) M {
 	return out
 }
 func (a *App) releaseQuota(ctx context.Context, row M) {
-	if str(row["EnforcedDate"]) == "" {
+	if str(row["RestoreState"]) == "" {
 		return
 	}
 	var restore M
@@ -114,23 +124,33 @@ func (a *App) releaseQuota(ctx context.Context, row M) {
 }
 func (a *App) blockQuota(ctx context.Context, row M) {
 	hub, name := str(row["HubName"]), str(row["UserName"])
-	restore := M{}
+	method := "GetHub"
+	params := M{"HubName_str": hub}
+	if str(row["SubjectType"]) == "user" {
+		method = "GetUser"
+		params["Name_str"] = name
+	}
+	current := a.rpc(ctx, method, params)
+	if str(row["RestoreState"]) == "" {
+		restore := M{"Online_bool": boolean(withDefault(current, "Online_bool", true)), "UsePolicy_bool": boolean(current["UsePolicy_bool"]), "policy:Access_bool": boolean(withDefault(current, "policy:Access_bool", true))}
+		encoded, err := json.Marshal(restore)
+		check(err)
+		// Keep the original state even if the remote reply or final local write is lost.
+		execute(a.db, `UPDATE TrafficQuota SET RestoreState=?,UpdatedDate=? WHERE TrafficQuotaID=?`, string(encoded), now(), row["TrafficQuotaID"])
+	}
 	if str(row["SubjectType"]) == "hub" {
-		current := a.rpc(ctx, "GetHub", M{"HubName_str": hub})
-		restore["Online_bool"] = boolean(withDefault(current, "Online_bool", true))
-		a.rpc(ctx, "SetHubOnline", M{"HubName_str": hub, "Online_bool": false})
-	} else {
-		current := a.rpc(ctx, "GetUser", M{"HubName_str": hub, "Name_str": name})
-		restore["UsePolicy_bool"] = boolean(current["UsePolicy_bool"])
-		restore["policy:Access_bool"] = boolean(withDefault(current, "policy:Access_bool", true))
+		if boolean(current["Online_bool"]) {
+			a.rpc(ctx, "SetHubOnline", M{"HubName_str": hub, "Online_bool": false})
+		}
+	} else if !boolean(current["UsePolicy_bool"]) || boolean(current["policy:Access_bool"]) {
 		body := userWriteBody(current)
 		body["HubName_str"], body["Name_str"], body["UsePolicy_bool"], body["policy:Access_bool"] = hub, name, true, false
 		a.rpc(ctx, "SetUser", body)
 	}
-	encoded, err := json.Marshal(restore)
-	check(err)
-	execute(a.db, `UPDATE TrafficQuota SET EnforcedDate=?,ExceededDate=COALESCE(ExceededDate,?),RestoreState=?,UpdatedDate=? WHERE TrafficQuotaID=?`, now(), now(), string(encoded), now(), row["TrafficQuotaID"])
-	a.audit(nil, "quota.blocked", str(row["SubjectType"]), hub, name, integer(row["ServerID"]))
+	execute(a.db, `UPDATE TrafficQuota SET EnforcedDate=COALESCE(EnforcedDate,?),ExceededDate=COALESCE(ExceededDate,?),UpdatedDate=? WHERE TrafficQuotaID=?`, now(), now(), now(), row["TrafficQuotaID"])
+	if str(row["EnforcedDate"]) == "" {
+		a.audit(nil, "quota.blocked", str(row["SubjectType"]), hub, name, integer(row["ServerID"]))
+	}
 }
 func (a *App) cutQuotaSessions(ctx context.Context, row M) {
 	hub, name := str(row["HubName"]), str(row["UserName"])
@@ -143,45 +163,60 @@ func (a *App) cutQuotaSessions(ctx context.Context, row M) {
 		}
 	}
 }
-func (a *App) enforceQuotas(ctx context.Context) {
-	a.quotaMu.Lock()
-	defer a.quotaMu.Unlock()
-	a.enforceQuotasLocked(ctx)
+func (a *App) quotaOver(row M) bool {
+	out := quotaPublic(row)
+	return boolean(a.setting("quota_enforcement_enabled")) && boolean(out["enabled"]) && integer(out["limit_bytes"]) > 0 && integer(out["used_bytes"]) >= integer(out["limit_bytes"])
 }
-func (a *App) enforceQuotasLocked(ctx context.Context) {
-	global := boolean(a.setting("quota_enforcement_enabled"))
-	for _, row := range query(a.db, `SELECT q.* FROM TrafficQuota q JOIN Server s ON s.ServerID=q.ServerID WHERE s.IsEnabled=1`) {
-		func() {
-			defer func() {
-				if p := recover(); p != nil {
-					log.Printf("quota enforcement: %v", p)
-				}
-			}()
-			serverID := integer(row["ServerID"])
-			serverCtx := context.WithValue(ctx, serverIDKey, serverID)
-			out := quotaPublic(row)
-			over := global && boolean(out["enabled"]) && integer(out["limit_bytes"]) > 0 && integer(out["used_bytes"]) >= integer(out["limit_bytes"])
-			blocked := boolean(out["blocked"])
-			if over && !blocked {
-				a.blockQuota(serverCtx, row)
-			} else if !over && blocked {
-				a.releaseQuota(serverCtx, row)
-			}
-			if over && str(row["SubjectType"]) == "user" {
-				a.cutQuotaSessions(serverCtx, row)
-			}
-		}()
+func (a *App) guardHubOnline(ctx context.Context, method string, params M) {
+	if (method == "SetHub" || method == "SetHubOnline") && boolean(params["Online_bool"]) && a.quotaOver(a.quotaRow(a.serverIDFromContext(ctx), "hub", str(params["HubName_str"]), "")) {
+		fail(409, "This hub is over its traffic limit. Raise or reset the limit before bringing it online.")
+	}
+}
+func (a *App) enforceQuota(ctx context.Context, row M) {
+	defer func() {
+		if p := recover(); p != nil {
+			log.Printf("quota enforcement: %v", p)
+		}
+	}()
+	if a.quotaOver(row) {
+		a.blockQuota(ctx, row)
+		if str(row["SubjectType"]) == "user" {
+			a.cutQuotaSessions(ctx, row)
+		}
+	} else if str(row["RestoreState"]) != "" {
+		a.releaseQuota(ctx, row)
 	}
 }
 func (a *App) quotaTick(ctx context.Context) {
-	a.quotaMu.Lock()
-	defer a.quotaMu.Unlock()
-	for _, row := range query(a.db, `SELECT q.* FROM TrafficQuota q JOIN Server s ON s.ServerID=q.ServerID WHERE s.IsEnabled=1`) {
-		serverID := integer(row["ServerID"])
-		serverCtx := context.WithValue(ctx, serverIDKey, serverID)
-		a.refreshQuota(serverCtx, serverID, str(row["SubjectType"]), str(row["HubName"]), str(row["UserName"]))
+	var jobs sync.WaitGroup
+	for _, server := range query(a.db, `SELECT DISTINCT s.ServerID FROM Server s JOIN TrafficQuota q ON q.ServerID=s.ServerID WHERE s.IsEnabled=1`) {
+		id := integer(server["ServerID"])
+		jobs.Add(1)
+		go func() {
+			defer jobs.Done()
+			defer func() {
+				if p := recover(); p != nil {
+					log.Printf("quota server %d: %v", id, p)
+				}
+			}()
+			lock := a.quotaLock(id)
+			lock.Lock()
+			defer lock.Unlock()
+			serverCtx := context.WithValue(ctx, serverIDKey, id)
+			for _, row := range query(a.db, `SELECT * FROM TrafficQuota WHERE ServerID=?`, id) {
+				subject, hub, name := str(row["SubjectType"]), str(row["HubName"]), str(row["UserName"])
+				if err := a.refreshQuota(serverCtx, id, subject, hub, name); err != nil {
+					log.Printf("quota reading %d/%s/%s: %v", id, hub, name, err)
+					if e, ok := err.(httpError); !ok || e.Status >= 500 || e.Status == 409 {
+						break
+					}
+					continue
+				}
+				a.enforceQuota(serverCtx, a.quotaRow(id, subject, hub, name))
+			}
+		}()
 	}
-	a.enforceQuotasLocked(ctx)
+	jobs.Wait()
 }
 func (a *App) registerQuotas() {
 	a.endpoint("GET /quotas", func(_ http.ResponseWriter, r *http.Request, _ M) any {
@@ -210,9 +245,10 @@ func (a *App) registerQuotas() {
 				pattern = "DELETE " + base
 			}
 			a.endpoint(pattern, func(w http.ResponseWriter, r *http.Request, u M) any {
-				a.quotaMu.Lock()
-				defer a.quotaMu.Unlock()
 				serverID := a.serverIDFromContext(r.Context())
+				lock := a.quotaLock(serverID)
+				lock.Lock()
+				defer lock.Unlock()
 				hub, name := r.PathValue("hub"), r.PathValue("name")
 				row := a.quotaRow(serverID, subject, hub, name)
 				if action == "set" {
@@ -253,16 +289,16 @@ func (a *App) registerQuotas() {
 					if row == nil {
 						a.saveQuota(serverID, subject, hub, name, 0, "total", true)
 					}
-					a.refreshQuota(r.Context(), serverID, subject, hub, name)
+					check(a.refreshQuota(r.Context(), serverID, subject, hub, name))
 					row = a.quotaRow(serverID, subject, hub, name)
 					a.releaseQuota(r.Context(), row)
 					execute(a.db, `UPDATE TrafficQuota SET BaseSendBytes=LastSendBytes,BaseRecvBytes=LastRecvBytes,CycleStartDate=?,ExceededDate=NULL,UpdatedDate=? WHERE TrafficQuotaID=?`, now(), now(), row["TrafficQuotaID"])
 				} else if row == nil {
 					fail(404, "No traffic limit is set on this subject.")
 				}
-				a.refreshQuota(r.Context(), serverID, subject, hub, name)
+				check(a.refreshQuota(r.Context(), serverID, subject, hub, name))
 				if action != "get" {
-					a.enforceQuotasLocked(r.Context())
+					a.enforceQuota(r.Context(), a.quotaRow(serverID, subject, hub, name))
 					a.audit(u, "quota."+action, subject, hub, name)
 				}
 				return quotaPublic(a.quotaRow(serverID, subject, hub, name))

@@ -19,13 +19,14 @@ import { Pill } from "../../ui/Status";
  */
 export function HubAccess({ hub }: { hub: string }) {
   const [rules, setRules] = useState<Wire[] | null>(null);
+  const [version, setVersion] = useState("");
   const [editing, setEditing] = useState<Wire | "new" | null>(null);
   const [deleting, setDeleting] = useState<Wire | null>(null);
   const { guard } = useToast();
 
   const load = useCallback(async () => {
     const r = await api.accessList(hub).catch(() => null);
-    if (r) setRules((r.AccessList as Wire[]) ?? []);
+    if (r) { setRules((r.AccessList as Wire[]) ?? []); setVersion(String(r.version)); }
   }, [hub]);
   usePoll(load, "list", [hub]);
 
@@ -75,7 +76,7 @@ export function HubAccess({ hub }: { hub: string }) {
                     className="btn btn--sm btn--ghost"
                     onClick={(e) => {
                       e.stopPropagation();
-                      setDeleting(r);
+                      setDeleting({ ...r, expected_version: version });
                     }}
                     aria-label={t("Delete rule")}
                   >
@@ -95,6 +96,7 @@ export function HubAccess({ hub }: { hub: string }) {
           hub={hub}
           rule={editing === "new" ? null : editing}
           allRules={rules ?? []}
+          version={version}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -109,7 +111,7 @@ export function HubAccess({ hub }: { hub: string }) {
           body={<>{ruleSentence(deleting)}</>}
           onClose={() => setDeleting(null)}
           onConfirm={async () => {
-            await api.deleteAccess(hub, Number(deleting.Id_u32));
+            await api.deleteAccess(hub, Number(deleting.Id_u32), String(deleting.expected_version));
             void load();
           }}
         />
@@ -143,16 +145,19 @@ function ruleSentence(r: Wire): string {
 function AccessRuleSheet({ hub,
   rule,
   allRules,
+  version,
   onClose,
   onSaved,
 }: {
     hub: string;
   rule: Wire | null;
   allRules: Wire[];
+  version: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const editing = Boolean(rule);
+  const [snapshot] = useState({ rules: allRules, version });
   const [draft, setDraft] = useState<Wire>(() =>
     rule
       ? { ...rule }
@@ -177,8 +182,8 @@ function AccessRuleSheet({ hub,
       if (editing) {
         // The API has no "edit one rule": the list is replaced with this rule
         // swapped in, atomically.
-        const next = allRules.map((r) => (r.Id_u32 === rule?.Id_u32 ? draft : r));
-        await api.setAccessList(hub, next);
+        const next = snapshot.rules.map((r) => (r.Id_u32 === rule?.Id_u32 ? draft : r));
+        await api.setAccessList(hub, next, snapshot.version);
       } else {
         await api.addAccess(hub, draft);
       }
@@ -292,19 +297,20 @@ function AccessRuleSheet({ hub,
 
 function AcList({ hub }: { hub: string }) {
   const [rules, setRules] = useState<Wire[] | null>(null);
+  const [version, setVersion] = useState("");
   const [adding, setAdding] = useState(false);
   const { guard } = useToast();
 
   const load = useCallback(async () => {
     const r = await api.acList(hub).catch(() => null);
-    if (r) setRules((r.ACList as Wire[]) ?? []);
+    if (r) { setRules((r.ACList as Wire[]) ?? []); setVersion(String(r.version)); }
   }, [hub]);
   usePoll(load, "list", [hub]);
 
   const remove = (rule: Wire) =>
     guard(async () => {
       const next = (rules ?? []).filter((r) => r.Id_u32 !== rule.Id_u32);
-      await api.setAcList(hub, next);
+      await api.setAcList(hub, next, version);
       await load();
     }, t("Entry removed."));
 
@@ -356,7 +362,7 @@ function AcList({ hub }: { hub: string }) {
           existing={rules ?? []}
           onClose={() => setAdding(false)}
           onSave={async (entry) => {
-            await api.setAcList(hub, [...(rules ?? []), entry]);
+            await api.setAcList(hub, [...(rules ?? []), entry], version);
             setAdding(false);
             await load();
           }}

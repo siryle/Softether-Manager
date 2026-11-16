@@ -69,8 +69,8 @@ export const POLICY_FIELDS: PolicyField[] = [
   { key: "policy:NoSavePassword_bool", label: "Forbid saving the password", help: "Clients must ask for the password on every connection.", kind: "bool", group: "Access" },
 
   // -- bandwidth ----------------------------------------------------------------
-  { key: "policy:MaxUpload_u32", label: "Upload limit", help: "Ceiling on traffic from the user into the hub.", kind: "number", unit: "bytes/s", zero: "unlimited", group: "Bandwidth & sessions" },
-  { key: "policy:MaxDownload_u32", label: "Download limit", help: "Ceiling on traffic from the hub to the user.", kind: "number", unit: "bytes/s", zero: "unlimited", group: "Bandwidth & sessions" },
+  { key: "policy:MaxUpload_u32", label: "Upload limit", help: "Ceiling on traffic from the user into the hub.", kind: "number", unit: "bit/s", zero: "unlimited", group: "Bandwidth & sessions" },
+  { key: "policy:MaxDownload_u32", label: "Download limit", help: "Ceiling on traffic from the hub to the user.", kind: "number", unit: "bit/s", zero: "unlimited", group: "Bandwidth & sessions" },
   { key: "policy:NoQoS_bool", label: "Disable VoIP/QoS priority", help: "Treat all of this user's packets equally.", kind: "bool", group: "Bandwidth & sessions" },
   { key: "policy:NoBroadcastLimiter_bool", label: "Unlimited broadcasts", help: "Exempt this user from the hub's broadcast-storm limiter.", kind: "bool", group: "Bandwidth & sessions" },
   { key: "policy:MonitorPort_bool", label: "Monitoring mode", help: "The session may mirror the hub's traffic (a capture port).", kind: "bool", group: "Bandwidth & sessions" },

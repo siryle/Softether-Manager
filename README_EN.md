@@ -282,6 +282,7 @@ npm ci
 NEXT_PUBLIC_API_BASE=http://localhost:8000/ npm run dev   # point it at the backend
 # Open http://localhost:3000 too: use the same hostname so cookies are shared.
 
+npm test                             # server switching and configuration save behavior
 npm run build                        # export frontend to app/web/out
 cd ../..
 go build -o softether-manager ./cmd/softether-manager
@@ -297,6 +298,10 @@ reads Linux `/proc`; macOS development hosts report it as unavailable.
 
 Backend tests use a local TLS stand-in for SoftEther, verify the legacy Python crypto
 and VPN-file formats, and check persistence, quotas and the REST route contract.
+
+Access-list replacements and deletions require the list's returned `version` in the
+request JSON as `expected_version`. Stale versions return 409; missing versions return
+428. Read the current list before writing it to avoid overwriting another tab's changes.
 
 Releases are tag-driven: CI builds the frontend, packages one tarball, and publishes it
 with a checksum on every `v*` tag. The archive contains Linux amd64 and arm64

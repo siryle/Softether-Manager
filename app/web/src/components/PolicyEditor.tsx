@@ -101,8 +101,8 @@ export function PolicyEditor({
                               Number(value[f.key]) > 0 && (
                                 <>
                                   {" "}{t("Currently {rate}/s ≈ {mbps} Mbps.", {
-                                    rate: formatBytes(Number(value[f.key])),
-                                    mbps: ((Number(value[f.key]) * 8) / 1_000_000).toFixed(1),
+                                    rate: formatBytes(Number(value[f.key]) / 8),
+                                    mbps: (Number(value[f.key]) / 1_000_000).toFixed(1),
                                   })}
                                 </>
                               )}

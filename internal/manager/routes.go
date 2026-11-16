@@ -153,6 +153,7 @@ func (a *App) registerCustomRPC() {
 		if !ok {
 			fail(422, "online must be a boolean.")
 		}
+		a.guardHubOnline(r.Context(), "SetHubOnline", M{"HubName_str": hub, "Online_bool": on})
 		a.rpc(r.Context(), "SetHubOnline", M{"HubName_str": hub, "Online_bool": on})
 		out := a.rpc(r.Context(), "GetHubStatus", M{"HubName_str": hub})
 		out["online"] = boolean(out["Online_bool"])
@@ -213,6 +214,8 @@ func (a *App) registerCustomRPC() {
 			}
 			a.endpoint(method+" /hubs/{hub}/"+path, func(w http.ResponseWriter, r *http.Request, u M) any {
 				b := readBody(w, r)
+				a.accessMu.Lock()
+				defer a.accessMu.Unlock()
 				p := M{"HubName_str": r.PathValue("hub")}
 				rpcMethod, key := "SetAccessList", "AccessList"
 				if path == "ac-list" {
@@ -226,6 +229,7 @@ func (a *App) registerCustomRPC() {
 						fail(422, "Body must carry an "+key+" array.")
 					}
 					p[key] = b[key]
+					a.checkAccessVersion(r.Context(), r.PathValue("hub"), key, str(b["expected_version"]))
 				}
 				out := a.rpc(r.Context(), rpcMethod, p)
 				a.audit(u, "access.updated", "hub", r.PathValue("hub"), "")
@@ -347,6 +351,7 @@ func (a *App) registerCustomRPC() {
 		}
 		params := object(b["params"])
 		validateWire(params)
+		a.guardHubOnline(r.Context(), method, params)
 		out := a.rpc(r.Context(), method, params)
 		a.audit(u, "rpc.called", "server", "", method)
 		return out

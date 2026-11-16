@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type Wire } from "../lib/api";
 import { useToast } from "../lib/toast";
 import { useI18n, t } from "../lib/i18n";
+import { useServer } from "../lib/server";
 import { downloadText } from "../lib/util";
 import { IconDownload } from "../ui/Icon";
 import { Sheet } from "../ui/Sheet";
@@ -17,9 +18,8 @@ import { CheckRow, ErrorAlert, Field } from "./bits";
  * the VPN server, so that address usually is the server -- with the DDNS name
  * offered when the server has one. The names come from the templates in
  * Settings and stay editable here. The credential is embedded by default
- * (the panel holds SoftEther's own hash -- saved when the user was created
- * here, or recovered once from the server's configuration); typing the
- * password is only needed when neither source has it.
+ * The credential is read from the selected VPN server when exported.
+ * Typing the password is only needed when the server cannot supply it.
  */
 export function VpnFileSheet({
   hub,
@@ -31,7 +31,8 @@ export function VpnFileSheet({
   onClose: () => void;
 }) {
   const { t } = useI18n();
-  const [host, setHost] = useState(() => window.location.hostname);
+  const { currentServer } = useServer();
+  const [host, setHost] = useState(() => currentServer?.host ?? window.location.hostname);
   const [port, setPort] = useState<number>(443);
   const [ports, setPorts] = useState<number[]>([]);
   const [customPort, setCustomPort] = useState(false);
@@ -222,15 +223,15 @@ export function VpnFileSheet({
           label="Embed the password in the file"
           hint={
             credential === null
-              ? "Checking whether the panel holds this user's credential…"
+              ? "Checking the user's credential on the VPN server…"
               : credential.available
-                ? "The panel holds this user's credential — it goes in as SoftEther's own hash, no typing needed. Anyone holding the file can connect."
-                : "The panel has not seen this user's password and could not recover it from the server — type it once below and it will be remembered."
+                ? "The VPN server supplies this user's current credential. Anyone holding the exported file can connect."
+                : "The VPN server could not supply this user's credential. Enter the password for this download."
           }
         />
         {embed && (
           <Field
-            label={credential?.available ? "Password (only to replace the stored one)" : "Password"}
+            label={credential?.available ? "Password (optional override)" : "Password"}
             hint="Stored hashed, the way the client stores it — never in plain text."
           >
             <input

@@ -803,7 +803,7 @@ function VpnFileTemplateCard() {
           checked={Boolean(state.embed_password_default)}
           onChange={(v) => setTop("embed_password_default", v)}
           label={t("Embed the user's password by default")}
-          hint={t("The download dialog starts with embedding on. The credential goes in as SoftEther's own hash — taken from what the panel has stored, or recovered from the server's configuration.")}
+          hint={t("The download dialog starts with embedding on. The current credential is read from the selected VPN server when the file is exported.")}
         />
 
         <div className="tpl__group">{t("Tunnel")}</div>

@@ -700,6 +700,9 @@ const zhCN: Record<string, string> = {
   "generating the certificate key": "正在生成证书密钥",
 
   // --- Connection files ---
+  "Reload the access list before saving changes.": "请重新加载访问规则后再保存。",
+  "The access list changed. Reload it before saving changes.": "访问规则已被修改，请重新加载后再保存。",
+  "This hub is over its traffic limit. Raise or reset the limit before bringing it online.": "该 HUB 的流量已超限，请提高限额或清零后再上线。",
   "Connection file template saved.": "连接配置模板已保存。",
   "Every .vpn file the panel hands out is built from this template. Options set here apply to all downloads; the per-user values are filled in at download time.":
     "面板下发的每个 .vpn 文件都由这个模板生成。这里的选项对所有下载生效；与用户相关的值在下载时填入。",
@@ -710,8 +713,8 @@ const zhCN: Record<string, string> = {
   "Connection name in the client": "客户端中的连接名称",
   "What the user sees in their VPN Client's connection list.": "用户在 VPN Client 连接列表中看到的名称。",
   "Embed the user's password by default": "默认嵌入用户密码",
-  "The download dialog starts with embedding on. The credential goes in as SoftEther's own hash — taken from what the panel has stored, or recovered from the server's configuration.":
-    "下载对话框默认勾选嵌入密码。凭据以 SoftEther 自己的哈希写入 —— 取自面板已保存的密码，或从服务器配置中恢复。",
+  "The download dialog starts with embedding on. The current credential is read from the selected VPN server when the file is exported.":
+    "下载对话框默认勾选嵌入密码。导出时会从当前选中的 VPN 服务器读取最新凭据。",
   "Tunnel": "隧道",
   "Encrypt with SSL": "使用 SSL 加密",
   "Off sends VPN traffic in the clear — only for links that are already protected.":
@@ -1301,10 +1304,10 @@ const zhCN: Record<string, string> = {
   "Any listening SoftEther port; 443 crosses the most networks.": "任意正在监听的 SoftEther 端口；443 能穿过的网络最多。",
   "other…": "其他…",
   "Embed the password in the file": "把密码写入文件",
-  "Checking whether the panel holds this user's credential…": "正在检查面板是否保存了该用户的凭据…",
-  "The panel holds this user's credential — it goes in as SoftEther's own hash, no typing needed. Anyone holding the file can connect.": "面板保存了该用户的凭据 —— 会写成 SoftEther 自己的哈希，不用再输入。拿到文件的人就能连接。",
-  "The panel has not seen this user's password and could not recover it from the server — type it once below and it will be remembered.": "面板没见过该用户的密码，也没能从服务器恢复 —— 在下面输入一次后就会记住。",
-  "Password (only to replace the stored one)": "密码（仅用于替换已保存的）",
+  "Checking the user's credential on the VPN server…": "正在检查 VPN 服务器上的用户凭据…",
+  "The VPN server supplies this user's current credential. Anyone holding the exported file can connect.": "VPN 服务器可提供该用户的最新凭据。拿到导出文件的人即可连接。",
+  "The VPN server could not supply this user's credential. Enter the password for this download.": "VPN 服务器无法提供该用户的凭据，请输入本次下载使用的密码。",
+  "Password (optional override)": "密码（可选，覆盖服务器凭据）",
   "Stored hashed, the way the client stores it — never in plain text.": "按客户端的方式以哈希保存 —— 不会存明文。",
   "Without the password the download will be refused — or untick embedding to ship the file without a credential.": "没有密码的话下载会被拒绝 —— 也可以取消嵌入，生成不含凭据的文件。",
   "The file imports straight into SoftEther VPN Client — one double-click and the connection exists, pointed at this server and signed in as {name}.": "文件可直接导入 SoftEther VPN Client —— 双击就会建好连接，指向这台服务器，并以 {name} 登录。",

@@ -2,7 +2,7 @@
 
 import { t } from "../lib/i18n";
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError, type Quota, type QuotaMetric, type QuotaUnit } from "../lib/api";
+import { api, ApiError, type ServerApi, type Quota, type QuotaMetric, type QuotaUnit } from "../lib/api";
 import { useToast } from "../lib/toast";
 import { formatBytes, formatDate } from "../lib/util";
 import { CheckRow, Field, usePoll } from "./bits";
@@ -173,6 +173,7 @@ export function draftAmount(draft: QuotaDraft): number {
  * survive an operator who later decides against a limit.
  */
 export async function saveUserQuotaDraft(
+  api: ServerApi,
   hub: string,
   name: string,
   draft: QuotaDraft,

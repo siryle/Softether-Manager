@@ -126,18 +126,19 @@ type contextKey string
 const serverIDKey contextKey = "server_id"
 
 type App struct {
-	cfg                            Config
-	db                             *sql.DB
-	sessionKey, encryptionKey      string
-	mux                            *http.ServeMux
-	setupMu, connectionMu, quotaMu sync.Mutex
-	rpcClients                     map[int64]*RPCClient
-	logins                         loginLimiter
-	resources                      resourceState
-	tls                            *tlsManager
-	updates                        updateState
-	cancel                         context.CancelFunc
-	workers                        sync.WaitGroup
+	cfg                                      Config
+	db                                       *sql.DB
+	sessionKey, encryptionKey                string
+	mux                                      *http.ServeMux
+	setupMu, connectionMu, quotaMu, accessMu sync.Mutex
+	quotaLocks                               map[int64]*sync.Mutex
+	rpcClients                               map[int64]*RPCClient
+	logins                                   loginLimiter
+	resources                                resourceState
+	tls                                      *tlsManager
+	updates                                  updateState
+	cancel                                   context.CancelFunc
+	workers                                  sync.WaitGroup
 }
 
 func New(cfg Config) (app *App, err error) {

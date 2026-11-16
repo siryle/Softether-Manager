@@ -255,7 +255,8 @@ npm ci
 NEXT_PUBLIC_API_BASE=http://localhost:8000/ npm run dev
 # 浏览器也使用 http://localhost:3000，前后端保持同一主机名以共享 Cookie。
 
-# 3. 构建前端静态资源
+# 3. 检查前端行为并构建静态资源
+npm test
 npm run build
 
 # 4. 回到项目根目录，构建 Go 可执行文件并检查后端
@@ -270,6 +271,8 @@ python3 scripts/test-install.py
 ```
 
 默认数据目录为 `./data`，可通过 `SEM_DATA_DIR` 修改。其余 `SEM_*` 环境变量及前端 API 路径保持原有约定。Linux 系统指标通过 `/proc` 读取，macOS 开发环境会显示资源监控不可用。
+
+访问规则的整表替换与删除需先读取列表，并在请求 JSON 中携带返回的 `version` 作为 `expected_version`；列表已变化时返回 409，缺少版本时返回 428，避免多个标签页互相覆盖。
 
 发布包通过 `bash scripts/build-release.sh --version vX.Y.Z` 构建，包含 Linux amd64、arm64 两种架构的 Go 可执行文件、前端静态资源和安装脚本。
 

@@ -3,7 +3,7 @@
 import { t } from "../lib/i18n";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { CheckRow, ConfirmSheet, Empty, ErrorAlert, Field, KV, LoadingBlock, PageHead, SectionTitle, usePoll } from "../components/bits";
-import { api, ApiError, type Wire } from "../lib/api";
+import { api, useServerApi, ApiError, type Wire } from "../lib/api";
 import { Link } from "../lib/router";
 import { useToast } from "../lib/toast";
 import { downloadBase64, fileToBase64, formatBytes, formatDate, timeAgo } from "../lib/util";
@@ -357,6 +357,7 @@ function AzureDdnsCard() {
 }
 
 function DdnsSettings({ ddns, onFresh, children }: { ddns: Wire; onFresh: (fresh: Wire) => void; children: ReactNode }) {
+  const api = useServerApi();
   const [confirming, setConfirming] = useState(false);
   const [ddnsHost, setDdnsHost] = useState("");
   const { guard } = useToast();
@@ -550,6 +551,7 @@ function ProtocolsCard() {
 /* ── encryption & certificate ─────────────────────────────────────────────── */
 
 function EncryptionCard() {
+  const api = useServerApi();
   const [cipher, setCipher] = useState<string | null>(null);
   const [cipherDirty, setCipherDirty] = useState(false);
   const [adminPw, setAdminPw] = useState("");
@@ -1263,6 +1265,7 @@ function KeepSyslogCard() {
 /* ── configuration file ───────────────────────────────────────────────────── */
 
 function ConfigCard() {
+  const api = useServerApi();
   const [restoring, setRestoring] = useState<File | null>(null);
   const { guard } = useToast();
 

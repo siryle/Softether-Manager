@@ -251,47 +251,14 @@ func (a *App) migrateCredentials() {
 	}
 }
 func (a *App) obtainCredential(ctx context.Context, serverID int64, hub, name string) string {
-	if hash := a.storedCredential(serverID, hub, name); hash != "" {
-		return hash
-	}
-	out := a.rpc(ctx, "GetConfig", nil)
-	raw, err := base64.StdEncoding.DecodeString(str(out["FileData_bin"]))
-	if err != nil {
+	user := a.rpc(ctx, "GetUser", M{"HubName_str": hub, "Name_str": name})
+	hash := str(user["HashedKey_bin"])
+	raw, err := base64.StdEncoding.DecodeString(hash)
+	if integer(user["AuthType_u32"]) != 1 || err != nil || len(raw) != 20 {
 		return ""
 	}
-	stack := []string{}
-	pending := ""
-	for _, line := range strings.Split(string(raw), "\n") {
-		line = strings.TrimSpace(strings.TrimPrefix(line, "\ufeff"))
-		if strings.HasPrefix(line, "declare ") {
-			pending = strings.TrimPrefix(line, "declare ")
-		} else if line == "{" {
-			stack = append(stack, pending)
-			pending = ""
-		} else if line == "}" {
-			if len(stack) > 0 {
-				stack = stack[:len(stack)-1]
-			}
-		} else {
-			target := []string{"root", "VirtualHUB", hub, "SecurityAccountDatabase", "UserList", name}
-			if len(stack) < 6 || !strings.EqualFold(strings.Join(stack[:6], "\x00"), strings.Join(target, "\x00")) {
-				continue
-			}
-			if len(stack) > 7 || (len(stack) == 7 && stack[6] != "AuthData") {
-				continue
-			}
-			for _, key := range []string{"byte AuthPassword ", "byte HashedKey "} {
-				if strings.HasPrefix(line, key) {
-					hash := strings.TrimSpace(strings.TrimPrefix(line, key))
-					if decoded, e := base64.StdEncoding.DecodeString(hash); e == nil && len(decoded) == 20 {
-						a.saveCredential(serverID, hub, name, hash)
-						return hash
-					}
-				}
-			}
-		}
-	}
-	return ""
+	a.saveCredential(serverID, hub, name, hash)
+	return hash
 }
 func (a *App) templateState() M {
 	opts := vpnOptions(a.setting("vpn_template"))
@@ -333,13 +300,10 @@ func (a *App) registerVPN() {
 	a.endpoint("GET /hubs/{hub}/users/{name}/credential-state", func(_ http.ResponseWriter, r *http.Request, _ M) (result any) {
 		serverID := a.serverIDFromContext(r.Context())
 		hub, name := r.PathValue("hub"), r.PathValue("name")
-		if a.storedCredential(serverID, hub, name) != "" {
-			return M{"available": true, "source": "panel"}
-		}
 		result = M{"available": false, "source": nil}
 		defer func() { _ = recover() }()
 		if a.obtainCredential(r.Context(), serverID, hub, name) != "" {
-			result = M{"available": true, "source": "server_config"}
+			result = M{"available": true, "source": "server"}
 		}
 		return result
 	})

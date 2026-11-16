@@ -258,6 +258,7 @@ func TestMultiServerSamplesQuotasAndCredentials(t *testing.T) {
 	a.saveCredential(second, "VPN", "Alice", "second-hash")
 	a.sampleTraffic(context.Background())
 	a.sampleSessions(context.Background())
+	a.quotaTick(context.Background())
 	if a.storedCredential(first, "VPN", "Alice") != "first-hash" || a.storedCredential(second, "VPN", "Alice") != "second-hash" {
 		t.Fatal("credentials crossed servers")
 	}
