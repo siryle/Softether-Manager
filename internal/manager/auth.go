@@ -86,7 +86,8 @@ func (a *App) registerConnection() {
 		a.handle(pattern, false, func(w http.ResponseWriter, r *http.Request, user M) any {
 			body := readBody(w, r)
 			host, port, auth := connectionInput(body)
-			password, err := a.decrypt(str(a.setting("se_password")))
+			row := a.serverRow(a.serverIDFromContext(r.Context()))
+			password, err := a.decrypt(str(row["EncryptedPassword"]))
 			check(err)
 			var pwd *string
 			if v, ok := body["password"]; ok && v != nil {
@@ -103,24 +104,12 @@ func (a *App) registerConnection() {
 				out := a.testConnection(r.Context(), host, port, password, auth)
 				auth = str(out["auth"])
 			}
-			a.saveConnection(host, port, pwd, auth)
+			a.saveConnection(host, port, pwd, auth, r.Context())
 			a.audit(user, "connection.updated", "server", "", host)
 			return a.connection(r.Context())
 		})
 	}
-	a.handle("POST /api/v1/server/probe", false, func(_ http.ResponseWriter, r *http.Request, _ M) (result any) {
-		if !boolean(a.connection(r.Context())["configured"]) {
-			return M{"online": false, "configured": false, "error": "not connected yet"}
-		}
-		defer func() {
-			if p := recover(); p != nil {
-				result = M{"online": false, "configured": true, "error": fmtError(p)}
-			}
-		}()
-		info := a.rpc(r.Context(), "GetServerInfo", nil)
-		status := a.rpc(r.Context(), "GetServerStatus", nil)
-		return M{"online": true, "configured": true, "version": info["ServerVersionString_str"], "server_type": info["ServerType_u32"], "hostname": info["ServerHostName_str"], "sessions": status["NumSessionsTotal_u32"], "users": status["NumUsers_u32"], "hubs": status["NumHubTotal_u32"], "send_bytes": status["SendBytes_u64"], "recv_bytes": status["RecvBytes_u64"], "started": status["StartTime_dt"], "current_time": status["CurrentTime_dt"]}
-	})
+	a.handle("POST /api/v1/server/probe", false, func(_ http.ResponseWriter, r *http.Request, _ M) any { return a.probeServer(r.Context()) })
 }
 func fmtError(v any) string {
 	if err, ok := v.(httpError); ok {

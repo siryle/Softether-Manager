@@ -78,7 +78,8 @@ func (a *App) registerCustomRPC() {
 			fail(422, "Password is required.")
 		}
 		out := a.rpc(r.Context(), "SetServerPassword", M{"PlainTextPassword_str": p})
-		a.saveConnection(str(a.setting("se_host")), int(integer(a.setting("se_port"))), &p, "")
+		conn := a.connection(r.Context())
+		a.saveConnection(str(conn["host"]), int(integer(conn["port"])), &p, "", r.Context())
 		a.audit(u, "server.admin_password_changed", "server", "", "")
 		return out
 	})

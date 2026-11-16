@@ -1,48 +1,24 @@
 "use client";
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
-import {
-  api,
-  getStoredServerId,
-  setStoredServerId,
-  type ManagedServer,
-  type Probe,
-  type Wire,
-} from "./api";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { api, getStoredServerId, setStoredServerId, type ManagedServer, type Probe, type Wire } from "./api";
 import { useAuth } from "./auth";
-
-/**
- * The managed server cluster and active instance, held once for the whole app.
- *
- * Supports switching the active server in one click, dynamically routing
- * probes, hub lists and all SoftEther operations to the selected instance.
- */
+import { navigate } from "./router";
 
 export type ServerHealth = "probing" | "online" | "offline" | "unconfigured";
-
 export interface ServerApi {
   probe: Probe | null;
   hubs: Wire[] | null;
   health: ServerHealth;
-  refresh: () => Promise<void>;
   servers: ManagedServer[] | null;
   currentServer: ManagedServer | null;
   currentServerId: number | null;
+  error: string | null;
+  refresh: () => Promise<void>;
   switchServer: (id: number) => Promise<void>;
   refreshServers: () => Promise<ManagedServer[] | null>;
 }
-
 const ServerContext = createContext<ServerApi>(null as unknown as ServerApi);
-
-const BACKGROUND_REFRESH_MS = 30_000;
 
 export function ServerProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
@@ -50,112 +26,84 @@ export function ServerProvider({ children }: { children: ReactNode }) {
   const [currentServerId, setCurrentServerId] = useState<number | null>(null);
   const [probe, setProbe] = useState<Probe | null>(null);
   const [hubs, setHubs] = useState<Wire[] | null>(null);
-  const aliveRef = useRef(true);
+  const [error, setError] = useState<string | null>(null);
+  const alive = useRef(false);
+  const generation = useRef(0);
+
+  const refresh = useCallback(async () => {
+    const id = getStoredServerId();
+    if (!id) return;
+    const requestGeneration = generation.current;
+    const current = () => alive.current && generation.current === requestGeneration && getStoredServerId() === id;
+    try {
+      const next = await api.probe();
+      if (!current()) return;
+      setProbe(next);
+      if (!next.online) { setHubs(null); return; }
+      const list = await api.hubs().catch(() => null);
+      if (current()) setHubs(list ? (list.HubList as Wire[]) ?? [] : null);
+    } catch (e) {
+      if (current()) {
+        setProbe({ online: false, configured: true, error: e instanceof Error ? e.message : String(e) });
+        setHubs(null);
+      }
+    }
+  }, []);
 
   const refreshServers = useCallback(async () => {
+    const requestGeneration = generation.current;
     try {
       const list = await api.servers();
-      if (!aliveRef.current) return null;
+      if (!alive.current || generation.current !== requestGeneration) return null;
       setServers(list);
-
+      setError(null);
       const storedId = getStoredServerId();
-      let matched = list.find((s) => s.id === storedId);
-      if (!matched && list.length > 0) {
-        matched = list.find((s) => s.is_default) || list[0];
+      const next = list.find(s => s.id === storedId && s.is_enabled)
+        ?? list.find(s => s.is_default && s.is_enabled)
+        ?? list.find(s => s.is_enabled);
+      if (next && next.id !== storedId) {
+        generation.current++;
+        setProbe(null);
+        setHubs(null);
       }
-      if (matched) {
-        setStoredServerId(matched.id);
-        setCurrentServerId(matched.id);
+      if (next) {
+        setStoredServerId(next.id);
+        setCurrentServerId(next.id);
       }
       return list;
-    } catch {
+    } catch (e) {
+      if (alive.current && generation.current === requestGeneration) setError(e instanceof Error ? e.message : String(e));
       return null;
     }
   }, []);
 
-  const refresh = useCallback(async () => {
-    let next: Probe;
-    try {
-      next = await api.probe();
-    } catch {
-      return; // signed out, or the panel itself is unreachable; keep what we have
-    }
-    if (!aliveRef.current) return;
-    setProbe(next);
-    if (next.online) {
-      const list = await api.hubs().catch(() => null);
-      if (aliveRef.current && list) setHubs((list.HubList as Wire[]) ?? []);
-    }
-  }, []);
-
-  const switchServer = useCallback(
-    async (id: number) => {
-      setStoredServerId(id);
-      setCurrentServerId(id);
-      setProbe(null);
-      setHubs(null);
-      await refresh();
-      void refreshServers();
-    },
-    [refresh, refreshServers],
-  );
+  const switchServer = useCallback(async (id: number) => {
+    if (!servers?.some(s => s.id === id && s.is_enabled)) throw new Error("Server is unavailable.");
+    generation.current++;
+    setStoredServerId(id);
+    setProbe(null);
+    setHubs(null);
+    setCurrentServerId(id);
+    navigate("/");
+    void refresh();
+  }, [servers, refresh]);
 
   useEffect(() => {
-    aliveRef.current = true;
+    alive.current = true;
+    generation.current++;
     if (!user) {
-      setServers(null);
-      setCurrentServerId(null);
-      setProbe(null);
-      setHubs(null);
-      return;
+      setServers(null); setCurrentServerId(null); setProbe(null); setHubs(null); setError(null);
+    } else {
+      void refreshServers().then(list => { if (list) void refresh(); });
     }
-
-    void refreshServers().then(() => {
-      void refresh();
-    });
-
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") {
-        void refresh();
-        void refreshServers();
-      }
-    }, BACKGROUND_REFRESH_MS);
-
-    return () => {
-      aliveRef.current = false;
-      window.clearInterval(timer);
-    };
+    const timer = user ? window.setInterval(() => {
+      if (document.visibilityState === "visible") void refreshServers().then(list => { if (list) void refresh(); });
+    }, 30_000) : undefined;
+    return () => { alive.current = false; generation.current++; window.clearInterval(timer); };
   }, [user, refresh, refreshServers]);
 
-  const currentServer =
-    servers?.find((s) => s.id === currentServerId) ?? servers?.[0] ?? null;
-
-  const health: ServerHealth =
-    probe === null
-      ? "probing"
-      : !probe.configured
-        ? "unconfigured"
-        : probe.online
-          ? "online"
-          : "offline";
-
-  return (
-    <ServerContext.Provider
-      value={{
-        probe,
-        hubs,
-        health,
-        refresh,
-        servers,
-        currentServer,
-        currentServerId,
-        switchServer,
-        refreshServers,
-      }}
-    >
-      {children}
-    </ServerContext.Provider>
-  );
+  const currentServer = servers?.find(s => s.id === currentServerId) ?? null;
+  const health: ServerHealth = probe === null ? "probing" : !probe.configured ? "unconfigured" : probe.online ? "online" : "offline";
+  return <ServerContext.Provider value={{ probe, hubs, health, servers, currentServer, currentServerId, error, refresh, switchServer, refreshServers }}>{children}</ServerContext.Provider>;
 }
-
 export const useServer = () => useContext(ServerContext);

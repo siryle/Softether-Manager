@@ -5,7 +5,7 @@ import { useAuth } from "../lib/auth";
 import { useServer } from "../lib/server";
 import { Link, navigate, seg, useRoute } from "../lib/router";
 import { LanguageButton, useI18n, t } from "../lib/i18n";
-import { api, type Wire } from "../lib/api";
+import { api, type Probe, type Wire } from "../lib/api";
 import { formatBytes } from "../lib/util";
 import {
   BrandMark,
@@ -16,14 +16,15 @@ import {
   IconMoon,
   IconNode,
   IconPanels,
+  IconPlus,
   IconPulse,
   IconSearch,
   IconSettings,
   IconSignOut,
   IconSun,
-  IconTerminal,
   IconUsers,
 } from "../ui/Icon";
+import { useToast } from "../lib/toast";
 import { useTheme } from "../ui/theme";
 
 /**
@@ -38,20 +39,33 @@ import { useTheme } from "../ui/theme";
  *
  * Sidebar:
  *   - Core Network: Dashboard, Hubs, Users, Sessions (with count badges)
- *   - System Management: Server Configuration, Logs, API Console, Panel Settings
- *   - Bottom Hardware Telemetry box (CPU & RAM status)
+ *   - Server Management: Server List, Server Configuration, Logs
+ *   - Panel: Panel Settings
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
-  const { probe, hubs, health, servers } = useServer();
+  const { hubs, servers } = useServer();
   const { t } = useI18n();
   const route = useRoute();
   const p = route.parts;
   const active = p[0] ?? "";
 
   const [resources, setResources] = useState<Wire | null>(null);
+  const [version, setVersion] = useState<string | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { void api.systemInfo().then(info => setVersion(String(info.version))).catch(() => {}); }, []);
+  useEffect(() => {
+    const focusSearch = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", focusSearch);
+    return () => window.removeEventListener("keydown", focusSearch);
+  }, []);
 
-  // Poll resources for live topbar telemetry & sidebar health box
+  // Poll panel host resources for live topbar telemetry.
   useEffect(() => {
     let unmounted = false;
     const fetchRes = async () => {
@@ -71,14 +85,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const net = (resources?.network as Wire) ?? {};
   const rxRate = Number(net.rx_bytes_per_second) || 0;
   const txRate = Number(net.tx_bytes_per_second) || 0;
-  const cpuPercent = (Number(resources?.cpu?.overall?.percent) || 0).toFixed(1);
-  const memUsed = Number(resources?.memory?.used_bytes) || 0;
-  const memTotal = Number(resources?.memory?.total_bytes) || 1;
-  const memPercent = Math.round((memUsed / memTotal) * 100);
-
   // Total session and user counts from hubs
   const totalSessions = hubs?.reduce((acc, h) => acc + (Number(h.NumSessions_u32) || 0), 0) ?? 0;
   const totalUsers = hubs?.reduce((acc, h) => acc + (Number(h.NumUsers_u32) || 0), 0) ?? 0;
+
+  const navLink = (to: string, label: string, icon: React.ReactNode, count?: React.ReactNode) => {
+    const target = to.slice(1);
+    const on = target === "" ? active === "" || active === "connect" : target === "hubs" ? active === "hubs" || active === "hub" : active === target;
+    return <Link to={to} className={`side__item${on ? " on" : ""}`} aria-current={on ? "page" : undefined}>
+      <span className="side__item-left">{icon}<span>{t(label)}</span></span>
+      {count !== undefined && <span className="side__count">{count}</span>}
+    </Link>;
+  };
 
   return (
     <div className="shell">
@@ -89,7 +107,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Link to="/" className="topbar__brand" aria-label="SoftEther Manager">
             <BrandMark size={28} />
             <span className="topbar__brand-title">SoftEther Manager</span>
-            <span className="topbar__brand-ver">v1.0.13</span>
+            {version && <span className="topbar__brand-ver">v{version.replace(/^v/, "")}</span>}
           </Link>
 
           <ServerSwitcher />
@@ -100,8 +118,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="topbar__search">
             <IconSearch size={14} className="topbar__search-icon" />
             <input
+              ref={searchRef}
               type="text"
               placeholder={t("Search hubs, sessions, users...")}
+              aria-label={t("Search hubs, sessions, users...")}
               className="topbar__search-input"
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
@@ -115,7 +135,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* Right: Live Telemetry + Controls */}
         <div className="topbar__right">
-          <div className="topbar__telemetry mono">
+          <div className="topbar__telemetry mono" title={t("Panel host resources")}><span className="topbar__host-label">{t("Panel host")}</span>
             <span className="topbar__rx">
               <span className="topbar__rx-lbl">↓ RX</span> {formatBytes(rxRate)}/s
             </span>
@@ -150,136 +170,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* ── App Layout Body ─────────────────────────────────────────── */}
       <div className="shell__body">
-        {/* Sidebar: Strict rows & status telemetry */}
+        {/* Sidebar: Core network, server management and panel navigation */}
         <aside className="side">
-          <div>
-            {/* Core Network */}
-            <div className="side__section">
-              <div className="side__gtitle">{t("Core Network")}</div>
-              <nav className="side__nav">
-                <Link
-                  to="/"
-                  className={`side__item${active === "" ? " on" : ""}`}
-                >
-                  <span className="side__item-left">
-                    <IconPanels size={16} />
-                    <span>{t("Console overview")}</span>
-                  </span>
-                </Link>
-
-                <Link
-                  to="/servers"
-                  className={`side__item${active === "servers" ? " on" : ""}`}
-                >
-                  <span className="side__item-left">
-                    <IconNode size={16} />
-                    <span>{t("Server nodes")}</span>
-                  </span>
-                  <span className="side__count">{servers?.length ?? 1}</span>
-                </Link>
-
-                <Link
-                  to="/hubs"
-                  className={`side__item${active === "hubs" || active === "hub" ? " on" : ""}`}
-                >
-                  <span className="side__item-left">
-                    <IconHub size={16} />
-                    <span>{t("Virtual Hubs")}</span>
-                  </span>
-                  <span className="side__count">{hubs?.length ?? "—"}</span>
-                </Link>
-
-                <Link
-                  to="/users"
-                  className={`side__item${active === "users" ? " on" : ""}`}
-                >
-                  <span className="side__item-left">
-                    <IconUsers size={16} />
-                    <span>{t("Users")}</span>
-                  </span>
-                  <span className="side__count">{totalUsers}</span>
-                </Link>
-
-                <Link
-                  to="/connections"
-                  className={`side__item${active === "connections" ? " on" : ""}`}
-                >
-                  <span className="side__item-left">
-                    <IconPulse size={16} />
-                    <span>{t("Active sessions")}</span>
-                  </span>
-                  <span className="side__count">{totalSessions}</span>
-                </Link>
-              </nav>
-            </div>
-
-            {/* System Management */}
-            <div className="side__section">
-              <div className="side__gtitle">{t("System Management")}</div>
-              <nav className="side__nav">
-                <Link
-                  to="/server-settings"
-                  className={`side__item${active === "server-settings" ? " on" : ""}`}
-                  aria-current={active === "server-settings" ? "page" : undefined}
-                >
-                  <span className="side__item-left">
-                    <IconNode size={16} />
-                    <span>{t("Server configuration")}</span>
-                  </span>
-                </Link>
-
-                <Link
-                  to="/logs"
-                  className={`side__item${active === "logs" ? " on" : ""}`}
-                >
-                  <span className="side__item-left">
-                    <IconLogs size={16} />
-                    <span>{t("Logs")}</span>
-                  </span>
-                </Link>
-
-                <Link
-                  to="/console"
-                  className={`side__item${active === "console" ? " on" : ""}`}
-                >
-                  <span className="side__item-left">
-                    <IconTerminal size={16} />
-                    <span>{t("API console")}</span>
-                  </span>
-                </Link>
-
-                <Link
-                  to="/settings"
-                  className={`side__item${active === "settings" ? " on" : ""}`}
-                  aria-current={active === "settings" ? "page" : undefined}
-                >
-                  <span className="side__item-left">
-                    <IconSettings size={16} />
-                    <span>{t("Panel settings")}</span>
-                  </span>
-                </Link>
-              </nav>
-            </div>
+          <div className="side__section">
+            <div className="side__gtitle">{t("Core Network")}</div>
+            <nav className="side__nav">
+              {navLink("/", "Console overview", <IconPanels size={18} />)}
+              {navLink("/hubs", "Virtual Hubs", <IconHub size={18} />, hubs?.length ?? "—")}
+              {navLink("/users", "Users", <IconUsers size={18} />, hubs ? totalUsers : "—")}
+              {navLink("/connections", "Active sessions", <IconPulse size={18} />, hubs ? totalSessions : "—")}
+            </nav>
           </div>
-
-          {/* Bottom Telemetry Status Box */}
-          <div className="side__telemetry-box">
-            <div className="side__telemetry-h">
-              <span>{probe?.hostname || "vpnserver"}</span>
-              <span className="side__telemetry-uptime">
-                {probe?.online ? t("Online") : t("Offline")}
-              </span>
-            </div>
-            <div className="side__telemetry-row">
-              <span className="side__telemetry-lbl">{t("CPU Load")}</span>
-              <span className="side__telemetry-v">{cpuPercent}%</span>
-            </div>
-            <div className="side__telemetry-row">
-              <span className="side__telemetry-lbl">{t("Memory usage")}</span>
-              <span className="side__telemetry-v" style={{ color: memPercent >= 85 ? "var(--color-amber)" : undefined }}>
-                {memPercent}%
-              </span>
-            </div>
+          <div className="side__section">
+            <div className="side__gtitle">{t("Server management")}</div>
+            <nav className="side__nav">
+              {navLink("/servers", "Server list", <IconNode size={18} />, servers?.length ?? "—")}
+              {navLink("/server-settings", "Current server configuration", <IconSettings size={18} />)}
+              {navLink("/logs", "Logs", <IconLogs size={18} />)}
+            </nav>
+          </div>
+          <div className="side__section">
+            <div className="side__gtitle">{t("Panel navigation")}</div>
+            <nav className="side__nav">
+              {navLink("/settings", "Panel settings", <IconSettings size={18} />)}
+            </nav>
           </div>
         </aside>
 
@@ -296,152 +210,48 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 }
 
 function ServerSwitcher() {
-  const { servers, currentServer, currentServerId, switchServer, probe } = useServer();
+  const { servers, currentServer, switchServer, health } = useServer();
   const { t } = useI18n();
-  const [isOpen, setIsOpen] = useState(false);
+  const { push } = useToast();
+  const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
-  const [switchingId, setSwitchingId] = useState<number | null>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
+  const [states, setStates] = useState<Record<number, Probe>>({});
   useEffect(() => {
-    if (!isOpen) return;
-    const handleClick = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [isOpen]);
-
-  const activeId = currentServer?.id ?? currentServerId;
-  const filtered = (servers ?? []).filter((s) => {
-    if (!filter.trim()) return true;
-    const q = filter.toLowerCase();
-    return s.name.toLowerCase().includes(q) || `${s.host}:${s.port}`.includes(q);
-  });
-
-  return (
-    <div className="topbar__switcher" ref={dropdownRef}>
-      <button
-        type="button"
-        className="topbar__switcher-btn"
-        onClick={() => setIsOpen((prev) => !prev)}
-        title={t("Switch server node")}
-      >
-        <span
-          style={{
-            width: 7,
-            height: 7,
-            borderRadius: "50%",
-            backgroundColor: probe?.online ? "var(--color-emerald, #10b981)" : "var(--color-amber, #f59e0b)",
-            boxShadow: probe?.online ? "0 0 6px var(--color-emerald, #10b981)" : undefined,
-            flexShrink: 0,
-          }}
-        />
-        <span className="mono" style={{ fontWeight: 600, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {currentServer?.name || probe?.hostname || "127.0.0.1"}
-        </span>
-        <span style={{ color: "var(--text-muted)", fontSize: 11 }} className="mono">
-          :{currentServer?.port || 5555}
-        </span>
-        <span style={{ display: "inline-flex", transform: isOpen ? "rotate(-90deg)" : "rotate(90deg)", transition: "transform 0.15s ease", opacity: 0.6 }}>
-          <IconChevron size={11} />
-        </span>
-      </button>
-
-      {isOpen && (
-        <div className="topbar__dropdown">
-          <input
-            type="text"
-            className="topbar__dropdown-search"
-            placeholder={t("Filter servers...")}
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            autoFocus
-          />
-          <div className="topbar__dropdown-list">
-            {filtered.map((s) => {
-              const isActive = s.id === activeId;
-              return (
-                <button
-                  key={s.id}
-                  type="button"
-                  className={`topbar__dropdown-item ${isActive ? "active" : ""}`}
-                  onClick={async () => {
-                    if (!isActive) {
-                      setSwitchingId(s.id);
-                      await switchServer(s.id);
-                      setSwitchingId(null);
-                    }
-                    setIsOpen(false);
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                    <span
-                      style={{
-                        width: 6,
-                        height: 6,
-                        borderRadius: "50%",
-                        backgroundColor: s.is_enabled
-                          ? isActive && probe?.online
-                            ? "var(--color-emerald, #10b981)"
-                            : "var(--text-muted)"
-                          : "var(--color-rose, #f43f5e)",
-                        flexShrink: 0,
-                      }}
-                    />
-                    <div style={{ minWidth: 0, textAlign: "left" }}>
-                      <div style={{ fontWeight: isActive ? 600 : 400, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {s.name}
-                        {s.is_default && (
-                          <span style={{ marginLeft: 6, fontSize: 9, padding: "1px 4px", borderRadius: 3, background: "var(--bg-raised)", color: "var(--text-muted)" }}>
-                            {t("Default")}
-                          </span>
-                        )}
-                      </div>
-                      <div className="mono" style={{ fontSize: 10, color: "var(--text-muted)" }}>
-                        {s.host}:{s.port}
-                      </div>
-                    </div>
-                  </div>
-                  {isActive && (
-                    <span style={{ color: "var(--accent, #a0e35f)", marginLeft: 6, flexShrink: 0 }}>
-                      <IconCheck size={14} />
-                    </span>
-                  )}
-                  {switchingId === s.id && (
-                    <span className="spin" style={{ fontSize: 10, marginLeft: 6 }}>⟳</span>
-                  )}
-                </button>
-              );
-            })}
-            {filtered.length === 0 && (
-              <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-muted)", textAlign: "center" }}>
-                {t("No matching servers")}
-              </div>
-            )}
-          </div>
-          <div className="topbar__dropdown-footer">
-            <Link
-              to="/servers"
-              onClick={() => setIsOpen(false)}
-              style={{ color: "var(--text-muted)", textDecoration: "none", fontSize: 11 }}
-            >
-              {t("Manage cluster →")}
-            </Link>
-            <Link
-              to="/servers/add"
-              onClick={() => setIsOpen(false)}
-              style={{ color: "var(--accent, #a0e35f)", textDecoration: "none", fontSize: 11, fontWeight: 500 }}
-            >
-              + {t("Add server")}
-            </Link>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+    if (!open) return;
+    let alive = true;
+    for (const s of servers ?? []) {
+      if (!s.configured || !s.is_enabled) continue;
+      void api.probeServer(s.id).then(p => { if (alive) setStates(prev => ({ ...prev, [s.id]: p })); }).catch(() => { if (alive) setStates(prev => ({ ...prev, [s.id]: { online: false, configured: true } })); });
+    }
+    return () => { alive = false; };
+  }, [open, servers]);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (e: MouseEvent) => { if (!dropdownRef.current?.contains(e.target as Node)) setOpen(false); };
+    const escape = (e: KeyboardEvent) => { if (e.key === "Escape") { setOpen(false); triggerRef.current?.focus(); } };
+    document.addEventListener("mousedown", outside);
+    document.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("mousedown", outside); document.removeEventListener("keydown", escape); };
+  }, [open]);
+  const filtered = (servers ?? []).filter(s => `${s.name} ${s.host}:${s.port}`.toLowerCase().includes(filter.trim().toLowerCase()));
+  return <div className="topbar__switcher" ref={dropdownRef}>
+    <button ref={triggerRef} type="button" className="topbar__switcher-btn" aria-label={t("Switch server")} aria-expanded={open} aria-controls="server-picker" onClick={() => { setFilter(""); setOpen(!open); }}>
+      <span className={`server-dot server-dot--${health}`} />
+      <span className="topbar__server-name">{currentServer?.name ?? t("Choose server")}</span>
+      <IconChevron size={12} style={{ transform: "rotate(90deg)" }} />
+    </button>
+    {open && <div className="topbar__dropdown" id="server-picker">
+      <div className="server-picker__heading"><span>{t("Switch server")}</span><span>{t("{count} saved", { count: servers?.length ?? 0 })}</span></div>
+      <input className="topbar__dropdown-search" aria-label={t("Search servers")} placeholder={t("Search name or address...")} value={filter} onChange={e => setFilter(e.target.value)} autoFocus />
+      <div className="topbar__dropdown-list">{filtered.map(s => <button key={s.id} type="button" className={`topbar__dropdown-item${s.id === currentServer?.id ? " active" : ""}`} disabled={!s.is_enabled} onClick={async () => {
+        setOpen(false);
+        try { await switchServer(s.id); } catch (e) { push("err", e instanceof Error ? e.message : String(e)); }
+      }}><span className="server-picker__identity"><span className={`server-dot server-dot--${s.id === currentServer?.id ? health : states[s.id] ? states[s.id].online ? "online" : "offline" : "unknown"}`} /><span><strong>{s.name}</strong><span className="server-picker__address mono">{s.host}:{s.port}</span></span></span>{s.id === currentServer?.id ? <IconCheck size={15} /> : <span className="micro">{t(!s.is_enabled ? "Disabled" : !s.configured ? "Not configured" : !states[s.id] ? "Checking..." : states[s.id].online ? "Online" : "Offline")}</span>}</button>)}{!filtered.length && <p className="server-picker__empty">{t("No matching servers")}</p>}</div>
+      <div className="topbar__dropdown-footer"><Link to="/servers" onClick={() => setOpen(false)}><IconNode size={14} />{t("Manage servers")}</Link><Link to="/servers/add" onClick={() => setOpen(false)}><IconPlus size={14} />{t("Add server")}</Link></div>
+    </div>}
+  </div>;
 }
 
 function TabBar() {
@@ -461,7 +271,6 @@ function TabBar() {
       {tab((p) => p === "hubs" || p === "hub", "/hubs", "Virtual Hubs", <IconHub size={18} />)}
       {tab((p) => p === "users", "/users", "Users", <IconUsers size={18} />)}
       {tab((p) => p === "connections", "/connections", "Sessions", <IconPulse size={18} />)}
-      {tab((p) => p === "server-settings", "/server-settings", "Server", <IconNode size={18} />)}
       {tab((p) => p === "settings", "/settings", "Settings", <IconSettings size={18} />)}
     </nav>
   );

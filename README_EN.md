@@ -3,8 +3,8 @@
 **English** | [简体中文](README.md)
 
 A self-hosted web panel that manages the [SoftEther VPN Server](https://www.softether.org/)
-on the machine it is installed on — the **entire** JSON-RPC management API, all 133
-methods, behind a fast, modern interface, next to live monitoring of the machine itself.
+across multiple hosts through its JSON-RPC management API, alongside live monitoring
+of the machine running the panel.
 
 One command installs the panel beside your SoftEther instance. Everything after that —
 users, policies, sessions, access control, SecureNAT, certificates, cascades, the works —
@@ -23,8 +23,14 @@ from the kernel: CPU (with per-core detail, load, and steal time — the figure 
 explains a slow VPS nothing else accounts for), memory and swap, every real filesystem,
 and live network throughput, each with a few minutes of sparkline history.
 
-**Manages the whole of SoftEther.** The panel is built on a complete client for the
-SoftEther JSON-RPC suite, and the interface exposes all of it, organised by where things
+**Switches between servers.** Save, edit, test and remove connections from the server
+list. Search and switch from the top bar; each browser tab selects its own target.
+Traffic, quotas, sessions, VPN credentials and audit records are isolated by server.
+Panel accounts, domain and HTTPS settings are shared. Resource telemetry always
+refers to the panel host.
+
+**Manages SoftEther.** The panel is built on a complete client for the
+SoftEther JSON-RPC suite, organised by where things
 live:
 
 | | |
@@ -40,12 +46,6 @@ live:
 | **Switching** | MAC and IP address tables, local bridges, virtual layer-3 switches with interfaces and routes |
 | **Server** | listeners, VPN-over-ICMP/DNS, L2TP/IPsec, OpenVPN and SSTP clones, VPN Azure, dynamic DNS, cipher, certificate (view / replace / regenerate), clustering, keep-alive, syslog, EtherIP IDs, a paged browser for the server and security logs, config backup and restore |
 | **The panel itself** | a custom domain with a Let's Encrypt certificate the panel obtains and renews on its own, HTTPS on a port of your choosing, and a switch that makes the domain the only way in — a request by IP address gets a bare 404 |
-
-And for anything you want to do *exactly* the way the SoftEther reference describes it,
-there is an **API console**: every documented method, its parameter template pre-filled,
-callable raw.
-
-![API console](docs/screenshots/en/console.png)
 
 **Draws what the numbers mean.** SoftEther keeps cumulative counters and no history, so
 the panel samples them on a schedule and turns the deltas into throughput charts — per
@@ -291,9 +291,7 @@ To upgrade from Python, stop the old service and back up the entire data directo
 then run the new installer or replace the container. Keep `manager.db`, `session.key`,
 `encryption.key` and `tls/` together: existing accounts, encrypted connection details,
 current-schema history, quotas and certificates retain their formats. Run only one
-version against the database at a time. Older multi-server databases follow the
-original migration behavior: adopt the first connection and rebuild traffic sample
-tables carrying the old `ServerID` column.
+version against the database at a time. Single-server databases migrate transactionally while retaining accounts, credentials, quotas and history. Only early sample tables without hub names are rebuilt.
 
 ## Security notes
 

@@ -64,7 +64,7 @@ func ddnsConfigValue(config string) (start, end int, disabled bool, err error) {
 
 func (a *App) registerDDNS() {
 	a.endpoint("GET /server/ddns", func(_ http.ResponseWriter, r *http.Request, _ M) any {
-		out, err := a.client().Call(r.Context(), "GetDDnsClientStatus", nil)
+		out, err := a.client(r.Context()).Call(r.Context(), "GetDDnsClientStatus", nil)
 		if err == nil {
 			out["enabled"] = true
 			return out
@@ -72,7 +72,7 @@ func (a *App) registerDDNS() {
 		// SoftEther also reports Unsupported when DDNS is intentionally disabled.
 		rpcErr, ok := err.(httpError)
 		if ok && str(object(rpcErr.Detail)["se_error"]) == "UnsupportedError" {
-			config, configErr := a.client().Call(r.Context(), "GetConfig", nil)
+			config, configErr := a.client(r.Context()).Call(r.Context(), "GetConfig", nil)
 			check(configErr)
 			raw, decodeErr := base64.StdEncoding.DecodeString(str(config["FileData_bin"]))
 			if decodeErr != nil {

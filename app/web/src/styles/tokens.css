@@ -56,7 +56,7 @@
   --rail-w-min: 84px;
   --canvas-max: 1560px;
   --tabbar-h: 60px;
-  --topbar-h: 54px;
+  --topbar-h: 64px;
   --safe-t: env(safe-area-inset-top, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-l: env(safe-area-inset-left, 0px);

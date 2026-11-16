@@ -26,6 +26,8 @@ export function Sheet({
   children,
   footer,
   wide,
+  side,
+  beforeClose,
 }: {
   title: string;
   subtitle?: string;
@@ -33,25 +35,39 @@ export function Sheet({
   children: ReactNode;
   footer?: ReactNode;
   wide?: boolean;
+  side?: boolean;
+  beforeClose?: () => boolean;
 }) {
   const panel = useRef<HTMLDivElement>(null);
+  const previousFocus = useRef(typeof document === "undefined" ? null : document.activeElement as HTMLElement | null);
   const [closing, setClosing] = useState(false);
   const { t } = useI18n();
   const heading = t(title);
   const sub = subtitle ? t(subtitle) : "";
   const drag = useRef<{ y: number; t: number; active: boolean } | null>(null);
 
+  const dismissRef = useRef<() => void>(() => {});
+
   // Play the exit animation before unmounting, so the sheet leaves the way it
   // arrived instead of popping out.
   const dismiss = useCallback(() => {
-    if (closing) return;
+    if (closing || beforeClose?.() === false) return;
     setClosing(true);
     window.setTimeout(onClose, 200);
-  }, [closing, onClose]);
+  }, [closing, onClose, beforeClose]);
+
+  dismissRef.current = dismiss;
 
   useEffect(() => {
+    if (!panel.current?.contains(document.activeElement)) panel.current?.querySelector<HTMLElement>("button")?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") dismiss();
+      if (e.key === "Escape") dismissRef.current();
+      if (e.key === "Tab") {
+        const nodes = Array.from(panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]') ?? []).filter(el => el.getClientRects().length);
+        const first = nodes[0], last = nodes[nodes.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+      }
     };
     window.addEventListener("keydown", onKey);
 
@@ -66,8 +82,9 @@ export function Sheet({
       window.removeEventListener("keydown", onKey);
       style.cssText = prev;
       window.scrollTo(0, y);
+      previousFocus.current?.focus();
     };
-  }, [dismiss]);
+  }, []);
 
   // Drag-to-dismiss — mobile only; the desktop dialog has no grab handle and
   // pointer-down never starts a drag there.
@@ -107,7 +124,7 @@ export function Sheet({
       <div className={`scrim${closing ? " scrim--out" : ""}`} onMouseDown={dismiss} />
       <div
         ref={panel}
-        className={`sheet${wide ? " sheet--wide" : ""}${closing ? " sheet--out" : ""}`}
+        className={`sheet${wide ? " sheet--wide" : ""}${side ? " sheet--side" : ""}${closing ? " sheet--out" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label={heading}

@@ -29,6 +29,8 @@ ENV SEM_APP_ROOT=/app \
 COPY --from=backend /softether-manager /usr/local/bin/softether-manager
 COPY --from=frontend /build/out /app/app/web/out
 COPY VERSION /app/VERSION
+ARG RELEASE_VERSION
+RUN if [ -n "$RELEASE_VERSION" ]; then printf '%s\n' "$RELEASE_VERSION" > /app/VERSION; fi
 COPY --chmod=755 docker/docker-entrypoint.sh /docker-entrypoint.sh
 EXPOSE 8000
 VOLUME ["/data"]

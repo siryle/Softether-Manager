@@ -533,3 +533,14 @@
 .actions__i--danger > svg {
   color: var(--err);
 }
+
+@media (min-width: 960px) {
+  .sheet--side { top: 0; right: 0; bottom: 0; left: auto; width: min(480px, 100vw); max-height: 100svh; border-radius: 0; transform: none; border-left: 1px solid var(--glass-line); animation: side-sheet-in var(--d-modal) var(--ease-drawer) both; }
+  .sheet--side.sheet--out { animation: side-sheet-out var(--d-quick) var(--ease-drawer) both; }
+  .sheet--side .sheet__head { padding-top: 28px; padding-bottom: 28px; }
+  .sheet--side .sheet__body { padding-top: 8px; }
+  .sheet--side .sheet__foot { justify-content: space-between; border-top: 1px solid var(--glass-line); }
+  @keyframes side-sheet-in { from { transform: translateX(100%); } }
+  @keyframes side-sheet-out { to { transform: translateX(100%); } }
+}
+@media (prefers-reduced-motion: reduce) { .sheet--side { animation: none; } }

@@ -1143,7 +1143,7 @@ function FarmCard() {
               </>
             )}
             <div className="hint" style={{ marginTop: "var(--s3)" }}>
-              {t("Changing the clustering role restarts the VPN server and erases parts of its state; SoftEther means it as a provisioning-time decision. It is exposed in the API console (SetFarmSetting) rather than as a casual switch here.")}
+              {t("Changing the clustering role restarts the VPN server and erases parts of its state. Use the SoftEther Server Manager to provision the cluster role.")}
             </div>
           </>
         )}

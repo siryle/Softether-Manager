@@ -69,7 +69,7 @@ cp -a "$ROOT/app/web/out" "$TREE/app/web/out"
 for arch in amd64 arm64; do
   step "Building Go backend for linux/$arch"
   (cd "$ROOT" && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" \
-    go build -trimpath -ldflags="-s -w" -o "$TREE/bin/$NAME-linux-$arch" ./cmd/softether-manager)
+    go build -trimpath -ldflags="-s -w -X github.com/siryle/Softether-Manager/internal/manager.buildVersion=$VERSION" -o "$TREE/bin/$NAME-linux-$arch" ./cmd/softether-manager)
 done
 
 cp -a "$ROOT/scripts/install.sh" "$TREE/scripts/install.sh"

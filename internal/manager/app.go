@@ -161,6 +161,10 @@ func New(cfg Config) (app *App, err error) {
 		db.Close()
 		return nil, err
 	}
+	// An intentionally empty management password is still a configured connection.
+	if boolean(app.setting("se_configured")) {
+		execute(db, `UPDATE Server SET EncryptedPassword=? WHERE IsDefault=1 AND EncryptedPassword=''`, app.encrypt(""))
+	}
 	app.tls = newTLSManager(app)
 	app.register()
 	return app, nil
@@ -226,7 +230,7 @@ func (a *App) Handler() http.Handler {
 					w.Header().Set("Access-Control-Allow-Origin", origin)
 					w.Header().Set("Access-Control-Allow-Credentials", "true")
 					w.Header().Add("Vary", "Origin")
-					w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+					w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Server-ID")
 					w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 					break
 				}
@@ -275,25 +279,30 @@ func (a *App) serverIDFromContext(ctx context.Context) int64 {
 
 func (a *App) handle(pattern string, public bool, fn func(http.ResponseWriter, *http.Request, M) any) {
 	a.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
-		serverID := int64(0)
-		if sid := r.Header.Get("X-Server-ID"); sid != "" {
-			if n, err := strconv.ParseInt(sid, 10, 64); err == nil && n > 0 {
-				serverID = n
-			}
-		}
-		if serverID == 0 {
-			if sid := r.URL.Query().Get("server_id"); sid != "" {
-				if n, err := strconv.ParseInt(sid, 10, 64); err == nil && n > 0 {
-					serverID = n
-				}
-			}
-		}
-		if serverID > 0 {
-			r = r.WithContext(context.WithValue(r.Context(), serverIDKey, serverID))
-		}
 		var user M
 		if !public {
 			user = a.requireUser(r)
+		}
+		sid := r.Header.Get("X-Server-ID")
+		if sid == "" {
+			sid = r.URL.Query().Get("server_id")
+		}
+		if !public && sid != "" {
+			id, err := strconv.ParseInt(sid, 10, 64)
+			if err != nil || id <= 0 {
+				fail(422, "Invalid server id.")
+			}
+			// Panel and connection-list endpoints must remain usable after a saved server is removed.
+			path := strings.TrimPrefix(r.URL.Path, "/api/v1")
+			scoped := strings.HasPrefix(path, "/server/") || strings.HasPrefix(path, "/hubs") || path == "/users" || strings.HasPrefix(path, "/quotas") || path == "/rpc/call"
+			if scoped {
+				a.serverRow(id)
+			}
+			r = r.WithContext(context.WithValue(r.Context(), serverIDKey, id))
+		}
+		if !public {
+			r = r.WithContext(context.WithValue(r.Context(), serverIDKey, a.serverIDFromContext(r.Context())))
+			user["ServerID"] = a.serverIDFromContext(r.Context())
 		}
 		result := fn(w, r, user)
 		if result != nil {

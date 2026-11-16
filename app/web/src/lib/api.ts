@@ -24,15 +24,18 @@ export function clearToken() {
 
 export function getStoredServerId(): number | null {
   if (typeof window === "undefined") return null;
-  const v = localStorage.getItem(SERVER_ID_KEY);
-  return v ? Number(v) : null;
+  const v = sessionStorage.getItem(SERVER_ID_KEY) ?? localStorage.getItem(SERVER_ID_KEY);
+  const id = Number(v);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 export function setStoredServerId(id: number) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(SERVER_ID_KEY, String(id));
+  sessionStorage.setItem(SERVER_ID_KEY, String(id));
+  localStorage.removeItem(SERVER_ID_KEY);
 }
 export function clearStoredServerId() {
   if (typeof window === "undefined") return;
+  sessionStorage.removeItem(SERVER_ID_KEY);
   localStorage.removeItem(SERVER_ID_KEY);
 }
 
@@ -44,6 +47,7 @@ export interface ManagedServer {
   auth: string;
   is_enabled: boolean;
   is_default: boolean;
+  configured: boolean;
   sort_order?: number;
   created_date?: string;
   updated_date?: string;
@@ -76,6 +80,9 @@ async function request<T = Wire>(method: string, path: string, body?: unknown): 
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
+  const scoped = !path.startsWith("/auth/") && !path.startsWith("/system/") && !path.startsWith("/servers");
+  if (scoped && serverId !== getStoredServerId()) throw new DOMException("Server changed", "AbortError");
+
   if (res.status === 401) {
     clearToken();
     if (!path.includes("/auth/")) {
@@ -102,6 +109,15 @@ async function request<T = Wire>(method: string, path: string, body?: unknown): 
   if (res.status === 204) return undefined as T;
   const text = await res.text();
   return text ? (JSON.parse(text) as T) : (undefined as T);
+}
+
+export interface ConnectionTest {
+  ok: boolean;
+  auth: string;
+  version?: string;
+  hostname?: string;
+  sessions?: number;
+  rtt_ms: number;
 }
 
 export interface Probe {
@@ -300,8 +316,8 @@ export const api = {
   createServer: (body: Wire) => request<ManagedServer>("POST", "/servers", body),
   updateServer: (id: number, body: Wire) => request<ManagedServer>("PUT", `/servers/${id}`, body),
   deleteServer: (id: number) => request<{ ok: boolean }>("DELETE", `/servers/${id}`),
-  testServerConnection: (body: Wire) => request<Wire>("POST", "/servers/test", body),
-  testServerId: (id: number) => request<Wire>("POST", `/servers/${id}/test`),
+  testServerConnection: (body: Wire) => request<ConnectionTest>("POST", "/servers/test", body),
+  testServerId: (id: number, body?: Wire) => request<ConnectionTest>("POST", `/servers/${id}/test`, body),
   setDefaultServer: (id: number) => request<{ ok: boolean; default_id: number }>("POST", `/servers/${id}/set-default`),
   probeServer: (id: number) => request<Probe>("POST", `/servers/${id}/probe`),
 
@@ -544,7 +560,5 @@ export const api = {
   resetUserTransfer: (hub: string, name: string) =>
     request<Quota>("POST", `/quotas/user/${encodeURIComponent(hub)}/${encodeURIComponent(name)}/reset`),
 
-  // -- the RPC console -----------------------------------------------------------------------------------
-  rpcMethods: () => request<Wire[]>("GET", "/rpc/methods"),
-  rpcCall: (method: string, params: Wire) => request("POST", "/rpc/call", { method, params }),
+
 };

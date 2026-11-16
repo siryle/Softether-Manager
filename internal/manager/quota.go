@@ -110,7 +110,7 @@ func (a *App) releaseQuota(ctx context.Context, row M) {
 		a.rpc(ctx, "SetUser", body)
 	}
 	execute(a.db, `UPDATE TrafficQuota SET EnforcedDate=NULL,ExceededDate=NULL,RestoreState='',UpdatedDate=? WHERE TrafficQuotaID=?`, now(), row["TrafficQuotaID"])
-	a.audit(nil, "quota.released", str(row["SubjectType"]), hub, name)
+	a.audit(nil, "quota.released", str(row["SubjectType"]), hub, name, integer(row["ServerID"]))
 }
 func (a *App) blockQuota(ctx context.Context, row M) {
 	hub, name := str(row["HubName"]), str(row["UserName"])
@@ -130,13 +130,13 @@ func (a *App) blockQuota(ctx context.Context, row M) {
 	encoded, err := json.Marshal(restore)
 	check(err)
 	execute(a.db, `UPDATE TrafficQuota SET EnforcedDate=?,ExceededDate=COALESCE(ExceededDate,?),RestoreState=?,UpdatedDate=? WHERE TrafficQuotaID=?`, now(), now(), string(encoded), now(), row["TrafficQuotaID"])
-	a.audit(nil, "quota.blocked", str(row["SubjectType"]), hub, name)
+	a.audit(nil, "quota.blocked", str(row["SubjectType"]), hub, name, integer(row["ServerID"]))
 }
 func (a *App) cutQuotaSessions(ctx context.Context, row M) {
 	hub, name := str(row["HubName"]), str(row["UserName"])
 	for _, s := range list(a.rpc(ctx, "EnumSession", M{"HubName_str": hub})["SessionList"]) {
 		if fold(str(s["Username_str"])) == fold(name) {
-			_, err := a.client().Call(ctx, "DeleteSession", M{"HubName_str": hub, "Name_str": s["Name_str"]})
+			_, err := a.client(ctx).Call(ctx, "DeleteSession", M{"HubName_str": hub, "Name_str": s["Name_str"]})
 			if err != nil {
 				log.Printf("quota disconnect: %v", err)
 			}
@@ -150,7 +150,7 @@ func (a *App) enforceQuotas(ctx context.Context) {
 }
 func (a *App) enforceQuotasLocked(ctx context.Context) {
 	global := boolean(a.setting("quota_enforcement_enabled"))
-	for _, row := range query(a.db, `SELECT * FROM TrafficQuota`) {
+	for _, row := range query(a.db, `SELECT q.* FROM TrafficQuota q JOIN Server s ON s.ServerID=q.ServerID WHERE s.IsEnabled=1`) {
 		func() {
 			defer func() {
 				if p := recover(); p != nil {
@@ -176,7 +176,7 @@ func (a *App) enforceQuotasLocked(ctx context.Context) {
 func (a *App) quotaTick(ctx context.Context) {
 	a.quotaMu.Lock()
 	defer a.quotaMu.Unlock()
-	for _, row := range query(a.db, `SELECT * FROM TrafficQuota`) {
+	for _, row := range query(a.db, `SELECT q.* FROM TrafficQuota q JOIN Server s ON s.ServerID=q.ServerID WHERE s.IsEnabled=1`) {
 		serverID := integer(row["ServerID"])
 		serverCtx := context.WithValue(ctx, serverIDKey, serverID)
 		a.refreshQuota(serverCtx, serverID, str(row["SubjectType"]), str(row["HubName"]), str(row["UserName"]))

@@ -1,7 +1,7 @@
 "use client";
 
 import { AuthProvider, useAuth } from "./lib/auth";
-import { ServerProvider } from "./lib/server";
+import { ServerProvider, useServer } from "./lib/server";
 import { RouterProvider, useRoute } from "./lib/router";
 import { ToastProvider } from "./lib/toast";
 import { RatesProvider } from "./lib/rates";
@@ -15,12 +15,13 @@ import { Connect } from "./screens/Connect";
 import { ServerSettings } from "./screens/ServerSettings";
 import { Connections } from "./screens/Connections";
 import { Logs } from "./screens/Logs";
-import { Console } from "./screens/Console";
 import { HubDetail } from "./screens/HubDetail";
 import { Hubs } from "./screens/Hubs";
 import { UserDetail } from "./screens/UserDetail";
 import { Settings } from "./screens/Settings";
 import { Servers } from "./screens/Servers";
+import { ErrorAlert } from "./components/bits";
+import { useI18n } from "./lib/i18n";
 
 export default function App() {
   return (
@@ -54,15 +55,18 @@ export default function App() {
  *   /server-settings[/:sec]   server-wide SoftEther settings
  *   /connections              TCP connections into the server
  *   /logs                     log browser
- *   /console                  raw RPC console
  *   /settings[/:section]      the panel itself
  */
 function Routed() {
   const { user, loading } = useAuth();
   const route = useRoute();
+  const { servers, currentServerId, error, refreshServers, refresh } = useServer();
+  const { t } = useI18n();
 
   if (loading) return <div className="loading" />;
   if (!user) return <Login />;
+
+  if (!servers) return error ? <div className="page"><ErrorAlert>{error}</ErrorAlert><button className="btn" onClick={() => void refreshServers().then(() => refresh())}>{t("Retry")}</button></div> : <div className="loading" />;
 
   const p = route.parts;
   let screen: React.ReactNode = <Dashboard />;
@@ -83,8 +87,7 @@ function Routed() {
     screen = <Connections />;
   } else if (p[0] === "logs") {
     screen = <Logs />;
-  } else if (p[0] === "console") {
-    screen = <Console />;
+
   } else if (p[0] === "hub" && p[1]) {
     const hub = p[1];
     if (p[2] === "user" && p[3]) {
@@ -94,5 +97,5 @@ function Routed() {
     }
   }
 
-  return <AppShell>{screen}</AppShell>;
+  return <AppShell key={currentServerId}>{screen}</AppShell>;
 }

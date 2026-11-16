@@ -16,7 +16,7 @@ import { IconCheck } from "../ui/Icon";
  * somewhere unusual, but 127.0.0.1 is the design.
  */
 export function Connect() {
-  const { refresh } = useServer();
+  const { refresh, refreshServers } = useServer();
   const { push } = useToast();
   const { t } = useI18n();
   const [host, setHost] = useState("127.0.0.1");
@@ -62,6 +62,7 @@ export function Connect() {
         password: password || (configured ? null : ""),
       });
       push("ok", t("Connected."));
+      await refreshServers();
       await refresh();
       navigate("/");
     } catch (e) {

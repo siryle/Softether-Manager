@@ -2,234 +2,219 @@ package manager
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
+
+func serverID(r *http.Request) int64 {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		fail(422, "Invalid server id.")
+	}
+	return id
+}
+
+func (a *App) serverRow(id int64) M {
+	row := one(a.db, `SELECT * FROM Server WHERE ServerID=?`, id)
+	if row == nil {
+		fail(404, "Server not found.")
+	}
+	return row
+}
+
+func publicServer(row M) M {
+	return M{"id": row["ServerID"], "name": row["Name"], "host": row["Host"], "port": row["Port"], "auth": row["AuthType"], "is_enabled": boolean(row["IsEnabled"]), "is_default": boolean(row["IsDefault"]), "sort_order": row["SortOrder"], "configured": str(row["EncryptedPassword"]) != "", "created_date": row["CreatedDate"], "updated_date": row["UpdatedDate"]}
+}
+
+func (a *App) serverInput(existing, body M) M {
+	row := clone(existing)
+	for key, column := range map[string]string{"name": "Name", "host": "Host", "port": "Port", "auth": "AuthType", "is_enabled": "IsEnabled", "is_default": "IsDefault", "sort_order": "SortOrder"} {
+		if v, ok := body[key]; ok {
+			row[column] = v
+		}
+	}
+	row["Name"] = strings.TrimSpace(str(row["Name"]))
+	if utf8.RuneCountInString(str(row["Name"])) < 1 || utf8.RuneCountInString(str(row["Name"])) > 64 {
+		fail(422, "Server name must contain 1 to 64 characters.")
+	}
+	host, port, auth := connectionInput(M{"host": row["Host"], "port": row["Port"], "auth": row["AuthType"], "password": body["password"]})
+	row["Host"], row["Port"], row["AuthType"] = host, port, auth
+	for _, key := range []string{"is_enabled", "is_default"} {
+		if v, ok := body[key]; ok {
+			if _, valid := v.(bool); !valid {
+				fail(422, key+" must be a boolean.")
+			}
+		}
+	}
+	if boolean(row["IsDefault"]) && !boolean(row["IsEnabled"]) {
+		fail(422, "The default server must be enabled.")
+	}
+	if v, ok := body["password"]; ok && v != nil {
+		if _, valid := v.(string); !valid {
+			fail(422, "Password must be a string.")
+		}
+		row["EncryptedPassword"] = a.encrypt(str(v))
+	}
+	if one(a.db, `SELECT ServerID FROM Server WHERE lower(Host)=lower(?) AND Port=? AND ServerID!=?`, host, port, integer(existing["ServerID"])) != nil {
+		fail(409, "A server with this address and port already exists.")
+	}
+	return row
+}
 
 func (a *App) registerServers() {
 	a.endpoint("GET /servers", func(_ http.ResponseWriter, _ *http.Request, _ M) any {
-		rows := query(a.db, `SELECT ServerID id, Name name, Host host, Port port, AuthType auth, IsEnabled is_enabled, IsDefault is_default, SortOrder sort_order, CreatedDate created_date, UpdatedDate updated_date FROM Server ORDER BY SortOrder, ServerID`)
-		for i := range rows {
-			rows[i]["is_enabled"] = boolean(rows[i]["is_enabled"])
-			rows[i]["is_default"] = boolean(rows[i]["is_default"])
+		out := []M{}
+		for _, row := range query(a.db, `SELECT * FROM Server ORDER BY SortOrder,ServerID`) {
+			out = append(out, publicServer(row))
 		}
-		return rows
+		return out
 	})
-
-	a.endpoint("POST /servers", func(w http.ResponseWriter, r *http.Request, u M) any {
-		body := readBody(w, r)
-		name := strings.TrimSpace(str(body["name"]))
-		if name == "" {
-			fail(422, "Server name is required.")
+	a.endpoint("GET /servers/{id}", func(_ http.ResponseWriter, r *http.Request, _ M) any { return publicServer(a.serverRow(serverID(r))) })
+	for _, method := range []string{"POST", "PUT"} {
+		path := "/servers"
+		if method == "PUT" {
+			path += "/{id}"
 		}
-		host, port, auth := connectionInput(body)
-		pwd := str(body["password"])
-		if !boolean(body["skip_test"]) && pwd != "" {
-			out := a.testConnection(r.Context(), host, port, pwd, auth)
-			auth = str(out["auth"])
-		}
-		isDefault := boolean(body["is_default"])
-		count := integer(one(a.db, `SELECT COUNT(*) n FROM Server`)["n"])
-		if count == 0 {
-			isDefault = true
-		}
-		if isDefault {
-			execute(a.db, `UPDATE Server SET IsDefault=0`)
-		}
-		encPwd := a.encrypt(pwd)
-		stamp := now()
-		id := execute(a.db, `INSERT INTO Server(Name,Host,Port,EncryptedPassword,AuthType,IsEnabled,IsDefault,SortOrder,CreatedDate,UpdatedDate) VALUES(?,?,?,?,?,1,?,?,?,?)`, name, host, port, encPwd, auth, isDefault, 0, stamp, stamp)
-		if isDefault {
-			a.saveConnection(host, port, &pwd, auth)
-		}
-		a.audit(u, "server.created", "server", name, host)
-		return M{
-			"id":         id,
-			"name":       name,
-			"host":       host,
-			"port":       port,
-			"auth":       auth,
-			"is_enabled": true,
-			"is_default": isDefault,
-		}
-	})
-
-	a.endpoint("GET /servers/{id}", func(_ http.ResponseWriter, r *http.Request, _ M) any {
-		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-		if err != nil || id <= 0 {
-			fail(422, "Invalid server id.")
-		}
-		row := one(a.db, `SELECT ServerID id, Name name, Host host, Port port, AuthType auth, IsEnabled is_enabled, IsDefault is_default, SortOrder sort_order, CreatedDate created_date, UpdatedDate updated_date FROM Server WHERE ServerID=?`, id)
-		if row == nil {
-			fail(404, "Server not found.")
-		}
-		row["is_enabled"] = boolean(row["is_enabled"])
-		row["is_default"] = boolean(row["is_default"])
-		return row
-	})
-
-	a.endpoint("PUT /servers/{id}", func(w http.ResponseWriter, r *http.Request, u M) any {
-		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-		if err != nil || id <= 0 {
-			fail(422, "Invalid server id.")
-		}
-		existing := one(a.db, `SELECT * FROM Server WHERE ServerID=?`, id)
-		if existing == nil {
-			fail(404, "Server not found.")
-		}
-		body := readBody(w, r)
-		name := str(existing["Name"])
-		if v, ok := body["name"]; ok && str(v) != "" {
-			name = strings.TrimSpace(str(v))
-		}
-		host := str(existing["Host"])
-		if v, ok := body["host"]; ok && str(v) != "" {
-			host = strings.TrimSpace(str(v))
-		}
-		port := int(integer(existing["Port"]))
-		if v, ok := body["port"]; ok && integer(v) > 0 {
-			port = int(integer(v))
-		}
-		auth := str(existing["AuthType"])
-		if v, ok := body["auth"]; ok && str(v) != "" {
-			auth = str(v)
-		}
-		encPwd := str(existing["EncryptedPassword"])
-		var rawPwd *string
-		if v, ok := body["password"]; ok && v != nil && str(v) != "" {
-			p := str(v)
-			rawPwd = &p
-			if !boolean(body["skip_test"]) {
-				out := a.testConnection(r.Context(), host, port, p, auth)
-				auth = str(out["auth"])
+		a.endpoint(method+" "+path, func(w http.ResponseWriter, r *http.Request, u M) any {
+			body := readBody(w, r)
+			a.connectionMu.Lock()
+			defer a.connectionMu.Unlock()
+			existing := M{"Host": "127.0.0.1", "Port": 5555, "AuthType": "", "EncryptedPassword": a.encrypt(""), "IsEnabled": true, "IsDefault": false, "SortOrder": 0}
+			if method == "PUT" {
+				existing = a.serverRow(serverID(r))
 			}
-			encPwd = a.encrypt(p)
-		}
-		isEnabled := boolean(existing["IsEnabled"])
-		if v, ok := body["is_enabled"]; ok && v != nil {
-			isEnabled = boolean(v)
-		}
-		isDefault := boolean(existing["IsDefault"])
-		if v, ok := body["is_default"]; ok && v != nil {
-			isDefault = boolean(v)
-		}
-		if isDefault {
-			execute(a.db, `UPDATE Server SET IsDefault=0 WHERE ServerID!=?`, id)
-		}
-		execute(a.db, `UPDATE Server SET Name=?,Host=?,Port=?,EncryptedPassword=?,AuthType=?,IsEnabled=?,IsDefault=?,UpdatedDate=? WHERE ServerID=?`, name, host, port, encPwd, auth, isEnabled, isDefault, now(), id)
-		a.invalidateClient(id)
-		if isDefault {
-			if rawPwd == nil {
-				p, _ := a.decrypt(encPwd)
-				rawPwd = &p
+			row := a.serverInput(existing, body)
+			if !boolean(body["skip_test"]) && (method == "POST" || body["host"] != nil || body["port"] != nil || body["password"] != nil || body["auth"] != nil) {
+				pwd, err := a.decrypt(str(row["EncryptedPassword"]))
+				check(err)
+				out := a.testConnection(r.Context(), str(row["Host"]), int(integer(row["Port"])), pwd, str(row["AuthType"]))
+				row["AuthType"] = out["auth"]
 			}
-			a.saveConnection(host, port, rawPwd, auth)
-		}
-		a.audit(u, "server.updated", "server", name, host)
-		return M{"id": id, "name": name, "host": host, "port": port, "auth": auth, "is_enabled": isEnabled, "is_default": isDefault}
-	})
-
+			if str(row["AuthType"]) == "" {
+				row["AuthType"] = "header"
+			}
+			if integer(one(a.db, `SELECT COUNT(*) n FROM Server`)["n"]) == 0 {
+				row["IsDefault"] = true
+			}
+			if boolean(existing["IsDefault"]) && !boolean(row["IsDefault"]) {
+				fail(422, "Choose another default server first.")
+			}
+			stamp := now()
+			tx, err := a.db.Begin()
+			check(err)
+			defer tx.Rollback()
+			if boolean(row["IsDefault"]) {
+				_, err = tx.Exec(`UPDATE Server SET IsDefault=0`)
+				check(err)
+			}
+			id := integer(existing["ServerID"])
+			if method == "POST" {
+				var result sql.Result
+				result, err = tx.Exec(`INSERT INTO Server(Name,Host,Port,EncryptedPassword,AuthType,IsEnabled,IsDefault,SortOrder,CreatedDate,UpdatedDate) VALUES(?,?,?,?,?,?,?,?,?,?)`, row["Name"], row["Host"], row["Port"], row["EncryptedPassword"], row["AuthType"], boolean(row["IsEnabled"]), boolean(row["IsDefault"]), integer(row["SortOrder"]), stamp, stamp)
+				check(err)
+				id, err = result.LastInsertId()
+				check(err)
+			} else {
+				_, err = tx.Exec(`UPDATE Server SET Name=?,Host=?,Port=?,EncryptedPassword=?,AuthType=?,IsEnabled=?,IsDefault=?,SortOrder=?,UpdatedDate=? WHERE ServerID=?`, row["Name"], row["Host"], row["Port"], row["EncryptedPassword"], row["AuthType"], boolean(row["IsEnabled"]), boolean(row["IsDefault"]), integer(row["SortOrder"]), stamp, id)
+				check(err)
+			}
+			check(tx.Commit())
+			a.invalidateClientLocked(id)
+			if boolean(row["IsDefault"]) {
+				a.syncDefaultConnection(row)
+			}
+			action := "server.updated"
+			if method == "POST" {
+				action = "server.created"
+			}
+			a.audit(u, action, "server", str(row["Name"]), str(row["Host"]), id)
+			return publicServer(a.serverRow(id))
+		})
+	}
 	a.endpoint("DELETE /servers/{id}", func(_ http.ResponseWriter, r *http.Request, u M) any {
-		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-		if err != nil || id <= 0 {
-			fail(422, "Invalid server id.")
-		}
-		existing := one(a.db, `SELECT * FROM Server WHERE ServerID=?`, id)
-		if existing == nil {
-			fail(404, "Server not found.")
-		}
-		count := integer(one(a.db, `SELECT COUNT(*) n FROM Server`)["n"])
-		if count <= 1 {
+		id := serverID(r)
+		a.connectionMu.Lock()
+		defer a.connectionMu.Unlock()
+		row := a.serverRow(id)
+		if integer(one(a.db, `SELECT COUNT(*) n FROM Server`)["n"]) <= 1 {
 			fail(422, "Cannot delete the only configured server.")
 		}
-		wasDefault := boolean(existing["IsDefault"])
-		execute(a.db, `DELETE FROM Server WHERE ServerID=?`, id)
-		execute(a.db, `DELETE FROM UserTrafficSample WHERE ServerID=?`, id)
-		execute(a.db, `DELETE FROM HubTrafficSample WHERE ServerID=?`, id)
-		execute(a.db, `DELETE FROM VpnSessionSample WHERE ServerID=?`, id)
-		execute(a.db, `DELETE FROM VpnUserCredential WHERE ServerID=?`, id)
-		execute(a.db, `DELETE FROM TrafficQuota WHERE ServerID=?`, id)
-		a.invalidateClient(id)
-		if wasDefault {
-			row := one(a.db, `SELECT ServerID FROM Server ORDER BY ServerID LIMIT 1`)
-			if row != nil {
-				execute(a.db, `UPDATE Server SET IsDefault=1 WHERE ServerID=?`, row["ServerID"])
-			}
+		if id == a.serverIDFromContext(r.Context()) {
+			fail(409, "Switch to another server before removing the current connection.")
 		}
-		a.audit(u, "server.deleted", "server", str(existing["Name"]), str(existing["Host"]))
+		replacement := one(a.db, `SELECT * FROM Server WHERE ServerID!=? AND IsEnabled=1 ORDER BY SortOrder,ServerID LIMIT 1`, id)
+		if boolean(row["IsDefault"]) && replacement == nil {
+			fail(409, "Choose an enabled default server first.")
+		}
+		tx, err := a.db.Begin()
+		check(err)
+		defer tx.Rollback()
+		_, err = tx.Exec(`DELETE FROM VpnSessionTrafficSample WHERE VpnSessionSampleID IN (SELECT VpnSessionSampleID FROM VpnSessionSample WHERE ServerID=?)`, id)
+		check(err)
+		for _, table := range []string{"UserTrafficSample", "HubTrafficSample", "VpnSessionSample", "VpnUserCredential", "TrafficQuota"} {
+			_, err = tx.Exec(`DELETE FROM `+table+` WHERE ServerID=?`, id)
+			check(err)
+		}
+		_, err = tx.Exec(`UPDATE AuditLog SET ServerID=NULL WHERE ServerID=?`, id)
+		check(err)
+		_, err = tx.Exec(`DELETE FROM Server WHERE ServerID=?`, id)
+		check(err)
+		if boolean(row["IsDefault"]) {
+			_, err = tx.Exec(`UPDATE Server SET IsDefault=1 WHERE ServerID=?`, replacement["ServerID"])
+			check(err)
+		}
+		check(tx.Commit())
+		a.invalidateClientLocked(id)
+		if boolean(row["IsDefault"]) {
+			a.syncDefaultConnection(replacement)
+		}
+		a.audit(u, "server.deleted", "server", str(row["Name"]), str(row["Host"]))
 		return M{"ok": true}
 	})
-
 	a.endpoint("POST /servers/test", func(w http.ResponseWriter, r *http.Request, _ M) any {
 		body := readBody(w, r)
 		host, port, auth := connectionInput(body)
-		password := str(body["password"])
 		start := time.Now()
-		out := a.testConnection(r.Context(), host, port, password, auth)
+		out := a.testConnection(r.Context(), host, port, str(body["password"]), auth)
 		out["rtt_ms"] = time.Since(start).Milliseconds()
 		return out
 	})
-
 	a.endpoint("POST /servers/{id}/test", func(w http.ResponseWriter, r *http.Request, _ M) any {
-		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-		if err != nil || id <= 0 {
-			fail(422, "Invalid server id.")
+		row := a.serverRow(serverID(r))
+		body := M{}
+		if r.ContentLength != 0 {
+			body = readBody(w, r)
 		}
-		row := one(a.db, `SELECT * FROM Server WHERE ServerID=?`, id)
-		if row == nil {
-			fail(404, "Server not found.")
+		host, port, auth := connectionInput(M{"host": withDefault(body, "host", row["Host"]), "port": withDefault(body, "port", row["Port"]), "auth": withDefault(body, "auth", row["AuthType"]), "password": body["password"]})
+		pwd, err := a.decrypt(str(row["EncryptedPassword"]))
+		check(err)
+		if v, ok := body["password"]; ok && v != nil {
+			pwd = str(v)
 		}
-		pwd, _ := a.decrypt(str(row["EncryptedPassword"]))
 		start := time.Now()
-		out := a.testConnection(r.Context(), str(row["Host"]), int(integer(row["Port"])), pwd, str(row["AuthType"]))
+		out := a.testConnection(r.Context(), host, port, pwd, auth)
 		out["rtt_ms"] = time.Since(start).Milliseconds()
 		return out
 	})
-
 	a.endpoint("POST /servers/{id}/set-default", func(_ http.ResponseWriter, r *http.Request, u M) any {
-		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-		if err != nil || id <= 0 {
-			fail(422, "Invalid server id.")
-		}
-		row := one(a.db, `SELECT * FROM Server WHERE ServerID=?`, id)
-		if row == nil {
-			fail(404, "Server not found.")
+		id := serverID(r)
+		a.connectionMu.Lock()
+		defer a.connectionMu.Unlock()
+		row := a.serverRow(id)
+		if !boolean(row["IsEnabled"]) {
+			fail(422, "The default server must be enabled.")
 		}
 		execute(a.db, `UPDATE Server SET IsDefault=CASE WHEN ServerID=? THEN 1 ELSE 0 END`, id)
-		pwd, _ := a.decrypt(str(row["EncryptedPassword"]))
-		a.saveConnection(str(row["Host"]), int(integer(row["Port"])), &pwd, str(row["AuthType"]))
-		a.audit(u, "server.set_default", "server", str(row["Name"]), str(row["Host"]))
+		a.syncDefaultConnection(row)
+		a.audit(u, "server.set_default", "server", str(row["Name"]), str(row["Host"]), id)
 		return M{"ok": true, "default_id": id}
 	})
-
-	a.endpoint("POST /servers/{id}/probe", func(_ http.ResponseWriter, r *http.Request, _ M) (result any) {
-		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-		if err != nil || id <= 0 {
-			fail(422, "Invalid server id.")
-		}
-		serverCtx := context.WithValue(r.Context(), serverIDKey, id)
-		defer func() {
-			if p := recover(); p != nil {
-				result = M{"online": false, "configured": true, "error": fmtError(p)}
-			}
-		}()
-		info := a.rpc(serverCtx, "GetServerInfo", nil)
-		status := a.rpc(serverCtx, "GetServerStatus", nil)
-		return M{
-			"online":       true,
-			"configured":   true,
-			"version":      info["ServerVersionString_str"],
-			"server_type":  info["ServerType_u32"],
-			"hostname":     info["ServerHostName_str"],
-			"sessions":     status["NumSessionsTotal_u32"],
-			"users":        status["NumUsers_u32"],
-			"hubs":         status["NumHubTotal_u32"],
-			"send_bytes":   status["SendBytes_u64"],
-			"recv_bytes":   status["RecvBytes_u64"],
-			"started":      status["StartTime_dt"],
-			"current_time": status["CurrentTime_dt"],
-		}
+	a.endpoint("POST /servers/{id}/probe", func(_ http.ResponseWriter, r *http.Request, _ M) any {
+		row := a.serverRow(serverID(r))
+		return a.probeServer(context.WithValue(r.Context(), serverIDKey, integer(row["ServerID"])))
 	})
 }

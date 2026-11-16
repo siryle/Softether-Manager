@@ -67,10 +67,10 @@ func (a *App) registerSystem() {
 		return out
 	})
 	a.endpoint("GET /system/audit", func(_ http.ResponseWriter, r *http.Request, _ M) any {
-		sql := `SELECT AuditLogID id,Username username,Action action,TargetType target_type,TargetKey target_key,Detail detail,CreatedDate created_date FROM AuditLog`
-		args := []any{}
+		sql := `SELECT AuditLogID id,Username username,Action action,TargetType target_type,TargetKey target_key,Detail detail,CreatedDate created_date,ServerID server_id FROM AuditLog WHERE (ServerID=? OR ServerID IS NULL)`
+		args := []any{a.serverIDFromContext(r.Context())}
 		if before := queryInt(r, "before_id", 0, 0, 1<<63-1); before > 0 {
-			sql += " WHERE AuditLogID<?"
+			sql += " AND AuditLogID<?"
 			args = append(args, before)
 		}
 		sql += " ORDER BY AuditLogID DESC LIMIT ?"

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# This test owns its temporary repository, including its release refs.
+unset GITHUB_REF
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEST_DIR="$(mktemp -d)"
 trap 'rm -rf "$TEST_DIR"' EXIT
@@ -84,6 +87,8 @@ git commit --quiet --amend --no-edit
 expect_version 1.1.3
 
 [[ "$(bash scripts/version.sh)" == v1.1.3 ]]
+[[ "$(GITHUB_REF=refs/tags/v3.2.1 bash scripts/version.sh)" == v3.2.1 ]]
+[[ "$(GITHUB_REF=refs/tags/v3.2.1-rc.1 bash scripts/version.sh)" == v3.2.1-rc.1 ]]
 git tag v1.1.3
 printf '2.0.0\n' > VERSION
 [[ "$(bash scripts/version.sh)" == v1.1.3 ]]
@@ -98,6 +103,11 @@ if git commit --quiet -m 'invalid version'; then
 fi
 if bash scripts/version.sh; then
   printf 'FAIL: invalid VERSION was used for a build\n' >&2
+  exit 1
+fi
+
+if GITHUB_REF=refs/tags/v-invalid bash scripts/version.sh; then
+  printf 'FAIL: invalid release tag was accepted\n' >&2
   exit 1
 fi
 

@@ -108,9 +108,6 @@ func (a *App) claims(token string) M {
 	return claims
 }
 func (a *App) encrypt(plain string) string {
-	if plain == "" {
-		return ""
-	}
 	key := sha256.Sum256([]byte(a.encryptionKey))
 	block, err := aes.NewCipher(key[16:])
 	check(err)

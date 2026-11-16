@@ -92,16 +92,18 @@ export function CheckRow({
   onChange,
   label,
   hint,
+  disabled,
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
   label: ReactNode;
   hint?: ReactNode;
+  disabled?: boolean;
 }) {
   const { t } = useI18n();
   return (
     <label className="checkrow">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <input type="checkbox" disabled={disabled} checked={checked} onChange={(e) => onChange(e.target.checked)} />
       <span style={{ minWidth: 0 }}>
         <span className="t">{typeof label === "string" ? t(label) : label}</span>
         {hint && <span className="s">{typeof hint === "string" ? t(hint) : hint}</span>}

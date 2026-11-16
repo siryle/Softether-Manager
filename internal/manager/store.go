@@ -202,16 +202,31 @@ func initSchema(db *sql.DB) error {
 		}
 	}
 
+	// Preserve the selected server on reopen; legacy layouts may not have a default yet.
+	if serverCols["IsDeleted"] {
+		if _, err = tx.Exec(`UPDATE Server SET IsEnabled=0,IsDefault=0 WHERE IsDeleted!=0`); err != nil {
+			return err
+		}
+	}
+	var defaultID int64
+	err = tx.QueryRow(`SELECT ServerID FROM Server WHERE IsEnabled=1 ORDER BY IsDefault DESC,SortOrder,ServerID LIMIT 1`).Scan(&defaultID)
+	if err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`UPDATE Server SET IsDefault=CASE WHEN ServerID=? THEN 1 ELSE 0 END`, defaultID); err != nil {
+		return err
+	}
+
 	// 4. Ensure all existing tables have ServerID and required migration columns
 	for _, migration := range []struct{ table, column, ddl string }{
-		{"UserTrafficSample", "ServerID", `INTEGER NOT NULL DEFAULT 1`},
-		{"HubTrafficSample", "ServerID", `INTEGER NOT NULL DEFAULT 1`},
-		{"VpnSessionSample", "ServerID", `INTEGER NOT NULL DEFAULT 1`},
+		{"UserTrafficSample", "ServerID", fmt.Sprintf("INTEGER NOT NULL DEFAULT %d", defaultID)},
+		{"HubTrafficSample", "ServerID", fmt.Sprintf("INTEGER NOT NULL DEFAULT %d", defaultID)},
+		{"VpnSessionSample", "ServerID", fmt.Sprintf("INTEGER NOT NULL DEFAULT %d", defaultID)},
 		{"VpnSessionSample", "DownloadBytes", `INTEGER NOT NULL DEFAULT 0`},
 		{"VpnSessionSample", "UploadBytes", `INTEGER NOT NULL DEFAULT 0`},
 		{"VpnSessionTrafficSample", "TotalBytes", `INTEGER NOT NULL DEFAULT 0`},
-		{"VpnUserCredential", "ServerID", `INTEGER NOT NULL DEFAULT 1`},
-		{"TrafficQuota", "ServerID", `INTEGER NOT NULL DEFAULT 1`},
+		{"VpnUserCredential", "ServerID", fmt.Sprintf("INTEGER NOT NULL DEFAULT %d", defaultID)},
+		{"TrafficQuota", "ServerID", fmt.Sprintf("INTEGER NOT NULL DEFAULT %d", defaultID)},
 		{"TrafficQuota", "BaseSendBytes", `INTEGER NOT NULL DEFAULT 0`},
 		{"TrafficQuota", "BaseRecvBytes", `INTEGER NOT NULL DEFAULT 0`},
 		{"AuditLog", "ServerID", `INTEGER DEFAULT NULL`},
@@ -222,6 +237,64 @@ func initSchema(db *sql.DB) error {
 		}
 		if len(cols) > 0 && !cols[migration.column] {
 			if _, e = tx.Exec(`ALTER TABLE "` + migration.table + `" ADD COLUMN "` + migration.column + `" ` + migration.ddl); e != nil {
+				return e
+			}
+		}
+	}
+
+	// SQLite cannot change an inline UNIQUE constraint with ALTER TABLE.
+	for _, table := range []string{"VpnSessionSample", "VpnUserCredential", "TrafficQuota"} {
+		var ddl string
+		err = tx.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&ddl)
+		if err == sql.ErrNoRows {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		compact := strings.NewReplacer("\"", "", " ", "", "\n", "", "\t", "", "\r", "").Replace(strings.ToUpper(ddl))
+		if !strings.Contains(compact, "UNIQUE(") || strings.Contains(compact, "UNIQUE(SERVERID,") {
+			continue
+		}
+		cols, e := tableColumns(tx, table)
+		if e != nil {
+			return e
+		}
+		for _, statement := range strings.Split(schema, ";") {
+			if !strings.Contains(statement, `CREATE TABLE IF NOT EXISTS "`+table+`"`) {
+				continue
+			}
+			temp := table + "_multiserver"
+			if _, e = tx.Exec(strings.Replace(statement, `"`+table+`"`, `"`+temp+`"`, 1)); e != nil {
+				return e
+			}
+			names := []string{}
+			for name := range cols {
+				names = append(names, `"`+name+`"`)
+			}
+			columns := strings.Join(names, ",")
+			if _, e = tx.Exec(`INSERT INTO "` + temp + `" (` + columns + `) SELECT ` + columns + ` FROM "` + table + `"`); e != nil {
+				return e
+			}
+			if _, e = tx.Exec(`DROP TABLE "` + table + `"`); e != nil {
+				return e
+			}
+			if _, e = tx.Exec(`ALTER TABLE "` + temp + `" RENAME TO "` + table + `"`); e != nil {
+				return e
+			}
+		}
+	}
+	for _, name := range []string{"IX_UserTrafficSample_Key", "IX_HubTrafficSample_Key", "IX_VpnSessionSample_Open", "IX_VpnSessionSample_User", "IX_TrafficQuota_Hub"} {
+		var ddl string
+		e := tx.QueryRow(`SELECT sql FROM sqlite_master WHERE type='index' AND name=?`, name).Scan(&ddl)
+		if e == sql.ErrNoRows {
+			continue
+		}
+		if e != nil {
+			return e
+		}
+		if !strings.Contains(strings.ToLower(ddl), "serverid") {
+			if _, e = tx.Exec(`DROP INDEX "` + name + `"`); e != nil {
 				return e
 			}
 		}
@@ -318,12 +391,19 @@ func (a *App) settings() M {
 	}
 	return out
 }
-func (a *App) audit(user M, action, target, key, detail string) {
+func (a *App) audit(user M, action, target, key, detail string, serverIDs ...int64) {
 	var id any
 	name := "system"
 	if user != nil {
 		id = user["UserID"]
 		name = str(user["Username"])
 	}
-	execute(a.db, `INSERT INTO AuditLog(UserID,Username,Action,TargetType,TargetKey,Detail,CreatedDate) VALUES(?,?,?,?,?,?,?)`, id, name, action, target, key, detail, now())
+	var serverID any
+	if user != nil && target != "panel" && target != "panel_user" {
+		serverID = user["ServerID"]
+	}
+	if len(serverIDs) > 0 {
+		serverID = serverIDs[0]
+	}
+	execute(a.db, `INSERT INTO AuditLog(ServerID,UserID,Username,Action,TargetType,TargetKey,Detail,CreatedDate) VALUES(?,?,?,?,?,?,?,?)`, serverID, id, name, action, target, key, detail, now())
 }

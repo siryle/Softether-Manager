@@ -8,6 +8,9 @@ import (
 	"time"
 )
 
+// buildVersion is stamped into release executables; source builds read VERSION.
+var buildVersion string
+
 type Config struct {
 	Root, DataDir, Database, BindHost, WebPath, SecretKey, EncryptionKey, Version, Repo, ServiceName string
 	BindPort, SessionMinutes                                                                         int
@@ -52,6 +55,9 @@ func LoadConfig() Config {
 		}
 	}
 	version := env("SEM_VERSION", "")
+	if version == "" {
+		version = buildVersion
+	}
 	if version == "" {
 		b, _ := os.ReadFile(filepath.Join(root, "VERSION"))
 		version = strings.TrimSpace(string(b))

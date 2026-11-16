@@ -23,7 +23,7 @@ import { CreateHubSheet, HubList } from "./Hubs";
  *    - Right: Access Protocols & Ports list and Server Bootstrap info.
  */
 export function Dashboard() {
-  const { probe, health, refresh } = useServer();
+  const { probe, health, refresh, currentServer } = useServer();
   const { t } = useI18n();
   const [resources, setResources] = useState<Wire | null>(null);
   const [overview, setOverview] = useState<Wire | null>(null);
@@ -80,6 +80,9 @@ export function Dashboard() {
     );
   }
 
+  if (health === "probing") return <LoadingBlock label={t("Checking server connection")} />;
+  if (health === "offline") return <div className="page"><h1>{t("Server overview")} · {currentServer?.name}</h1><ErrorAlert><div className="alert__t">{t("The VPN server is not answering.")}</div>{probe?.error}</ErrorAlert><div className="server-actions"><button className="btn" onClick={() => void refresh()}>{t("Retry")}</button><Link className="btn" to="/connect">{t("Edit connection")}</Link><Link className="btn" to="/servers">{t("Choose another server")}</Link></div></div>;
+
   const activeSessions = Number(status?.NumSessionsTotal_u32) || 0;
   const totalUsers = Number(status?.NumUsers_u32) || 0;
   const rxTotal = (Number(status?.["Recv.UnicastBytes_u64"]) || 0) + (Number(status?.["Recv.BroadcastBytes_u64"]) || 0);
@@ -91,10 +94,10 @@ export function Dashboard() {
       <div className="dash-header pb-4 border-b border-hairline flex flex-col sm:flex-row sm:items-baseline justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-primary">
-            {t("Server overview")} · {probe?.hostname || "vpnserver"}
+            {t("Server overview")} · {currentServer?.name || probe?.hostname || "vpnserver"}
           </h1>
           <p className="text-xs text-secondary mt-1 font-mono">
-            {probe?.version || "SoftEther VPN"} {uptimeSeconds ? `· ${t("Continuous running")} ${formatDuration(uptimeSeconds)}` : ""} · {probe?.hostname?.includes(":") ? probe.hostname : `${probe?.hostname || "127.0.0.1"}:5555`}
+            {probe?.version || "SoftEther VPN"} {uptimeSeconds ? `· ${t("Continuous running")} ${formatDuration(uptimeSeconds)}` : ""} · {currentServer ? `${currentServer.host}:${currentServer.port}` : "—"}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -106,13 +109,6 @@ export function Dashboard() {
           </Link>
         </div>
       </div>
-
-      {health === "offline" && (
-        <ErrorAlert>
-          <div className="alert__t">{t("The VPN server is not answering.")}</div>
-          {probe?.error} — <Link to="/connect" className="linkish">{t("check the connection")}</Link>
-        </ErrorAlert>
-      )}
 
       {/* ── 2. Stat KPI Cards ─────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -189,7 +185,7 @@ export function Dashboard() {
             <div className="panel-card space-y-3">
               <div className="panel-card__h">
                 <div>
-                  <h3 className="panel-card__t">{t("Host machine performance")}</h3>
+                  <h3 className="panel-card__t">{t("Panel host resources")}</h3>
                   <p className="panel-card__s">{t("Linux kernel rolling performance window")}</p>
                 </div>
                 <span className="text-[11px] font-mono text-muted">{t("Sampling interval 3s")}</span>
