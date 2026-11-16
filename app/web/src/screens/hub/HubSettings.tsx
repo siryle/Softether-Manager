@@ -86,7 +86,7 @@ function BasicsCard({ hub, onChanged }: { hub: string; onChanged: () => void }) 
           <Field label="Hub type" hint="Static/dynamic matter only in a cluster.">
             <select className="select" value={Number(data.HubType_u32) || 0} onChange={(e) => set("HubType_u32", Number(e.target.value))}>
               {Object.entries(HUB_TYPES).map(([v, l]) => (
-                <option key={v} value={v}>{l}</option>
+                <option key={v} value={v}>{t(l)}</option>
               ))}
             </select>
           </Field>
@@ -114,7 +114,7 @@ const SWITCH_TYPES = [
 ];
 
 const PACKET_KINDS = [
-  { i: 0, l: "TCP connections" },
+  { i: 0, l: "TCP connection log" },
   { i: 1, l: "All TCP packets" },
   { i: 2, l: "DHCP" },
   { i: 3, l: "UDP" },
@@ -164,7 +164,7 @@ function LogCard({ hub }: { hub: string }) {
         {Boolean(data.SaveSecurityLog_bool) && (
           <Field label="Rotate security log">
             <select className="select" value={Number(data.SecurityLogSwitchType_u32) || 0} onChange={(e) => set("SecurityLogSwitchType_u32", Number(e.target.value))}>
-              {SWITCH_TYPES.map((s) => <option key={s.v} value={s.v}>{s.l}</option>)}
+              {SWITCH_TYPES.map((s) => <option key={s.v} value={s.v}>{t(s.l)}</option>)}
             </select>
           </Field>
         )}
@@ -174,22 +174,23 @@ function LogCard({ hub }: { hub: string }) {
           <>
             <Field label="Rotate packet log">
               <select className="select" value={Number(data.PacketLogSwitchType_u32) || 0} onChange={(e) => set("PacketLogSwitchType_u32", Number(e.target.value))}>
-                {SWITCH_TYPES.map((s) => <option key={s.v} value={s.v}>{s.l}</option>)}
+                {SWITCH_TYPES.map((s) => <option key={s.v} value={s.v}>{t(s.l)}</option>)}
               </select>
             </Field>
             {PACKET_KINDS.map((k) => (
               <Field key={k.i} label={k.l}>
-                <div className="seg">
-                  {["off", "headers", "full"].map((lbl, v) => (
+                <div className="seg seg--packet-log" role="group" aria-label={t(k.l)}>
+                  {["No logging", "Headers only", "Full packet"].map((lbl, v) => (
                     <button
                       key={lbl}
                       className={packetConfig[k.i] === v ? "on" : ""}
+                      aria-pressed={packetConfig[k.i] === v}
                       onClick={() => {
                         packetConfig[k.i] = v;
                         set("PacketLogConfig_u32", packetConfig);
                       }}
                     >
-                      {lbl}
+                      {t(lbl)}
                     </button>
                   ))}
                 </div>

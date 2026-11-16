@@ -814,6 +814,119 @@
   flex-direction: column;
   gap: var(--s5);
 }
+.shell__scroll:has(.settings-page) {
+  overflow: visible;
+}
+.settings-page {
+  max-width: 1200px;
+  padding: 0;
+}
+.settings-layout {
+  display: grid;
+  align-items: start;
+  gap: var(--s6);
+  min-width: 0;
+}
+.settings-nav {
+  position: sticky;
+  top: var(--topbar-h);
+  z-index: 10;
+  display: flex;
+  gap: var(--s1);
+  padding-block: var(--s2);
+  overflow-x: auto;
+  background: var(--bg);
+  border-bottom: 1px solid var(--glass-line);
+}
+.settings-nav__link {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  min-height: 40px;
+  padding: var(--s2) var(--s3);
+  border-radius: var(--r-ctl);
+  color: var(--text-muted);
+  font-size: var(--t-small);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.settings-nav__link:hover {
+  color: var(--text);
+  background: var(--glass-lo);
+}
+.settings-nav__link[aria-current="location"] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.settings-page .setdoc {
+  container: settings-content / inline-size;
+  min-width: 0;
+  gap: var(--s8);
+}
+.settings-page .setdoc section {
+  min-width: 0;
+  scroll-margin-top: calc(var(--topbar-h) + 80px);
+}
+.settings-page .setdoc section > .section {
+  margin: 0 0 var(--s3);
+  flex-wrap: wrap;
+}
+.settings-pair {
+  display: grid;
+  gap: var(--s8);
+}
+.settings-pair > section {
+  display: flex;
+  flex-direction: column;
+}
+.settings-pair .settings-card {
+  flex: 1;
+}
+@container settings-content (min-width: 760px) {
+  .settings-pair {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--s6);
+  }
+}
+.settings-card {
+  padding: var(--s5);
+}
+.settings-card > .lede {
+  max-width: 75ch;
+}
+.settings-page .row2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.settings-page .row2 > * {
+  min-width: 0;
+}
+@media (min-width: 1100px) {
+  .settings-layout {
+    grid-template-columns: 180px minmax(0, 1fr);
+    gap: var(--s8);
+  }
+  .settings-nav {
+    top: calc(var(--topbar-h) + var(--s6));
+    display: grid;
+    padding: 0;
+    overflow: visible;
+    border-bottom: 0;
+  }
+  .settings-nav__link {
+    white-space: normal;
+  }
+  .settings-page .setdoc section {
+    scroll-margin-top: calc(var(--topbar-h) + var(--s6));
+  }
+}
+@media (max-width: 599px) {
+  .settings-card {
+    padding: var(--s4);
+  }
+  .settings-page .row2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 .setgrid {
   display: grid;
   gap: var(--s4);

@@ -19,8 +19,8 @@
  * relative URLs, so they resolve under any install prefix. */
 
 :root {
-  --font-ui: "Manrope", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+  --font-ui: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", ui-sans-serif, sans-serif;
+  --font-mono: "Geist Mono", "SF Mono", "Cascadia Mono", Menlo, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", ui-monospace, monospace;
 
   /* ── type ─────────────────────────────────────────────────────────────── */
   --t-page: 1.625rem;    /* 26 — the greeting / page titles, bold */

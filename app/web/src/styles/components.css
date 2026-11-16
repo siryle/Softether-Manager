@@ -159,19 +159,25 @@
   }
 }
 
-.chip {
+.chip,
+.spec > .chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   height: 24px;
   padding: 0 10px;
   border-radius: var(--r-chip);
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  font-weight: 400;
-  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: var(--t-micro);
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--text-2);
   background: var(--glass-lo);
   box-shadow: var(--nm-inset-sm);
+}
+.chip > i {
+  font-weight: 400;
+  color: var(--text-muted);
 }
 .chip--brand {
   color: var(--accent);
@@ -429,6 +435,25 @@
   color: var(--text);
   background: var(--card-grad);
   box-shadow: var(--nm-raise-sm);
+}
+.seg--packet-log {
+  max-width: 100%;
+}
+.seg--packet-log button {
+  flex: 1 0 auto;
+  white-space: nowrap;
+}
+@media (max-width: 599px) {
+  .seg--packet-log {
+    display: flex;
+  }
+  .seg--packet-log button {
+    flex: 1 1 0;
+    min-width: 0;
+    padding-inline: var(--s1);
+    font-size: var(--t-micro);
+    font-weight: 600;
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════════ rows ══ */

@@ -363,6 +363,7 @@ func TestMountHostGuardAndSettingsValidation(t *testing.T) {
 type fakeSoftEther struct {
 	mu                    sync.Mutex
 	calls                 []M
+	logSettings           M
 	hubOnline, userAccess bool
 	send, recv            int64
 	failRestore           bool
@@ -391,6 +392,10 @@ func attachSoftEther(t *testing.T, a *App) *fakeSoftEther {
 		params := object(req["params"])
 		out := clone(params)
 		switch method {
+		case "SetHubLog":
+			fake.logSettings = clone(params)
+		case "GetHubLog":
+			out = clone(fake.logSettings)
 		case "EnumHub":
 			out = M{"HubList": []M{{"HubName_str": "Office / 上海", "NumUsers_u32": 1, "NumSessions_u32": 1}}}
 		case "GetHub", "GetHubStatus":

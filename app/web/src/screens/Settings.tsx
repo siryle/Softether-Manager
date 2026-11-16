@@ -28,29 +28,77 @@ import { SwitchRow, useToggle } from "../ui/Switch";
  * The panel about itself: the account, where it serves, its sampler, its
  * updates, and the audit trail of what every administrator did.
  */
+const SETTINGS_SECTIONS = [
+  { id: "account", label: "Account" },
+  { id: "connection", label: "VPN server" },
+  { id: "panel", label: "Panel" },
+  { id: "domain", label: "Domain & HTTPS" },
+  { id: "monitoring", label: "Monitoring" },
+  { id: "vpnfile", label: "Connection files (.vpn)" },
+  { id: "audit", label: "Audit log" },
+  { id: "about", label: "About" },
+];
+
+function scrollSettingsSection(id: string) {
+  const target = document.getElementById(`s-${id}`);
+  if (!target) return false;
+  target.scrollIntoView({
+    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    block: "start",
+  });
+  return true;
+}
+
 export function Settings({ section }: { section?: string }) {
   useEffect(() => {
-    if (section) {
-      requestAnimationFrame(() =>
-        document.getElementById(`s-${section}`)?.scrollIntoView({ behavior: "smooth", block: "start" }),
-      );
-    }
+    if (!section) return;
+    // Some sections mount after their settings have loaded.
+    const observer = new MutationObserver(() => {
+      if (scrollSettingsSection(section)) observer.disconnect();
+    });
+    const frame = requestAnimationFrame(() => {
+      if (!scrollSettingsSection(section)) {
+        const doc = document.querySelector(".settings-page .setdoc");
+        if (doc) observer.observe(doc, { childList: true, subtree: true });
+      }
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
   }, [section]);
 
   const { t } = useI18n();
 
   return (
-    <div className="page">
+    <div className="page settings-page">
       <PageHead title={t("Settings")} sub={t("The panel itself — account, address, domain, sampling, updates.")} />
-      <div className="setdoc">
-        <AccountCard />
-        <ConnectionCard />
-        <PanelCard />
-        <DomainCard />
-        <MonitoringCard />
-        <VpnFileTemplateCard />
-        <AuditCard />
-        <AboutCard />
+      <div className="settings-layout">
+        <nav className="settings-nav" aria-label={t("Settings sections")}>
+          {SETTINGS_SECTIONS.map(({ id, label }) => (
+            <Link
+              key={id}
+              to={`/settings/${id}`}
+              className="settings-nav__link"
+              aria-current={(section ?? "account") === id ? "location" : undefined}
+              onClick={() => { if (section === id) scrollSettingsSection(id); }}
+            >
+              {t(label)}
+            </Link>
+          ))}
+        </nav>
+        <div className="setdoc">
+          <AccountCard />
+          <div className="settings-pair">
+            <ConnectionCard />
+            <PanelCard />
+          </div>
+          <DomainCard />
+          <MonitoringCard />
+          <VpnFileTemplateCard />
+          <AuditCard />
+          <AboutCard />
+        </div>
       </div>
     </div>
   );
@@ -89,7 +137,7 @@ function AccountCard() {
   return (
     <section id="s-account">
       <SectionTitle>{t("Account")}</SectionTitle>
-      <div className="card" style={{ padding: "var(--s4)", maxWidth: 560 }}>
+      <div className="card settings-card">
         <KV rows={[[t("signed in as"), user ?? "—"]]} />
         <div className="section__t" style={{ margin: "var(--s4) 0 var(--s3)" }}>{t("Change password")}</div>
         {error && <ErrorAlert>{error}</ErrorAlert>}
@@ -104,7 +152,7 @@ function AccountCard() {
             <input className="input" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" />
           </Field>
         </div>
-        <div style={{ display: "flex", gap: "var(--s2)" }}>
+        <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap" }}>
           <button className="btn btn--primary" onClick={change} disabled={busy || !current || !next}>
             {busy && <span className="spin" />} {t("Change password")}
           </button>
@@ -130,7 +178,7 @@ function ConnectionCard() {
   return (
     <section id="s-connection">
       <SectionTitle>{t("VPN server")}</SectionTitle>
-      <div className="card" style={{ padding: "var(--s4)", maxWidth: 560 }}>
+      <div className="card settings-card">
         {error ? (
           <div className="alert alert--err" style={{ marginBottom: "var(--s3)" }}>
             {error}
@@ -185,7 +233,7 @@ function PanelCard() {
   return (
     <section id="s-panel">
       <SectionTitle>{t("Panel")}</SectionTitle>
-      <div className="card" style={{ padding: "var(--s4)", maxWidth: 560 }}>
+      <div className="card settings-card">
         <Field
           label={t("Web path")}
           hint={t("The secret prefix the panel serves under; empty serves at the root. Takes effect after a restart.")}
@@ -368,7 +416,7 @@ function DomainCard() {
       >
         {t("Domain & HTTPS")}
       </SectionTitle>
-      <div className="card" style={{ padding: "var(--s4)", maxWidth: 760 }}>
+      <div className="card settings-card">
         <p className="lede" style={{ marginBottom: "var(--s3)" }}>
           {t("Point a DNS record at this server — an A record, plus AAAA for IPv6 — open port 80 and the HTTPS port in the firewall, and enter the name. The panel asks Let's Encrypt for a certificate, serves HTTPS on the port below, keeps port 80 for the validation and a redirect, and renews the certificate a month before it expires. The plain-HTTP address keeps working.")}
         </p>
@@ -760,7 +808,7 @@ function VpnFileTemplateCard() {
       >
         {t("Connection files (.vpn)")}
       </SectionTitle>
-      <div className="card" style={{ padding: "var(--s4)" }}>
+      <div className="card settings-card">
         <p className="lede" style={{ marginBottom: "var(--s3)" }}>
           {t("Every .vpn file the panel hands out is built from this template. Options set here apply to all downloads; the per-user values are filled in at download time.")}
         </p>
@@ -956,7 +1004,7 @@ function MonitoringCard() {
       >
         {t("Monitoring")}
       </SectionTitle>
-      <div className="card" style={{ padding: "var(--s4)", maxWidth: 720 }}>
+      <div className="card settings-card">
         <p className="lede" style={{ marginBottom: "var(--s3)" }}>
           {t("Turning a monitor off stops it reading; what it has already recorded stays until its retention window prunes it, which keeps running either way.")}
         </p>
@@ -1067,7 +1115,7 @@ function AuditCard() {
       {rows === null ? (
         <LoadingBlock />
       ) : rows.length === 0 ? (
-        <div className="card" style={{ padding: "var(--s4)" }}>
+        <div className="card settings-card">
           <span className="micro">{t("Every state-changing action lands here — nothing yet.")}</span>
         </div>
       ) : (
@@ -1119,7 +1167,7 @@ function AboutCard() {
   return (
     <section id="s-about">
       <SectionTitle>{t("About")}</SectionTitle>
-      <div className="card" style={{ padding: "var(--s4)", maxWidth: 560 }}>
+      <div className="card settings-card">
         {!info ? (
           <LoadingBlock />
         ) : (

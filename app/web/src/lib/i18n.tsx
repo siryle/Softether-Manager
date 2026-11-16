@@ -448,6 +448,7 @@ const zhCN: Record<string, string> = {
   "server default": "遵循服务端默认",
 
   // --- Settings ---
+  "Settings sections": "设置分区",
   "The panel itself — account, address, domain, sampling, updates.": "面板自身配置 —— 账户、访问地址、域名、监控采样与系统更新。",
   "Account": "管理员账户",
   "signed in as": "当前登录用户",
@@ -988,6 +989,11 @@ const zhCN: Record<string, string> = {
   "Rotate packet log": "轮转数据包日志",
   "Save log settings": "保存日志设置",
   "Log settings saved.": "日志设置已保存。",
+  "TCP connection log": "TCP 连接日志",
+  "Ethernet": "以太网",
+  "No logging": "不记录",
+  "Headers only": "仅包头",
+  "Full packet": "完整数据包",
   "Message of the day": "每日消息",
   "Shown to clients when they connect": "客户端连接时显示",
   "Empty shows nothing.": "留空则不显示。",

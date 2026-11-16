@@ -253,9 +253,16 @@ func (a *App) registerRPCRoutes() {
 func validateWire(params M) {
 	for key, val := range params {
 		if strings.HasSuffix(key, "_u32") || strings.HasSuffix(key, "_u64") {
-			n, err := strconv.ParseUint(str(val), 10, 64)
-			if err != nil || (strings.HasSuffix(key, "_u32") && n > 1<<32-1) {
-				fail(422, "Invalid unsigned integer field: "+key)
+			// The wire suffix also applies to arrays, such as PacketLogConfig_u32.
+			values, ok := val.([]any)
+			if !ok {
+				values = []any{val}
+			}
+			for _, value := range values {
+				n, err := strconv.ParseUint(str(value), 10, 64)
+				if err != nil || (strings.HasSuffix(key, "_u32") && n > 1<<32-1) {
+					fail(422, "Invalid unsigned integer field: "+key)
+				}
 			}
 		}
 		if strings.HasSuffix(key, "_bool") {

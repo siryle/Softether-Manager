@@ -116,3 +116,89 @@ func TestConnectionFallsBackToBasicAfterHeaderEOF(t *testing.T) {
 		t.Fatalf("authentication attempts: %v", attempts)
 	}
 }
+
+func TestHubLogSettingsSave(t *testing.T) {
+	a := testApp(t)
+	token := admin(t, a)
+	fake := attachSoftEther(t, a)
+	hub := "Office / 上海"
+	path := "/api/v1/hubs/" + url.PathEscape(hub) + "/log-settings"
+	for _, packetLog := range []bool{false, true, false} {
+		body := M{
+			"SaveSecurityLog_bool":      true,
+			"SecurityLogSwitchType_u32": 4,
+			"SavePacketLog_bool":        packetLog,
+			"PacketLogSwitchType_u32":   4,
+			"PacketLogConfig_u32":       []int{1, 2, 0, 1, 2, 0, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0},
+		}
+		status, out, _ := call(t, a, "PUT", path, body, token)
+		if status != 200 {
+			t.Fatalf("save packetLog=%t: %d %v", packetLog, status, out)
+		}
+		status, out, _ = call(t, a, "GET", path, nil, token)
+		want := clone(body)
+		want["HubName_str"] = hub
+		wantJSON, _ := json.Marshal(want)
+		gotJSON, _ := json.Marshal(out)
+		if status != 200 || string(gotJSON) != string(wantJSON) {
+			t.Fatalf("saved settings: %d %s; want %s", status, gotJSON, wantJSON)
+		}
+	}
+	fake.mu.Lock()
+	before := len(fake.calls)
+	fake.mu.Unlock()
+	status, out, _ := call(t, a, "PUT", path, M{"PacketLogConfig_u32": []int{0, -1, 2}}, token)
+	if status != 422 {
+		t.Fatalf("invalid packet config accepted: %d %v", status, out)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if len(fake.calls) != before {
+		t.Fatal("invalid packet config sent to SoftEther")
+	}
+}
+
+func TestUnsignedWireValues(t *testing.T) {
+	for _, tc := range []struct {
+		name, key, value string
+		valid            bool
+	}{
+		{"u32 scalar", "Value_u32", `4294967295`, true},
+		{"u32 array", "Ports_u32", `[443,992,5555]`, true},
+		{"u32 array bounds", "PacketLogConfig_u32", `[0,4294967295]`, true},
+		{"empty array", "PacketLogConfig_u32", `[]`, true},
+		{"u64 array", "Value_u64", `[0,18446744073709551615]`, true},
+		{"u32 overflow", "Value_u32", `4294967296`, false},
+		{"u32 array overflow", "PacketLogConfig_u32", `[0,4294967296]`, false},
+		{"u64 array overflow", "Value_u64", `[18446744073709551616]`, false},
+		{"negative", "PacketLogConfig_u32", `[0,-1]`, false},
+		{"fraction", "PacketLogConfig_u32", `[0,1.5]`, false},
+		{"text", "PacketLogConfig_u32", `[0,"invalid"]`, false},
+		{"boolean", "PacketLogConfig_u32", `[0,true]`, false},
+		{"null element", "PacketLogConfig_u32", `[0,null]`, false},
+		{"nested array", "PacketLogConfig_u32", `[0,[1]]`, false},
+		{"null", "PacketLogConfig_u32", `null`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var value any
+			decoder := json.NewDecoder(strings.NewReader(tc.value))
+			decoder.UseNumber()
+			if err := decoder.Decode(&value); err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				err := recover()
+				if tc.valid && err != nil {
+					t.Fatalf("valid value rejected: %v", err)
+				}
+				if !tc.valid {
+					e, ok := err.(httpError)
+					if !ok || e.Status != 422 {
+						t.Fatalf("invalid value must return 422: %v", err)
+					}
+				}
+			}()
+			validateWire(M{tc.key: value})
+		})
+	}
+}
