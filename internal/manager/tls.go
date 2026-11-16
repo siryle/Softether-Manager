@@ -11,6 +11,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"golang.org/x/crypto/acme"
 	"golang.org/x/net/idna"
@@ -324,6 +325,13 @@ func (m *tlsManager) start(ctx context.Context) {
 		}
 	})
 }
+func newCertificateOrder(ctx context.Context, client *acme.Client, account *acme.Account, domain string) (*acme.Order, error) {
+	if _, err := client.Register(ctx, account, acme.AcceptTOS); err != nil && !errors.Is(err, acme.ErrAccountAlreadyExists) {
+		return nil, err
+	}
+	return client.AuthorizeOrder(ctx, acme.DomainIDs(domain))
+}
+
 func (m *tlsManager) issue(ctx context.Context, domain string) {
 	m.mu.Lock()
 	if m.busy {
@@ -390,9 +398,7 @@ func (m *tlsManager) issue(ctx context.Context, domain string) {
 	if email := str(m.app.setting("acme_email")); email != "" {
 		account.Contact = []string{"mailto:" + email}
 	}
-	_, err = client.Register(ctx, account, acme.AcceptTOS)
-	check(err)
-	order, err := client.AuthorizeOrder(ctx, acme.DomainIDs(domain))
+	order, err := newCertificateOrder(ctx, client, account, domain)
 	check(err)
 	for _, uri := range order.AuthzURLs {
 		auth, err := client.GetAuthorization(ctx, uri)

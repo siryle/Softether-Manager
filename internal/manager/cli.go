@@ -33,7 +33,7 @@ func Run(args []string, stdout, stderr io.Writer) (exit int) {
 		action, args = args[0], args[1:]
 	}
 	if action == "--help" || action == "-h" || action == "help" {
-		fmt.Fprintln(stdout, "SoftEther Manager\n\nUsage: softether-manager [serve|healthcheck|address|status|users|password|connect|webpath|domain]\n\npassword --username NAME --password PASSWORD\nconnect --host HOST --port PORT --password PASSWORD [--auth header|basic|both]\nwebpath [PREFIX]\ndomain [show|set NAME|clear|only on|off]\n\nConfiguration: SEM_DATA_DIR, SEM_BIND_HOST, SEM_BIND_PORT, SEM_WEB_PATH, SEM_SE_HOST, SEM_SE_PORT")
+		fmt.Fprintln(stdout, "SoftEther Manager\n\nUsage: softether-manager [serve|healthcheck|address|status|users|password|connect|webpath|domain]\n\npassword --username NAME --password-stdin\nconnect --host HOST --port PORT --password-stdin [--auth header|basic|both]\nwebpath [PREFIX]\ndomain [show|set NAME|clear|only on|off]\n\nConfiguration: SEM_DATA_DIR, SEM_BIND_HOST, SEM_BIND_PORT, SEM_WEB_PATH, SEM_SE_HOST, SEM_SE_PORT")
 		return 0
 	}
 	if action == "version" || action == "--version" {
@@ -105,10 +105,11 @@ func Run(args []string, stdout, stderr io.Writer) (exit int) {
 		flags.SetOutput(stderr)
 		username := flags.String("username", "", "Panel administrator username")
 		password := flags.String("password", "", "New password")
+		fromStdin := flags.Bool("password-stdin", false, "Read the password from standard input")
 		if err := flags.Parse(args); err != nil {
 			return 2
 		}
-		a.SetPassword(*username, *password)
+		a.SetPassword(*username, cliPassword(*password, *fromStdin))
 		fmt.Fprintf(stdout, "Account %s updated.\n", *username)
 		return 0
 	case "connect":
@@ -118,10 +119,24 @@ func Run(args []string, stdout, stderr io.Writer) (exit int) {
 		port := flags.Int("port", 5555, "SoftEther management port")
 		password := flags.String("password", "", "SoftEther administrator password")
 		auth := flags.String("auth", "header", "header, basic or both")
+		initialize := flags.Bool("initialize-password", false, "Set the password on a fresh SoftEther server with an empty administrator password")
+		fromStdin := flags.Bool("password-stdin", false, "Read the password from standard input")
 		if err := flags.Parse(args); err != nil {
 			return 2
 		}
+		*password = cliPassword(*password, *fromStdin)
 		connectionInput(M{"host": *host, "port": *port, "password": *password, "auth": *auth})
+		if *initialize {
+			if *password == "" {
+				fail(422, "The initial administrator password cannot be empty.")
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			client := a.newRPCClient(*host, *port, "", *auth)
+			defer client.Close()
+			_, err := client.Call(ctx, "SetServerPassword", M{"PlainTextPassword_str": *password})
+			check(err)
+		}
 		a.saveConnection(*host, *port, password, *auth)
 		fmt.Fprintf(stdout, "Connection set to %s:%d.\n", *host, *port)
 		return 0

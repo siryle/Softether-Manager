@@ -3,6 +3,7 @@ package manager
 import (
 	"net/http"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -12,12 +13,12 @@ func (a *App) SetPassword(username, password string) {
 	}
 	hash, err := HashPassword(password)
 	check(err)
-	execute(a.db, `INSERT INTO PanelUser(Username,PasswordHash,CreatedDate,UpdatedDate) VALUES(?,?,?,?) ON CONFLICT(Username) DO UPDATE SET PasswordHash=excluded.PasswordHash,IsDeleted=0,UpdatedDate=excluded.UpdatedDate`, username, hash, now(), now())
+	execute(a.db, `INSERT INTO PanelUser(Username,PasswordHash,CreatedDate,UpdatedDate) VALUES(?,?,?,?) ON CONFLICT(Username) DO UPDATE SET PasswordHash=excluded.PasswordHash,SessionVersion=PanelUser.SessionVersion+1,IsDeleted=0,UpdatedDate=excluded.UpdatedDate`, username, hash, now(), now())
 }
 func (a *App) issue(w http.ResponseWriter, r *http.Request, user M) M {
-	token := a.token(integer(user["UserID"]), str(user["Username"]))
+	token := a.token(integer(user["UserID"]), str(user["Username"]), integer(user["SessionVersion"]))
 	http.SetCookie(w, &http.Cookie{Name: "sem_session", Value: token, Path: "/", MaxAge: a.cfg.SessionMinutes * 60, HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteLaxMode})
-	return M{"token": token, "username": user["Username"]}
+	return M{"username": user["Username"]}
 }
 func (a *App) registerAuth() {
 	a.handle("GET /api/v1/auth/state", true, func(_ http.ResponseWriter, _ *http.Request, _ M) any {
@@ -37,18 +38,30 @@ func (a *App) registerAuth() {
 					fail(409, "An account already exists on this panel.")
 				}
 				a.SetPassword(username, password)
-				user := one(a.db, `SELECT UserID,Username FROM PanelUser WHERE Username=? AND IsDeleted=0`, username)
+				user := one(a.db, `SELECT UserID,Username,SessionVersion FROM PanelUser WHERE Username=? AND IsDeleted=0`, username)
 				a.audit(user, "auth.setup", "panel_user", username, "")
 				return a.issue(w, r, user)
 			}
+			ip := loginIP(r)
+			if !a.logins.take(ip, time.Now()) {
+				w.Header().Set("Retry-After", "300")
+				fail(429, "Too many login attempts. Try again in five minutes.")
+			}
+			execute(a.db, `DELETE FROM RevokedSession WHERE ExpiresAt<=?`, time.Now().Unix())
 			user := one(a.db, `SELECT * FROM PanelUser WHERE Username=? AND IsDeleted=0`, username)
 			if user == nil || !VerifyPassword(password, str(user["PasswordHash"])) {
 				fail(401, "Wrong username or password.")
 			}
+			a.logins.clear(ip)
 			return a.issue(w, r, user)
 		})
 	}
-	a.handle("POST /api/v1/auth/logout", true, func(w http.ResponseWriter, _ *http.Request, _ M) any {
+	a.handle("POST /api/v1/auth/logout", true, func(w http.ResponseWriter, r *http.Request, _ M) any {
+		token := requestToken(r)
+		if claims := a.claims(token); claims != nil {
+			execute(a.db, `DELETE FROM RevokedSession WHERE ExpiresAt<=?`, time.Now().Unix())
+			execute(a.db, `INSERT INTO RevokedSession(TokenHash,ExpiresAt) VALUES(?,?) ON CONFLICT DO NOTHING`, tokenHash(token), integer(claims["exp"]))
+		}
 		http.SetCookie(w, &http.Cookie{Name: "sem_session", Path: "/", Value: "", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 		return M{"ok": true}
 	})
@@ -61,6 +74,7 @@ func (a *App) registerAuth() {
 		}
 		a.SetPassword(str(user["Username"]), str(b["new_password"]))
 		a.audit(user, "auth.password_changed", "panel_user", str(user["Username"]), "")
+		a.issue(w, r, one(a.db, `SELECT UserID,Username,SessionVersion FROM PanelUser WHERE UserID=?`, user["UserID"]))
 		return M{"ok": true}
 	})
 }

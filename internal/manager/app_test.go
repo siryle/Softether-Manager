@@ -68,11 +68,11 @@ func call(t *testing.T, a *App, method, path string, body any, token string) (in
 }
 func admin(t *testing.T, a *App) string {
 	t.Helper()
-	status, b, _ := call(t, a, "POST", "/api/v1/auth/setup", M{"username": "admin", "password": "correct horse battery"}, "")
+	status, b, rec := call(t, a, "POST", "/api/v1/auth/setup", M{"username": "admin", "password": "correct horse battery"}, "")
 	if status != 200 {
 		t.Fatalf("setup: %d %v", status, b)
 	}
-	return str(b["token"])
+	return rec.Result().Cookies()[0].Value
 }
 func TestPythonSecurityCompatibility(t *testing.T) {
 	a := testApp(t)
@@ -267,10 +267,15 @@ func TestAuthAndPersistence(t *testing.T) {
 	if status != 200 {
 		t.Fatal("password update")
 	}
-	status, _, _ = call(t, a, "POST", "/api/v1/auth/login", M{"username": "admin", "password": "next"}, "")
+	status, body, rec = call(t, a, "POST", "/api/v1/auth/login", M{"username": "admin", "password": "next"}, "")
 	if status != 200 {
 		t.Fatal("new password")
 	}
+	status, _, _ = call(t, a, "GET", "/api/v1/auth/me", nil, token)
+	if status != 401 {
+		t.Fatal("old session survived password change")
+	}
+	token = rec.Result().Cookies()[0].Value
 	a.set("ui_live_seconds", 9)
 	b, err := New(a.cfg)
 	if err != nil {
@@ -656,6 +661,7 @@ func TestRPCProtocolErrors(t *testing.T) {
 			}))
 			defer server.Close()
 			c := NewRPCClient("localhost", 1, "", "header")
+			c.http = server.Client()
 			c.url = server.URL
 			defer c.Close()
 			_, err := c.Call(context.Background(), "GetServerInfo", nil)

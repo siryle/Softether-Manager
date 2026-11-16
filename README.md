@@ -160,8 +160,11 @@ bash <(curl -Ls https://raw.githubusercontent.com/siryle/Softether-Manager/maste
 
 非交互式无人值守安装：
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/siryle/Softether-Manager/master/scripts/install.sh) \
-  --non-interactive --username admin --password 'your_password' --port 8443 --path mysecret --json
+read -r -s -p '面板密码: ' sem_password
+printf '\n'
+printf '%s' "$sem_password" | bash <(curl -Ls https://raw.githubusercontent.com/siryle/Softether-Manager/master/scripts/install.sh) \
+  --non-interactive --username admin --password-stdin --port 8443 --path mysecret --json
+unset sem_password
 ```
 
 安装后可通过内置的管理命令 `sem` 进行运维：
@@ -187,13 +190,19 @@ sem uninstall            # 卸载面板服务
 docker exec -it softether-manager sem status
 
 # 重置或新建面板管理员密码
-docker exec -it softether-manager sem password --username admin --password 新密码
+read -r -s -p '新密码: ' sem_password
+printf '\n'
+printf '%s' "$sem_password" | docker exec -i softether-manager sem password --username admin --password-stdin
+unset sem_password
 
 # 查看当前已注册的管理员账号
 docker exec -it softether-manager sem users
 
 # 更改或重新指定连接的 SoftEther 服务器
-docker exec -it softether-manager sem connect --host 192.168.1.100 --port 5555 --password 管理密码
+read -r -s -p 'VPN 管理密码: ' sem_password
+printf '\n'
+printf '%s' "$sem_password" | docker exec -i softether-manager sem connect --host 192.168.1.100 --port 5555 --password-stdin
+unset sem_password
 ```
 
 ---
@@ -205,7 +214,11 @@ docker exec -it softether-manager sem connect --host 192.168.1.100 --port 5555 -
 2. **防扫描与仅限域名访问**：
    开启“仅允许通过该域名访问”后，任何通过未授权域名或直接输入 IP 访问的请求将被一律返回 404 隐蔽状态码，阻断嗅探与非法探测。
 3. **敏感凭据安全加密**：
-   SoftEther 管理密码采用 Fernet 加密存储于本地 SQLite 数据库中；面板登录密码使用 scrypt 哈希，会话令牌使用 HMAC 签名；会话 Cookie 具备 `HttpOnly` 与 `SameSite=Lax` 保护。
+   SoftEther 管理密码和可直接用于 VPN 登录的用户哈希均采用 Fernet 加密存储于本地 SQLite 数据库中；数据库及其日志文件仅属主可读写。面板登录密码使用 scrypt 哈希，浏览器仅通过 `HttpOnly`、`SameSite=Lax` Cookie 登录，不再将会话令牌存入 `localStorage`。改密码使旧登录失效，退出会撤销当前登录；同一来源连续 8 次登录失败后暂停 5 分钟。
+4. **VPN 管理口证书校验**：
+   首次连接时保存 SoftEther 证书的 SHA-256 指纹，之后不匹配就拒绝发送管理密码。合法换证后，在 **服务器 → 编辑 → 查看已保存服务器的证书** 核对新旧指纹，再确认信任。首次连接仍需在可信网络中完成；可在该页面与服务器上的证书独立核对。
+
+升级后需重新登录一次。已有明文 VPN 用户哈希会自动加密，请备份整个数据目录并保留 `encryption.key`；旧备份仍可能含有明文凭据。Linux 安装脚本会先创建管理员账号，再开放面板端口，并以标准输入传递密码；环境文件仅 root 可读。附带安装的 SoftEther 固定为已记录 SHA-256 的 `v4.44-9807-rtm`，校验失败不会解压或执行。
 
 ---
 
@@ -240,6 +253,7 @@ go run ./cmd/softether-manager
 cd app/web
 npm ci
 NEXT_PUBLIC_API_BASE=http://localhost:8000/ npm run dev
+# 浏览器也使用 http://localhost:3000，前后端保持同一主机名以共享 Cookie。
 
 # 3. 构建前端静态资源
 npm run build
@@ -249,6 +263,7 @@ cd ../..
 go build -o softether-manager ./cmd/softether-manager
 go test -race ./...
 go vet ./...
+python3 scripts/test-install.py
 
 # 5. 运行编译后的服务（同时提供已构建的前端）
 ./softether-manager serve

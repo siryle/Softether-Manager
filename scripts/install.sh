@@ -13,7 +13,7 @@
 # Usage:
 #   bash <(curl -Ls https://raw.githubusercontent.com/siryle/Softether-Manager/master/scripts/install.sh)
 #   bash <(curl -Ls .../install.sh) --non-interactive \
-#        --username admin --password '...' --port 8443 --path abc123 --json
+#        --username admin --password-stdin --port 8443 --path abc123 --json
 #
 set -euo pipefail
 
@@ -68,14 +68,15 @@ readonly RECOMMENDED_PASSWORD_LENGTH=12
 readonly SE_DIR="/opt/vpnserver"
 readonly SE_SERVICE="vpnserver"
 readonly SE_MGMT_PORT=5555
-readonly SE_STABLE_REPO="SoftEtherVPN/SoftEtherVPN_Stable"
-# Used when GitHub cannot be asked which build is newest.
-readonly SE_FALLBACK_URL="https://github.com/SoftEtherVPN/SoftEtherVPN_Stable/releases/download/v4.44-9807-rtm/softether-vpnserver-v4.44-9807-rtm-2025.04.16-linux-x64-64bit.tar.gz"
+# Pin upstream archives because these releases publish no checksum sidecar.
+readonly SE_VERSION="v4.44-9807-rtm"
+readonly SE_DATE="2025.04.16"
 
 # ---------------------------------------------------------------- arguments
 
 USERNAME=""
 PASSWORD=""
+PASSWORD_STDIN=0
 PORT=""
 WEB_PATH=""
 BIND_ADDRESS="0.0.0.0"
@@ -98,7 +99,8 @@ usage() {
 Install the SoftEther Manager panel.
 
   --username <str>     Operator account to create on first run
-  --password <str>     Its password (12+ characters recommended, any accepted)
+  --password <str>     Its password (visible in process arguments; prefer stdin)
+  --password-stdin     Read the panel password from standard input
   --port <int>         Port the panel listens on
   --path <str>         Secret URL prefix the panel is served under ('' for none)
   --bind <ip>          Address to bind (default 0.0.0.0)
@@ -180,6 +182,7 @@ ARGUMENT_COUNT=$#
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --username) require_value "$1" "${2-}"; USERNAME="$2"; shift 2 ;;
+    --password-stdin) PASSWORD_STDIN=1; shift ;;
     --password) require_value "$1" "${2-}"; PASSWORD="$2"; shift 2 ;;
     --port) require_value "$1" "${2-}"; PORT="$2"; shift 2 ;;
     --path|--web-path) require_present "$1" "$#"; WEB_PATH="$2"; WEB_PATH_GIVEN=1; shift 2 ;;
@@ -202,6 +205,12 @@ while [[ $# -gt 0 ]]; do
     *) usage; fail "$EXIT_BAD_ARGUMENTS" "Unknown argument: $1" ;;
   esac
 done
+
+if (( PASSWORD_STDIN )); then
+  [[ -z "$PASSWORD" ]] || fail "$EXIT_BAD_ARGUMENTS" "Use either --password or --password-stdin."
+  PASSWORD="$(head -c 1025)"
+  (( ${#PASSWORD} <= 1024 )) || fail "$EXIT_BAD_ARGUMENTS" "Password input is too long."
+fi
 
 # ---------------------------------------------------------------- checks
 
@@ -450,39 +459,23 @@ softether_present() {
   return 1
 }
 
-# The newest stable vpnserver build for this machine's architecture, asked of
-# GitHub and falling back to a pinned release when that cannot be reached.
+# Use only archives whose hashes were checked when this installer was released.
 softether_download_url() {
-  local arch token url=""
-  arch="$(uname -m)"
-  case "$arch" in
-    x86_64|amd64)   token="linux-x64-64bit" ;;
-    aarch64|arm64)  token="linux-arm64-64bit" ;;
-    armv7l|armv6l)  token="linux-arm_eabi-32bit" ;;
-    i386|i686)      token="linux-x86-32bit" ;;
-    *)              token="" ;;
+  local arch
+  case "$(uname -m)" in
+    x86_64|amd64) arch="linux-x64-64bit" ;;
+    aarch64|arm64) arch="linux-arm64-64bit" ;;
+    *) return 1 ;;
   esac
-  [[ -n "$token" ]] || return 1
-  local api="https://api.github.com/repos/$SE_STABLE_REPO/releases/latest"
-  local body=""
-  if [[ "$DOWNLOADER" == "curl" ]]; then
-    body="$(curl -fsSL --max-time 20 "$api" 2>/dev/null || true)"
-  elif [[ "$DOWNLOADER" == "wget" ]]; then
-    body="$(wget -qO- --timeout=20 "$api" 2>/dev/null || true)"
-  fi
-  if [[ -n "$body" ]]; then
-    url="$(printf '%s' "$body" |
-      tr ',' '\n' |
-      sed -n 's/.*"browser_download_url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
-      grep "vpnserver" | grep "$token" | grep '\.tar\.gz$' | head -n1)"
-  fi
-  if [[ -z "$url" ]]; then
-    # Only the x64 fallback is pinned; on another architecture, say so rather
-    # than installing a build that cannot run.
-    [[ "$token" == "linux-x64-64bit" ]] || return 1
-    url="$SE_FALLBACK_URL"
-  fi
-  printf '%s' "$url"
+  printf 'https://github.com/SoftEtherVPN/SoftEtherVPN_Stable/releases/download/%s/softether-vpnserver-%s-%s-%s.tar.gz' "$SE_VERSION" "$SE_VERSION" "$SE_DATE" "$arch"
+}
+
+softether_checksum() {
+  case "$(uname -m)" in
+    x86_64|amd64) printf '%s' 'e423e7f94a9f1f97a77b6dd425ba54505f69978964ff97843c90cc619fb70599' ;;
+    aarch64|arm64) printf '%s' '9ca568a8fc62e166370d3988c592830665a51b4d1a3874e9cb80e45c51083eae' ;;
+    *) return 1 ;;
+  esac
 }
 
 SE_INSTALLED=0
@@ -514,6 +507,15 @@ install_softether() {
   step "Downloading SoftEther VPN Server"
   if ! fetch "$url" "$tmp/vpnserver.tar.gz"; then
     warn "SoftEther could not be downloaded from $url; it was not installed."
+    rm -rf "$tmp"
+    return 1
+  fi
+
+  local expected actual
+  expected="$(softether_checksum)" || { rm -rf "$tmp"; return 1; }
+  actual="$(sha256sum "$tmp/vpnserver.tar.gz" | awk '{print $1}')"
+  if [[ "$actual" != "$expected" ]]; then
+    warn "SoftEther checksum mismatch; refusing to unpack or execute the archive."
     rm -rf "$tmp"
     return 1
   fi
@@ -580,15 +582,17 @@ SEUNIT
     return 1
   fi
 
-  # A fresh installation has an empty administrator password. Setting it with
-  # vpncmd on this machine means the credential never crosses a network.
+  # Use JSON-RPC and standard input so the password never appears in argv.
   [[ -n "$SE_PASSWORD" ]] || SE_PASSWORD="$(random_hex 18)"
-  if ! "$SE_DIR/vpncmd" "localhost:$SE_MGMT_PORT" /SERVER /CMD ServerPasswordSet "$SE_PASSWORD" >/dev/null 2>&1; then
+  if ! (cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a &&
+      printf '%s' "$SE_PASSWORD" | "$MANAGER_BIN" connect --host 127.0.0.1 \
+        --port "$SE_MGMT_PORT" --password-stdin --initialize-password) >/dev/null 2>&1; then
     warn "The SoftEther administrator password could not be set; connect it from the panel yourself."
     return 1
   fi
 
   SE_INSTALLED=1
+  SE_CONNECTED=1
   step "SoftEther VPN Server is running"
   return 0
 }
@@ -674,7 +678,7 @@ else
   if [[ $NON_INTERACTIVE -eq 1 ]]; then
     missing=()
     [[ -n "$USERNAME" ]] || missing+=("--username")
-    [[ -n "$PASSWORD" ]] || missing+=("--password")
+    [[ -n "$PASSWORD" ]] || missing+=("--password or --password-stdin")
     [[ -n "$PORT" ]] || missing+=("--port")
     (( WEB_PATH_GIVEN )) || missing+=("--path")
     if (( ${#missing[@]} )); then
@@ -817,7 +821,7 @@ SEM_ENV_FILE=$ENV_PATH
 SEM_CLI_PATH=$CLI_PATH
 SEM_CLI_ENV_PATH=$CLI_ENV_PATH
 ENV
-  chmod 0644 "$ENV_PATH"
+  chmod 0600 "$ENV_PATH"
 }
 
 if (( UPGRADE_EXISTING == 1 )) && [[ -f "$ENV_PATH" ]]; then
@@ -834,6 +838,7 @@ if (( UPGRADE_EXISTING == 1 )) && [[ -f "$ENV_PATH" ]]; then
 else
   write_env_file
 fi
+chmod 0600 "$ENV_PATH"
 
 # Where the panel actually serves is asked of the panel, not assumed from the
 # file: on an upgrade the two can differ, because an operator may have moved
@@ -921,18 +926,6 @@ if (( UPGRADE_EXISTING == 0 && INSTALL_SOFTETHER == 1 )); then
   fi
 fi
 
-if (( SE_INSTALLED == 1 )); then
-  step "Pointing the panel at the VPN server"
-  if (cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a &&
-      "$MANAGER_BIN" connect --host 127.0.0.1 --port "$SE_MGMT_PORT" \
-        --password "$SE_PASSWORD") >/dev/null 2>&1; then
-    SE_CONNECTED=1
-  else
-    warn "SoftEther was installed but the panel could not be pointed at it."
-    warn "Connect it from the panel: host 127.0.0.1, port $SE_MGMT_PORT."
-  fi
-fi
-
 # ---------------------------------------------------------------- the unit
 
 step "Installing the systemd unit"
@@ -975,9 +968,23 @@ ReadWritePaths=$DATA_DIR
 WantedBy=multi-user.target
 UNIT
 
+# Create the account before enabling or opening the network listener.
+ACCOUNT_CREATED=0
+if (( UPGRADE_EXISTING == 0 )) && [[ -n "$USERNAME" ]]; then
+  step "Creating the operator account"
+  EXISTING_USERS="$(cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a && "$MANAGER_BIN" users)"
+  if [[ -n "$EXISTING_USERS" ]]; then
+    warn "An account already exists; its password was kept."
+  else
+    (cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a &&
+      printf '%s' "$PASSWORD" | "$MANAGER_BIN" password --username "$USERNAME" --password-stdin) >/dev/null ||
+      fail "$EXIT_SERVICE_FAILED" "Could not create the operator account; the panel was not started."
+    ACCOUNT_CREATED=1
+  fi
+fi
+
 systemctl daemon-reload
 systemctl enable "$SERVICE_NAME" >/dev/null 2>&1 || true
-
 step "Starting the service"
 systemctl restart "$SERVICE_NAME" ||
   fail "$EXIT_SERVICE_FAILED" "systemctl could not start $SERVICE_NAME. Run: journalctl -u $SERVICE_NAME -n 50"
@@ -1003,31 +1010,6 @@ if [[ $READY -eq 0 ]]; then
   say ""
   systemctl status "$SERVICE_NAME" --no-pager -n 25 >&2 || true
   fail "$EXIT_SERVICE_FAILED" "The service started but the panel never answered at $HEALTH_URL."
-fi
-
-# ---------------------------------------------------------------- first account
-
-ACCOUNT_CREATED=0
-if (( UPGRADE_EXISTING == 0 )) && [[ -n "$USERNAME" ]]; then
-  step "Creating the operator account"
-  SETUP_URL="http://$HEALTH_HOST:$PORT$(base_path "$WEB_PATH")api/v1/auth/setup"
-  json_string() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/^/"/; s/$/"/'; }
-  SETUP_BODY="$(printf '{"username":%s,"password":%s}' "$(json_string "$USERNAME")" "$(json_string "$PASSWORD")")"
-
-  if [[ "$DOWNLOADER" == "curl" ]]; then
-    SETUP_STATUS="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$SETUP_URL" \
-      -H 'Content-Type: application/json' -d "$SETUP_BODY" || true)"
-  else
-    SETUP_STATUS="$(wget -q -O /dev/null --server-response --method=POST \
-      --header='Content-Type: application/json' --body-data="$SETUP_BODY" "$SETUP_URL" 2>&1 |
-      awk '/HTTP\//{code=$2} END{print code}' || true)"
-  fi
-
-  case "$SETUP_STATUS" in
-    200|201) ACCOUNT_CREATED=1 ;;
-    409) warn "An account already exists on this panel; the one given was not created." ;;
-    *) warn "The account could not be created (HTTP ${SETUP_STATUS:-none}). Create it at the panel's first-run screen." ;;
-  esac
 fi
 
 # ---------------------------------------------------------------- result

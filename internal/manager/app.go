@@ -132,6 +132,7 @@ type App struct {
 	mux                            *http.ServeMux
 	setupMu, connectionMu, quotaMu sync.Mutex
 	rpcClients                     map[int64]*RPCClient
+	logins                         loginLimiter
 	resources                      resourceState
 	tls                            *tlsManager
 	updates                        updateState
@@ -161,6 +162,7 @@ func New(cfg Config) (app *App, err error) {
 		db.Close()
 		return nil, err
 	}
+	app.migrateCredentials()
 	// An intentionally empty management password is still a configured connection.
 	if boolean(app.setting("se_configured")) {
 		execute(db, `UPDATE Server SET EncryptedPassword=? WHERE IsDefault=1 AND EncryptedPassword=''`, app.encrypt(""))
@@ -240,6 +242,9 @@ func (a *App) Handler() http.Handler {
 			w.WriteHeader(204)
 			return
 		}
+		if r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS" && !a.sameOrigin(r) {
+			fail(403, "Request origin is not allowed.")
+		}
 		if prefix != "" {
 			mount := "/" + prefix
 			if r.URL.Path == mount {
@@ -311,20 +316,14 @@ func (a *App) handle(pattern string, public bool, fn func(http.ResponseWriter, *
 	})
 }
 func (a *App) requireUser(r *http.Request) M {
-	token := ""
-	header := r.Header.Get("Authorization")
-	if strings.HasPrefix(strings.ToLower(header), "bearer ") {
-		token = strings.TrimSpace(header[7:])
-	} else if cookie, err := r.Cookie("sem_session"); err == nil {
-		token = cookie.Value
-	}
+	token := requestToken(r)
 	claims := a.claims(token)
 	if claims == nil {
 		fail(401, "Not signed in.")
 	}
-	user := one(a.db, `SELECT UserID,Username FROM PanelUser WHERE UserID=? AND IsDeleted=0`, integer(claims["uid"]))
-	if user == nil {
-		fail(401, "This account no longer exists.")
+	user := one(a.db, `SELECT UserID,Username,SessionVersion FROM PanelUser WHERE UserID=? AND IsDeleted=0`, integer(claims["uid"]))
+	if user == nil || integer(claims["ver"]) != integer(user["SessionVersion"]) || one(a.db, `SELECT 1 FROM RevokedSession WHERE TokenHash=?`, tokenHash(token)) != nil {
+		fail(401, "This session is no longer valid. Sign in again.")
 	}
 	return user
 }
@@ -344,7 +343,9 @@ func loopback(r *http.Request) bool {
 }
 func (a *App) hostAllowed(r *http.Request) bool {
 	domain := str(a.setting("domain"))
-	return !boolean(a.setting("domain_only")) || domain == "" || loopback(r) || strings.HasPrefix(r.URL.Path, "/.well-known/acme-challenge/") || hostName(r.Host) == domain
+	localHost := hostName(r.Host)
+	local := localHost == "localhost" || localHost == "127.0.0.1" || localHost == "::1"
+	return !boolean(a.setting("domain_only")) || domain == "" || (loopback(r) && local) || strings.HasPrefix(r.URL.Path, "/.well-known/acme-challenge/") || localHost == domain
 }
 func (a *App) static(w http.ResponseWriter, r *http.Request, _ M) any {
 	if strings.HasPrefix(r.URL.Path, "/api/") {

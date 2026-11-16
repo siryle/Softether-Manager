@@ -33,6 +33,7 @@ func TestRPCSoftEtherStringIDs(t *testing.T) {
 	}))
 	defer server.Close()
 	c := NewRPCClient("localhost", 1, "", "header")
+	c.http = server.Client()
 	c.url = server.URL + "/api/"
 	defer c.Close()
 	for _, method := range []string{"GetServerInfo", "GetServerStatus"} {
@@ -74,6 +75,7 @@ func TestRPCUnsupportedErrors(t *testing.T) {
 			}))
 			defer server.Close()
 			c := NewRPCClient("localhost", 1, "", "header")
+			c.http = server.Client()
 			c.url = server.URL
 			defer c.Close()
 			_, err := c.Call(context.Background(), "GetAzureStatus", nil)

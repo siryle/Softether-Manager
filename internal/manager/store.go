@@ -25,6 +25,23 @@ func openDB(path string) (*sql.DB, error) {
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 			return nil, err
 		}
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+		if err != nil {
+			return nil, err
+		}
+		err = f.Chmod(0600)
+		closeErr := f.Close()
+		if err != nil {
+			return nil, err
+		}
+		if closeErr != nil {
+			return nil, closeErr
+		}
+		for _, suffix := range []string{"-wal", "-shm"} {
+			if err = os.Chmod(path+suffix, 0600); err != nil && !os.IsNotExist(err) {
+				return nil, err
+			}
+		}
 	}
 	dsn := path
 	if path != ":memory:" {
@@ -39,7 +56,7 @@ func openDB(path string) (*sql.DB, error) {
 		u := url.URL{Scheme: "file", Path: abs}
 		dsn = u.String()
 	}
-	dsn += "?_pragma=busy_timeout(10000)&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)"
+	dsn += "?_pragma=busy_timeout(10000)&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=secure_delete(ON)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
@@ -219,6 +236,7 @@ func initSchema(db *sql.DB) error {
 
 	// 4. Ensure all existing tables have ServerID and required migration columns
 	for _, migration := range []struct{ table, column, ddl string }{
+		{"PanelUser", "SessionVersion", `INTEGER NOT NULL DEFAULT 1`},
 		{"UserTrafficSample", "ServerID", fmt.Sprintf("INTEGER NOT NULL DEFAULT %d", defaultID)},
 		{"HubTrafficSample", "ServerID", fmt.Sprintf("INTEGER NOT NULL DEFAULT %d", defaultID)},
 		{"VpnSessionSample", "ServerID", fmt.Sprintf("INTEGER NOT NULL DEFAULT %d", defaultID)},

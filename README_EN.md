@@ -153,8 +153,11 @@ is the server's control room.
 Non-interactive, for automation:
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/siryle/Softether-Manager/master/scripts/install.sh) \
-  --non-interactive --username admin --password '...' --port 8443 --path mysecret --json
+read -r -s -p 'Panel password: ' sem_password
+printf '\n'
+printf '%s' "$sem_password" | bash <(curl -Ls https://raw.githubusercontent.com/siryle/Softether-Manager/master/scripts/install.sh) \
+  --non-interactive --username admin --password-stdin --port 8443 --path mysecret --json
+unset sem_password
 ```
 
 Running the installer again on a host that already has the panel opens `sem`, the
@@ -235,10 +238,25 @@ One monolithic package, one process, one SQLite file:
   mobile shells.
 
 Secrets stay where they belong: the SoftEther administrator password is
-Fernet-encrypted in the database; the session-signing and encryption keys are generated
+Fernet-encrypted in the database, as are reusable VPN user credentials; the session-signing and encryption keys are generated
 on first start into the data directory, and so are the Let's Encrypt account key and the
-panel's certificate; the environment file under `/etc` holds deployment facts only.
-Every state-changing action lands in an audit log.
+panel's certificate; the environment file under `/etc` is readable only by root.
+Browsers authenticate through HttpOnly cookies. Password changes invalidate old
+sessions; signing out revokes that login across restarts. Eight failed login attempts
+from the same source block further attempts for five minutes. Upgrading requires
+signing in again, and existing VPN credentials are encrypted automatically. Keep the
+database and `encryption.key` together; old backups may still contain plain credentials.
+
+SoftEther management connections pin the certificate's SHA-256 fingerprint on first
+use. A mismatch blocks administrator credentials before any HTTP request is sent.
+After a legitimate replacement, use Servers → Edit → Inspect saved server certificate,
+compare the fingerprint independently with the server, then confirm trust. Establish
+the first connection over a trusted network.
+
+The Linux installer creates the account before opening the panel listener and passes
+passwords through standard input. Its optional SoftEther installation uses pinned
+`v4.44-9807-rtm` archives for amd64 and arm64, checked against recorded SHA-256 hashes
+before unpacking or execution.
 
 The certificate comes from the Go ACME client (`internal/manager/tls.go`, HTTP-01),
 so there is no certbot installation or cron job, and the service's
@@ -262,12 +280,14 @@ go run ./cmd/softether-manager        # backend on :8000, serves app/web/out if 
 cd app/web
 npm ci
 NEXT_PUBLIC_API_BASE=http://localhost:8000/ npm run dev   # point it at the backend
+# Open http://localhost:3000 too: use the same hostname so cookies are shared.
 
 npm run build                        # export frontend to app/web/out
 cd ../..
 go build -o softether-manager ./cmd/softether-manager
 go test -race ./...
 go vet ./...
+python3 scripts/test-install.py
 ./softether-manager serve             # serve the backend and built frontend
 ```
 
@@ -305,5 +325,7 @@ version against the database at a time. Single-server databases migrate transact
 - The secret web path keeps scanners out of the login form; it is defence in depth, not
   authentication. The authentication is the account password (scrypt-hashed) and
   HttpOnly session cookies.
+- Set `SEM_ADMIN_USERNAME` and `SEM_ADMIN_PASSWORD` before starting a public container.
+  If left empty, whoever first completes setup can create the administrator account.
 - The panel talks to SoftEther on the loopback interface by default, so the management
   password never crosses a network.

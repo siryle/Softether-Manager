@@ -4,6 +4,8 @@
 
 后端使用 Go 编译为原生可执行文件，运行镜像无需 Python。构建时分别编译 Go 后端和前端静态资源，容器使用 `softether-manager healthcheck` 检查服务状态。
 
+升级后需重新登录；已有 VPN 用户登录哈希会自动加密。务必同时保留数据库和 `encryption.key`。SoftEther 管理口会保存首次连接的证书指纹，换证后须在“服务器 → 编辑”中独立核对并确认新指纹。
+
 ---
 
 ## 快速开始
@@ -17,6 +19,8 @@
    ```
 
 2. **配置环境变量**：
+   公网部署应在启动前设置 `SEM_ADMIN_USERNAME` 和 `SEM_ADMIN_PASSWORD`，让服务在开放端口前完成账号初始化；留空时，首个访问初始化页面的人能够创建管理员。
+
    你可以直接编辑 `docker-compose.yml`，或复制 `.env.example` 为 `.env`：
    ```bash
    cp .env.example .env
@@ -133,7 +137,10 @@ docker exec -it softether-manager sem status
 ### 2. 重置或创建管理员密码
 当忘记 Web 面板登录密码时，可随时通过命令行重置：
 ```bash
-docker exec -it softether-manager sem password --username admin --password 新密码
+read -r -s -p '新密码: ' sem_password
+printf '\n'
+printf '%s' "$sem_password" | docker exec -i softether-manager sem password --username admin --password-stdin
+unset sem_password
 ```
 
 ### 3. 查看已有管理员账号
@@ -143,7 +150,10 @@ docker exec -it softether-manager sem users
 
 ### 4. 重新指定 SoftEther 连接信息
 ```bash
-docker exec -it softether-manager sem connect --host 192.168.1.100 --port 5555 --password 你的密码
+read -r -s -p 'VPN 管理密码: ' sem_password
+printf '\n'
+printf '%s' "$sem_password" | docker exec -i softether-manager sem connect --host 192.168.1.100 --port 5555 --password-stdin
+unset sem_password
 ```
 
 ### 5. 查看实时日志

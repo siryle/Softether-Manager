@@ -86,8 +86,11 @@ func mac(key, payload []byte) []byte {
 	h.Write(payload)
 	return h.Sum(nil)
 }
-func (a *App) token(id int64, username string) string {
-	payload, err := json.Marshal(M{"uid": id, "sub": username, "exp": time.Now().Unix() + int64(a.cfg.SessionMinutes)*60})
+func (a *App) token(id int64, username string, version int64) string {
+	nonce := make([]byte, 16)
+	_, err := rand.Read(nonce)
+	check(err)
+	payload, err := json.Marshal(M{"uid": id, "sub": username, "ver": version, "sid": hex.EncodeToString(nonce), "exp": time.Now().Unix() + int64(a.cfg.SessionMinutes)*60})
 	check(err)
 	return base64.RawURLEncoding.EncodeToString(payload) + "." + base64.RawURLEncoding.EncodeToString(mac([]byte(a.sessionKey), payload))
 }

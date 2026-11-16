@@ -12,6 +12,7 @@ func (a *App) register() {
 	a.registerAuth()
 	a.registerConnection()
 	a.registerServers()
+	a.registerRPCTrust()
 	a.registerSystem()
 	a.registerRPCRoutes()
 	a.registerCustomRPC()

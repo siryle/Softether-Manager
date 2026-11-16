@@ -62,6 +62,9 @@ jobs:
             shellcheck --severity=warning .githooks/* scripts/*.sh scripts/sem docker/docker-entrypoint.sh docker/sem || true
           fi
 
+      - name: Test installer security
+        run: python3 scripts/test-install.py
+
       - name: Test commit versioning
         run: bash scripts/test-version.sh
 

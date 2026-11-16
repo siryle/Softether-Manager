@@ -29,8 +29,8 @@ type RPCClient struct {
 }
 
 func NewRPCClient(host string, port int, password, auth string) *RPCClient {
-	// SoftEther installations normally use their own self-signed server certificate.
-	transport := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}, MaxIdleConnsPerHost: 4, IdleConnTimeout: 90 * time.Second, DialContext: (&net.Dialer{Timeout: 10 * time.Second}).DialContext, TLSHandshakeTimeout: 10 * time.Second}
+	// Standalone clients use normal PKI validation; panel clients add persisted pinning.
+	transport := &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}, MaxIdleConnsPerHost: 4, IdleConnTimeout: 90 * time.Second, DialContext: (&net.Dialer{Timeout: 10 * time.Second}).DialContext, TLSHandshakeTimeout: 10 * time.Second}
 	return &RPCClient{http: &http.Client{Transport: transport, Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, url: "https://" + net.JoinHostPort(host, strconv.Itoa(port)) + "/api/", password: password, auth: auth}
 }
 func (c *RPCClient) Close() { c.http.CloseIdleConnections() }
@@ -153,7 +153,7 @@ func (a *App) clientFor(serverID int64) (*RPCClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := NewRPCClient(str(row["Host"]), int(integer(row["Port"])), pwd, str(row["AuthType"]))
+	c := a.newRPCClient(str(row["Host"]), int(integer(row["Port"])), pwd, str(row["AuthType"]))
 	a.rpcClients[serverID] = c
 	return c, nil
 }
@@ -230,7 +230,7 @@ func (a *App) testConnection(ctx context.Context, host string, port int, passwor
 	}
 	var last error
 	for _, mode := range modes {
-		c := NewRPCClient(host, port, password, mode)
+		c := a.newRPCClient(host, port, password, mode)
 		info, err := c.Call(ctx, "GetServerInfo", M{})
 		if err != nil {
 			c.Close()

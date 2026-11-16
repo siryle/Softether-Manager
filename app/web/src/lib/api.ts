@@ -9,17 +9,10 @@
  */
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
-const TOKEN_KEY = "sem_token";
 const SERVER_ID_KEY = "sem_server_id";
 
-export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
-}
-export function setToken(t: string) {
-  localStorage.setItem(TOKEN_KEY, t);
-}
-export function clearToken() {
-  localStorage.removeItem(TOKEN_KEY);
+export function clearLegacyToken() {
+  localStorage.removeItem("sem_token");
 }
 
 export function getStoredServerId(): number | null {
@@ -67,8 +60,6 @@ export type Wire = Record<string, any>;
 
 async function request<T = Wire>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {};
-  const token = getToken();
-  if (token) headers["Authorization"] = `Bearer ${token}`;
   const serverId = getStoredServerId();
   if (serverId) headers["X-Server-ID"] = String(serverId);
   if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -76,7 +67,7 @@ async function request<T = Wire>(method: string, path: string, body?: unknown): 
   const res = await fetch(`${BASE}api/v1${path}`, {
     method,
     headers,
-    credentials: "same-origin",
+    credentials: "include",
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
@@ -84,7 +75,7 @@ async function request<T = Wire>(method: string, path: string, body?: unknown): 
   if (scoped && serverId !== getStoredServerId()) throw new DOMException("Server changed", "AbortError");
 
   if (res.status === 401) {
-    clearToken();
+    clearLegacyToken();
     if (!path.includes("/auth/")) {
       window.dispatchEvent(new CustomEvent("sem-unauthorized"));
     }
@@ -276,9 +267,9 @@ export const api = {
   // -- auth ------------------------------------------------------------------
   authState: () => request<{ setup_required: boolean }>("GET", "/auth/state"),
   setup: (username: string, password: string) =>
-    request<{ token: string; username: string }>("POST", "/auth/setup", { username, password }),
+    request<{ username: string }>("POST", "/auth/setup", { username, password }),
   login: (username: string, password: string) =>
-    request<{ token: string; username: string }>("POST", "/auth/login", { username, password }),
+    request<{ username: string }>("POST", "/auth/login", { username, password }),
   logout: () => request("POST", "/auth/logout"),
   me: () => request<{ username: string }>("GET", "/auth/me"),
   changePassword: (current_password: string, new_password: string) =>
@@ -318,6 +309,8 @@ export const api = {
   deleteServer: (id: number) => request<{ ok: boolean }>("DELETE", `/servers/${id}`),
   testServerConnection: (body: Wire) => request<ConnectionTest>("POST", "/servers/test", body),
   testServerId: (id: number, body?: Wire) => request<ConnectionTest>("POST", `/servers/${id}/test`, body),
+  serverCertificate: (id: number) => request<{ fingerprint: string; pinned: string }>("GET", `/servers/${id}/certificate`),
+  trustServerCertificate: (id: number, fingerprint: string) => request("PUT", `/servers/${id}/certificate`, { fingerprint }),
   setDefaultServer: (id: number) => request<{ ok: boolean; default_id: number }>("POST", `/servers/${id}/set-default`),
   probeServer: (id: number) => request<Probe>("POST", `/servers/${id}/probe`),
 

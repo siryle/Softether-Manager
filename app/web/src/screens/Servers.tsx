@@ -101,7 +101,26 @@ function ServerForm({ server, onClose, onSaved }: { server: ManagedServer | null
   const [busy, setBusy] = useState<"test" | "save" | null>(null);
   const [test, setTest] = useState<ConnectionTest | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
+  const [certificate, setCertificate] = useState<{ fingerprint: string; pinned: string } | null>(null);
+  const [certificateBusy, setCertificateBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const inspectCertificate = async () => {
+    if (!server) return;
+    setCertificateBusy(true); setError(null);
+    try { setCertificate(await api.serverCertificate(server.id)); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setCertificateBusy(false); }
+  };
+  const trustCertificate = async () => {
+    if (!server || !certificate || !window.confirm(t("Confirm that this SHA-256 fingerprint matches the certificate on your VPN server.") + "\n\n" + certificate.fingerprint)) return;
+    setCertificateBusy(true); setError(null);
+    try {
+      await api.trustServerCertificate(server.id, certificate.fingerprint);
+      setCertificate({ ...certificate, pinned: certificate.fingerprint });
+      push("ok", t("VPN server certificate trusted."));
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setCertificateBusy(false); }
+  };
   const dirty = name !== (server?.name ?? "") || host !== (server?.host ?? "") || port !== (server?.port ?? 5555) || password !== "" || isDefault !== (server?.is_default ?? false);
   const beforeClose = () => !busy && (!dirty || window.confirm(t("Discard unsaved connection changes?")));
   const body = { name: name.trim(), host: host.trim(), port, password: server && !password ? null : password, is_default: isDefault, auth: test?.auth ?? server?.auth, skip_test: true };
@@ -132,6 +151,15 @@ function ServerForm({ server, onClose, onSaved }: { server: ManagedServer | null
         <CheckRow checked={isDefault} onChange={setIsDefault} disabled={server?.is_default} label={t("Use as default server")} hint={t("Used when a browser tab has no server selected.")} />
         <button className="btn" type="button" onClick={() => void testConnection()}><IconRefresh size={14} className={busy === "test" ? "spin" : ""} />{t(busy === "test" ? "Testing..." : "Test connection")}</button>
       </fieldset>
+      {server && <div style={{ marginTop: "var(--s4)" }}>
+        <button type="button" className="btn" disabled={certificateBusy || !!busy} onClick={() => void inspectCertificate()}>{t("Inspect saved server certificate")}</button>
+        {certificate && <>
+          <p className="hint">{t("Compare this fingerprint with the certificate on your VPN server before trusting a replacement.")}</p>
+          <p className="mono" style={{ overflowWrap: "anywhere" }}>SHA-256: {certificate.fingerprint}</p>
+          {certificate.pinned && <p className="hint mono" style={{ overflowWrap: "anywhere" }}>{t("Previously trusted")}: {certificate.pinned}</p>}
+          {certificate.pinned !== certificate.fingerprint && <button type="button" className="btn" disabled={certificateBusy || !!busy} onClick={() => void trustCertificate()}>{t("Trust this certificate")}</button>}
+        </>}
+      </div>}
       {test && <div className="alert alert--ok"><IconCheck size={14} /><span>{t("Connection successful")} · <span className="mono">{test.version} · {test.rtt_ms} ms</span></span></div>}
       {testError && <ErrorAlert>{testError}</ErrorAlert>}
       <p className="servers-form-hint">{t("Saving a connection keeps the current server selected. Use the top switcher to manage the new server.")}</p>

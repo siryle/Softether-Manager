@@ -210,7 +210,7 @@ func (a *App) saveCredential(serverID int64, hub, name, hash string) {
 	if serverID == 0 {
 		serverID = 1
 	}
-	execute(a.db, `INSERT INTO VpnUserCredential(ServerID,HubName,UserName,PasswordHash,UpdatedDate) VALUES(?,?,?,?,?) ON CONFLICT(ServerID,HubName,UserName) DO UPDATE SET PasswordHash=excluded.PasswordHash,UpdatedDate=excluded.UpdatedDate`, serverID, hub, name, hash, now())
+	execute(a.db, `INSERT INTO VpnUserCredential(ServerID,HubName,UserName,PasswordHash,UpdatedDate) VALUES(?,?,?,?,?) ON CONFLICT(ServerID,HubName,UserName) DO UPDATE SET PasswordHash=excluded.PasswordHash,UpdatedDate=excluded.UpdatedDate`, serverID, hub, name, "enc:"+a.encrypt(hash), now())
 }
 func (a *App) storedCredential(serverID int64, hub, name string) string {
 	if serverID == 0 {
@@ -220,7 +220,35 @@ func (a *App) storedCredential(serverID int64, hub, name string) string {
 	if r == nil {
 		return ""
 	}
-	return str(r["PasswordHash"])
+	hash, err := a.decrypt(strings.TrimPrefix(str(r["PasswordHash"]), "enc:"))
+	check(err)
+	return hash
+}
+func (a *App) migrateCredentials() {
+	// Upgrade old rows once; never treat a damaged ciphertext as a usable hash.
+	tx, err := a.db.Begin()
+	check(err)
+	defer tx.Rollback()
+	rows, err := tx.Query(`SELECT VpnUserCredentialID,PasswordHash FROM VpnUserCredential WHERE PasswordHash NOT LIKE 'enc:%'`)
+	check(err)
+	legacy := []M{}
+	for rows.Next() {
+		var id int64
+		var hash string
+		check(rows.Scan(&id, &hash))
+		legacy = append(legacy, M{"id": id, "hash": hash})
+	}
+	check(rows.Err())
+	check(rows.Close())
+	for _, row := range legacy {
+		_, err = tx.Exec(`UPDATE VpnUserCredential SET PasswordHash=? WHERE VpnUserCredentialID=?`, "enc:"+a.encrypt(str(row["hash"])), row["id"])
+		check(err)
+	}
+	check(tx.Commit())
+	if len(legacy) > 0 {
+		_, err = a.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
+		check(err)
+	}
 }
 func (a *App) obtainCredential(ctx context.Context, serverID int64, hub, name string) string {
 	if hash := a.storedCredential(serverID, hub, name); hash != "" {

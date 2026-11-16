@@ -56,7 +56,26 @@ func (a *App) registerHistory() {
 			statement := `SELECT SendBytes,RecvBytes,NumSessions,SampledDate FROM HubTrafficSample WHERE ServerID=? AND datetime(SampledDate)>=datetime(?)`
 			args := []any{serverID, cutoff}
 			if kind == "server" {
-				statement = `SELECT SUM(SendBytes) SendBytes,SUM(RecvBytes) RecvBytes,SUM(NumSessions) NumSessions,SampledDate FROM HubTrafficSample WHERE ServerID=? AND datetime(SampledDate)>=datetime(?) GROUP BY SampledDate`
+				statement = `WITH counters AS (
+ SELECT HubName,SendBytes,RecvBytes,NumSessions,SampledDate,
+ LAG(SendBytes) OVER (PARTITION BY HubName ORDER BY SampledDate,HubTrafficSampleID) previous_send,
+ LAG(RecvBytes) OVER (PARTITION BY HubName ORDER BY SampledDate,HubTrafficSampleID) previous_recv
+ FROM HubTrafficSample WHERE ServerID=? AND datetime(SampledDate)>=datetime(?)
+) SELECT SampledDate t,
+ SUM(CASE WHEN previous_send IS NULL THEN 0 WHEN SendBytes<previous_send THEN SendBytes ELSE SendBytes-previous_send END) send,
+ SUM(CASE WHEN previous_recv IS NULL THEN 0 WHEN RecvBytes<previous_recv THEN RecvBytes ELSE RecvBytes-previous_recv END) recv,
+ SUM(NumSessions) sessions FROM counters GROUP BY SampledDate ORDER BY SampledDate`
+				points := query(a.db, statement, args...)
+				var sent, received int64
+				for _, point := range points {
+					sent += integer(point["send"])
+					received += integer(point["recv"])
+				}
+				count := len(points)
+				if count > 0 {
+					points = points[1:]
+				}
+				return M{"hours": hours, "points": points, "total_send": sent, "total_recv": received, "samples": count}
 			} else {
 				statement += " AND HubName=?"
 				args = append(args, r.PathValue("hub"))
@@ -161,10 +180,11 @@ func bytesFor(m M, prefix string) (int64, int64) {
 }
 func (a *App) prune() {
 	days := max(int64(1), integer(a.setting("sample_retention_days")))
-	for _, table := range []string{"HubTrafficSample", "UserTrafficSample", "VpnSessionTrafficSample"} {
+	for _, table := range []string{"HubTrafficSample", "UserTrafficSample"} {
 		execute(a.db, `DELETE FROM `+table+` WHERE datetime(SampledDate)<datetime('now',?)`, fmt.Sprintf("-%d days", days))
 	}
 	days = max(int64(1), integer(a.setting("session_history_retention_days")))
+	execute(a.db, `DELETE FROM VpnSessionTrafficSample WHERE datetime(SampledDate)<datetime('now',?)`, fmt.Sprintf("-%d days", days))
 	execute(a.db, `DELETE FROM VpnSessionTrafficSample WHERE VpnSessionSampleID IN (SELECT VpnSessionSampleID FROM VpnSessionSample WHERE datetime(COALESCE(EndedDate,LastSeenDate))<datetime('now',?))`, fmt.Sprintf("-%d days", days))
 	execute(a.db, `DELETE FROM VpnSessionSample WHERE datetime(COALESCE(EndedDate,LastSeenDate))<datetime('now',?)`, fmt.Sprintf("-%d days", days))
 }

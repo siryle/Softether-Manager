@@ -1,7 +1,8 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { api, clearToken, getToken, setToken } from "./api";
+import { useToast } from "./toast";
+import { api, clearLegacyToken } from "./api";
 
 interface AuthState {
   user: string | null;
@@ -10,12 +11,13 @@ interface AuthState {
   needsSetup: boolean;
   login: (u: string, p: string) => Promise<void>;
   setup: (u: string, p: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState>(null as unknown as AuthState);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const { push } = useToast();
   const [user, setUser] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [needsSetup, setNeedsSetup] = useState(false);
@@ -23,17 +25,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
     (async () => {
-      if (getToken()) {
-        try {
-          const me = await api.me();
-          if (active) {
-            setUser(me.username);
-            setLoading(false);
-          }
-          return;
-        } catch {
-          clearToken();
+      clearLegacyToken();
+      try {
+        const me = await api.me();
+        if (active) {
+          setUser(me.username);
+          setLoading(false);
         }
+        return;
+      } catch {
+        // An expired or missing cookie returns to the login form.
       }
       try {
         const state = await api.authState();
@@ -53,19 +54,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const adopt = useCallback((token: { token: string; username: string }) => {
-    setToken(token.token);
-    setUser(token.username);
+  const adopt = useCallback((session: { username: string }) => {
+    setUser(session.username);
     setNeedsSetup(false);
   }, []);
 
   const login = async (u: string, p: string) => adopt(await api.login(u, p));
   const setup = async (u: string, p: string) => adopt(await api.setup(u, p));
 
-  const logout = () => {
-    void api.logout().catch(() => {});
-    clearToken();
-    setUser(null);
+  const logout = async () => {
+    try {
+      await api.logout();
+      clearLegacyToken();
+      setUser(null);
+    } catch (e) {
+      push("err", e instanceof Error ? e.message : String(e));
+    }
   };
 
   return (

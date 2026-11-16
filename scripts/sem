@@ -272,7 +272,7 @@ cmd_password() {
   fi
 
   (cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a &&
-    "$MANAGER_BIN" password --username "$username" --password "$password")
+    printf '%s' "$password" | "$MANAGER_BIN" password --username "$username" --password-stdin)
 }
 
 cmd_users() {

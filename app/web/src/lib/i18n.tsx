@@ -7,6 +7,12 @@ export type Lang = "zh-CN" | "en";
 const STORAGE_KEY = "sem_lang";
 
 const zhCN: Record<string, string> = {
+  "Confirm that this SHA-256 fingerprint matches the certificate on your VPN server.": "请确认此 SHA-256 指纹与 VPN 服务器上的证书一致。",
+  "VPN server certificate trusted.": "已信任 VPN 服务器证书。",
+  "Inspect saved server certificate": "查看已保存服务器的证书",
+  "Compare this fingerprint with the certificate on your VPN server before trusting a replacement.": "信任新证书前，请先与 VPN 服务器上的证书指纹核对。",
+  "Previously trusted": "原信任指纹",
+  "Trust this certificate": "信任此证书",
   // --- Auth & Setup ---
   "Set up this panel": "初始化管理面板",
   "SoftEther Manager": "SoftEther 管理器",

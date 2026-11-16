@@ -61,7 +61,7 @@ func (a *App) observeQuotaLocked(serverID int64, subject, hub, name string, send
 	if serverID == 0 {
 		serverID = 1
 	}
-	execute(a.db, `UPDATE TrafficQuota SET BaseSendBytes=CASE WHEN ?<BaseSendBytes THEN 0 ELSE BaseSendBytes END,BaseRecvBytes=CASE WHEN ?<BaseRecvBytes THEN 0 ELSE BaseRecvBytes END,LastSendBytes=?,LastRecvBytes=?,UpdatedDate=? WHERE ServerID=? AND SubjectType=? AND HubName=? AND UserKey=?`, send, recv, send, recv, now(), serverID, subject, hub, fold(name))
+	execute(a.db, `UPDATE TrafficQuota SET BaseSendBytes=CASE WHEN ?<LastSendBytes THEN BaseSendBytes-LastSendBytes ELSE BaseSendBytes END,BaseRecvBytes=CASE WHEN ?<LastRecvBytes THEN BaseRecvBytes-LastRecvBytes ELSE BaseRecvBytes END,LastSendBytes=?,LastRecvBytes=?,UpdatedDate=? WHERE ServerID=? AND SubjectType=? AND HubName=? AND UserKey=?`, send, recv, send, recv, now(), serverID, subject, hub, fold(name))
 }
 func (a *App) refreshQuota(ctx context.Context, serverID int64, subject, hub, name string) {
 	defer func() {
@@ -242,7 +242,7 @@ func (a *App) registerQuotas() {
 						fail(404, "No traffic limit is set on this subject.")
 					}
 					a.releaseQuota(r.Context(), row)
-					if integer(row["BaseSendBytes"]) > 0 || integer(row["BaseRecvBytes"]) > 0 {
+					if integer(row["BaseSendBytes"]) != 0 || integer(row["BaseRecvBytes"]) != 0 {
 						execute(a.db, `UPDATE TrafficQuota SET LimitBytes=0,ExceededDate=NULL,UpdatedDate=? WHERE TrafficQuotaID=?`, now(), row["TrafficQuotaID"])
 					} else {
 						execute(a.db, `DELETE FROM TrafficQuota WHERE TrafficQuotaID=?`, row["TrafficQuotaID"])

@@ -15,9 +15,20 @@ CREATE TABLE IF NOT EXISTS "PanelUser" (
         "UserID"        INTEGER PRIMARY KEY AUTOINCREMENT,
         "Username"      TEXT    NOT NULL UNIQUE,
         "PasswordHash"  TEXT    NOT NULL,
+        "SessionVersion" INTEGER NOT NULL DEFAULT 1,
         "CreatedDate"   TEXT    NOT NULL,
         "UpdatedDate"   TEXT    NOT NULL,
         "IsDeleted"     INTEGER NOT NULL DEFAULT 0
+    );
+CREATE TABLE IF NOT EXISTS "RevokedSession" (
+        "TokenHash" TEXT PRIMARY KEY,
+        "ExpiresAt" INTEGER NOT NULL
+    );
+CREATE TABLE IF NOT EXISTS "RPCTrust" (
+        "Host" TEXT NOT NULL COLLATE NOCASE,
+        "Port" INTEGER NOT NULL,
+        "Fingerprint" TEXT NOT NULL,
+        PRIMARY KEY ("Host", "Port")
     );
 CREATE TABLE IF NOT EXISTS "UserTrafficSample" (
         "UserTrafficSampleID" INTEGER PRIMARY KEY AUTOINCREMENT,
