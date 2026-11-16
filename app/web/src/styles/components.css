@@ -409,7 +409,7 @@
   color: var(--text-muted);
 }
 
-/* A segmented control is a pressed track with one raised key. */
+/* A segmented control marks the selected option with a solid accent key. */
 .seg {
   display: inline-flex;
   padding: 4px;
@@ -425,16 +425,16 @@
   border-radius: var(--r-pill);
   font-size: var(--t-small);
   font-weight: 700;
-  color: var(--text-muted);
+  color: var(--text-2);
   transition:
     color var(--d-fast) ease,
     background-color var(--d-quick) var(--ease-out-quart),
     box-shadow var(--d-quick) var(--ease-out-quart);
 }
 .seg button.on {
-  color: var(--text);
-  background: var(--card-grad);
-  box-shadow: var(--nm-raise-sm);
+  color: var(--accent-ink);
+  background: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent-strong);
 }
 .seg--packet-log {
   max-width: 100%;

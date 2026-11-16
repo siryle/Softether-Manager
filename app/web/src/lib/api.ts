@@ -287,6 +287,7 @@ export const api = {
   azure: () => request("GET", "/server/azure"),
   setAzure: (enabled: boolean) => request("PUT", "/server/azure", { IsEnabled_bool: enabled }),
   ddns: () => request("GET", "/server/ddns"),
+  setDdnsEnabled: (enabled: boolean) => request("PUT", "/server/ddns", { enabled, confirm_restart: true }),
   setDdnsHostname: (hostname: string) => request("PUT", "/server/ddns/hostname", { hostname }),
   ddnsProxy: () => request("GET", "/server/ddns/proxy"),
   setDdnsProxy: (body: Wire) => request("PUT", "/server/ddns/proxy", body),

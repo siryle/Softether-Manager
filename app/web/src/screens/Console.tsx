@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Empty, ErrorAlert, LoadingBlock, PageHead, SearchBox } from "../components/bits";
-import { api, type Wire } from "../lib/api";
+import { api, ApiError, type Wire } from "../lib/api";
+import { Link } from "../lib/router";
 import { useToast } from "../lib/toast";
 import { useI18n, t } from "../lib/i18n";
 import { IconPlay, IconTerminal } from "../ui/Icon";
@@ -22,6 +23,7 @@ export function Console() {
   const [params, setParams] = useState("{}");
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const { push } = useToast();
 
@@ -42,11 +44,13 @@ export function Console() {
     setSelected(m);
     setResult(null);
     setError(null);
+    setNotice(null);
     setParams(JSON.stringify(m.input ?? {}, null, 2));
   };
 
   const call = async () => {
     if (!selected) return;
+    setNotice(null);
     let parsed: Wire;
     try {
       parsed = params.trim() ? JSON.parse(params) : {};
@@ -61,8 +65,24 @@ export function Console() {
       setResult(JSON.stringify(r, null, 2));
       push("ok", t("{name} answered.", { name: String(selected.name) }));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      setError(message);
       setResult(null);
+      if (e instanceof ApiError && e.seError === "UnsupportedError") {
+        let hint = t("This RPC method is not supported by the current server or is unavailable in its current configuration.");
+        if (selected.name === "GetDDnsClientStatus") {
+          try {
+            const status = await api.ddns();
+            if (status.enabled === false) hint = t("Dynamic DNS is disabled. SoftEther returns code 33 for this status query while it is off. You can enable it in Server settings.");
+          } catch (statusError) {
+            if (!(statusError instanceof ApiError) || statusError.seError !== "UnsupportedError") {
+              setError(`${message}\n${t("Could not load dynamic DNS: {error}", { error: statusError instanceof Error ? statusError.message : String(statusError) })}`);
+              return;
+            }
+          }
+        }
+        setNotice(hint);
+      }
     } finally {
       setBusy(false);
     }
@@ -88,6 +108,7 @@ export function Console() {
               filtered.map((m) => (
                 <button
                   key={String(m.name)}
+                  disabled={busy}
                   className={`console__m${selected?.name === m.name ? " on" : ""}`}
                   onClick={() => pick(m)}
                 >
@@ -124,7 +145,18 @@ export function Console() {
                   {busy ? <span className="spin" /> : <IconPlay size={14} />} {t("Call {name}", { name: String(selected.name) })}
                 </button>
               </div>
-              {error && <ErrorAlert>{error}</ErrorAlert>}
+              {error && (notice ? (
+                <div className="alert" role="status">
+                  <div>
+                    <p>{notice}</p>
+                    {selected.name === "GetDDnsClientStatus" && <p><Link className="linkish" to="/server-settings/protocols">{t("Open Server settings")}</Link></p>}
+                    <details>
+                      <summary>{t("Original RPC error")}</summary>
+                      <pre className="mono" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{error}</pre>
+                    </details>
+                  </div>
+                </div>
+              ) : <ErrorAlert>{error}</ErrorAlert>)}
               {result && (
                 <>
                   <div className="micro" style={{ margin: "var(--s2) 0 6px" }}>{t("result")}</div>

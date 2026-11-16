@@ -48,6 +48,46 @@ func TestRPCSoftEtherStringIDs(t *testing.T) {
 	}
 }
 
+func TestRPCUnsupportedErrors(t *testing.T) {
+	for _, tc := range []struct {
+		code    int
+		message string
+		kind    string
+		status  int
+	}{
+		{33, "Error code 33: Unsupported.", "UnsupportedError", 400},
+		{-32603, "Error code 33: Unsupported.", "UnsupportedError", 400},
+		{33, "ERR_NOT_SUPPORTED", "UnsupportedError", 400},
+		{-32601, "Method not found", "UnsupportedError", 400},
+		{1, "ERR_ACCESS_DENIED", "AuthenticationError", 502},
+		{1, "ERR_OBJECT_NOT_FOUND", "NotFoundError", 404},
+		{1, "ERR_BUSY", "RpcError", 400},
+	} {
+		t.Run(tc.message, func(t *testing.T) {
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var req M
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					t.Error(err)
+					return
+				}
+				writeJSON(w, 200, M{"jsonrpc": "2.0", "id": req["id"], "error": M{"code": tc.code, "message": tc.message}})
+			}))
+			defer server.Close()
+			c := NewRPCClient("localhost", 1, "", "header")
+			c.url = server.URL
+			defer c.Close()
+			_, err := c.Call(context.Background(), "GetAzureStatus", nil)
+			got, ok := err.(httpError)
+			if !ok || got.Status != tc.status || object(got.Detail)["se_error"] != tc.kind {
+				t.Fatalf("error classification: %v; want %s (%d)", err, tc.kind, tc.status)
+			}
+			if object(got.Detail)["message"] != tc.message || object(got.Detail)["se_code"] != tc.code {
+				t.Fatalf("original error was lost: %v", got.Detail)
+			}
+		})
+	}
+}
+
 func TestConnectionFallsBackToBasicAfterHeaderEOF(t *testing.T) {
 	a := testApp(t)
 	token := admin(t, a)

@@ -14,6 +14,7 @@ func (a *App) register() {
 	a.registerSystem()
 	a.registerRPCRoutes()
 	a.registerCustomRPC()
+	a.registerDDNS()
 	a.registerHistory()
 	a.registerVPN()
 	a.registerQuotas()

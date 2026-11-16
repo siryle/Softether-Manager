@@ -118,13 +118,6 @@
     "audit": "azure.toggled"
   },
   {
-    "method": "GET",
-    "path": "/server/ddns",
-    "rpc": "GetDDnsClientStatus",
-    "params": {},
-    "body": false
-  },
-  {
     "method": "PUT",
     "path": "/server/ddns/hostname",
     "rpc": "ChangeDDnsClientHostname",
