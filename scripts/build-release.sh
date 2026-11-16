@@ -2,8 +2,8 @@
 #
 # Build the release tarball: the one artefact the installer downloads.
 #
-# It carries the backend source, the SoftEther client library, the built
-# frontend, the installer and the management CLI, and a VERSION file. The name
+# It carries Go executables, the built frontend, the installer, the
+# management CLI and a VERSION file. The name
 # deliberately has no version in it, because GitHub serves the moving latest
 # pointer at .../releases/latest/download/<file> and a filename with the tag
 # in it could not be fetched from there. The tag lives inside, in VERSION.
@@ -67,28 +67,15 @@ step "Assembling $VERSION"
 mkdir -p "$TREE/scripts"
 printf '%s\n' "$VERSION" > "$TREE/VERSION"
 
-# The application is one package: app/ (Python, with the built frontend at
-# app/web/out inside it) plus Library/ (the SoftEther JSON-RPC client). The
-# installer builds the Python environment on the target host, and the panel
-# creates its own database.
-#
-# app/web is copied selectively -- only the build output ships. Copying the
-# whole directory and pruning afterwards would drag node_modules through the
-# staging area for nothing.
-mkdir -p "$TREE/app/web"
-for entry in "$ROOT/app"/*; do
-  [[ "$(basename "$entry")" == "web" ]] && continue
-  cp -a "$entry" "$TREE/app/"
-done
+# Keep one release asset name so existing installers can migrate in place.
+# Both Linux architectures are included; the installer chooses its executable.
+mkdir -p "$TREE/app/web" "$TREE/bin"
 cp -a "$ROOT/app/web/out" "$TREE/app/web/out"
-cp -a "$ROOT/Library" "$TREE/Library"
-cp -a "$ROOT/requirements.txt" "$TREE/requirements.txt"
-cp -a "$ROOT/run.py" "$TREE/run.py"
-
-find "$TREE" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
-find "$TREE" -name '*.pyc' -delete 2>/dev/null || true
-rm -rf "$TREE/Library/build" 2>/dev/null || true
-rm -f "$TREE/Library/softether api doc.htm" 2>/dev/null || true
+for arch in amd64 arm64; do
+  step "Building Go backend for linux/$arch"
+  (cd "$ROOT" && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" \
+    go build -trimpath -ldflags="-s -w" -o "$TREE/bin/$NAME-linux-$arch" ./cmd/softether-manager)
+done
 
 cp -a "$ROOT/scripts/install.sh" "$TREE/scripts/install.sh"
 cp -a "$ROOT/scripts/sem" "$TREE/scripts/sem"
@@ -100,7 +87,13 @@ ARCHIVE="$OUTPUT/$NAME.tar.gz"
 step "Writing $ARCHIVE"
 tar -czf "$ARCHIVE" -C "$STAGING" "$NAME"
 
-( cd "$OUTPUT" && sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256" )
+( cd "$OUTPUT"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256"
+  else
+    shasum -a 256 "$NAME.tar.gz" > "$NAME.tar.gz.sha256"
+  fi
+)
 
 step "Done."
 printf '%s\n' "$ARCHIVE"

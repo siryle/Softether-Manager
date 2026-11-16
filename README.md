@@ -4,7 +4,9 @@
 
 现代化、自托管的 [SoftEther VPN Server](https://www.softether.org/) 网页管理控制台。完整支持 SoftEther 官方全部 133 个 JSON-RPC 管理 API，具备直观优雅的交互界面、宿主机内核级健康监控、全功能流量配额统计，已全面支持 **Docker 容器化部署** 及 **局域网（LAN）设备远程管理**。
 
-![控制面板](docs/screenshots/dashboard.png)
+![控制面板](docs/screenshots/zh-CN/dashboard.png)
+
+预览图由当前 Go 后端与前端实际运行后截取，使用独立的演示数据；本页展示中文界面，英文文档展示英文界面。
 
 ---
 
@@ -33,21 +35,21 @@
 ### 🛠️ 原生 API 控制台
 面向高级调试需求，内置 **API Console**：收录了 SoftEther 官方全部公开的 JSON-RPC 方法，预置参数模板，支持直接调试与调用底层接口。
 
-![API 控制台](docs/screenshots/console.png)
+![API 控制台](docs/screenshots/zh-CN/console.png)
 
 ### 📈 真实流量曲线与采样
 SoftEther 本身只保留自开机以来的累计流量计数，没有历史数据。面板内置后台采样调度器，自动将流量增量计算为吞吐曲线图（支持按 Hub、按用户、按会话多维度分析）。
 
-![用户详情](docs/screenshots/user.png)
+![用户详情](docs/screenshots/zh-CN/user.png)
 
 ### 📱 移动端与自适应支持
 屏幕宽度低于 960px 时，界面将自动切换为专为移动设备优化的 App 级交互体验：集成顶部状态栏、底部快捷 Tab 栏、手势底栏抽屉（Bottom Sheets），在手机或平板上管理 VPN 服务器丝滑顺畅。
 
 <p align="center">
-  <img src="docs/screenshots/mobile-dashboard.png" width="24%" alt="移动端仪表盘" />
-  <img src="docs/screenshots/mobile-users.png" width="24%" alt="移动端用户管理" />
-  <img src="docs/screenshots/mobile-user.png" width="24%" alt="移动端用户详情" />
-  <img src="docs/screenshots/mobile-hub.png" width="24%" alt="移动端HUB视图" />
+  <img src="docs/screenshots/zh-CN/mobile-dashboard.png" width="24%" alt="移动端仪表盘" />
+  <img src="docs/screenshots/zh-CN/mobile-users.png" width="24%" alt="移动端用户管理" />
+  <img src="docs/screenshots/zh-CN/mobile-user.png" width="24%" alt="移动端用户详情" />
+  <img src="docs/screenshots/zh-CN/mobile-hub.png" width="24%" alt="移动端HUB视图" />
 </p>
 
 ### 🎨 深色与浅色主题
@@ -57,19 +59,25 @@ SoftEther 本身只保留自开机以来的累计流量计数，没有历史数�
 <summary><b>展开查看更多界面截图</b></summary>
 
 #### 用户列表
-![用户管理](docs/screenshots/users.png)
+![用户管理](docs/screenshots/zh-CN/users.png)
 
 #### 活跃会话
-![活跃会话](docs/screenshots/hub-sessions.png)
+![活跃会话](docs/screenshots/zh-CN/hub-sessions.png)
 
 #### 虚拟 HUB 概览
-![HUB 概览](docs/screenshots/hub-overview.png)
+![HUB 概览](docs/screenshots/zh-CN/hub-overview.png)
+
+#### 虚拟 HUB 列表
+![虚拟 HUB 列表](docs/screenshots/zh-CN/hubs.png)
+
+#### 运行日志
+![运行日志](docs/screenshots/zh-CN/logs.png)
 
 #### 服务器设置
-![服务器设置](docs/screenshots/server-settings.png)
+![服务器设置](docs/screenshots/zh-CN/server-settings.png)
 
 #### 浅色模式
-![浅色模式](docs/screenshots/hub-overview-light.png)
+![浅色模式](docs/screenshots/zh-CN/hub-overview-light.png)
 </details>
 
 ---
@@ -147,7 +155,7 @@ docker run -d \
 bash <(curl -Ls https://raw.githubusercontent.com/siryle/Softether-Manager/master/scripts/install.sh)
 ```
 
-安装脚本会引导配置用户名、密码、端口与路径，并自动安装 Python 运行环境、配置强化后的 Systemd 服务单元及开机自启。
+安装脚本会引导配置用户名、密码、端口与路径，下载对应 CPU 架构的 Go 可执行文件，并配置 Systemd 服务及开机自启。运行面板无需 Python、虚拟环境或 Go 编译器。
 
 非交互式无人值守安装：
 ```bash
@@ -192,49 +200,60 @@ docker exec -it softether-manager sem connect --host 192.168.1.100 --port 5555 -
 ## 🔒 域名、HTTPS 与安全性
 
 1. **Let's Encrypt 自动证书**：
-   在 **面板设置 $\rightarrow$ 域名与 HTTPS** 中输入您的域名，面板将通过自带的轻量 ACME 协议引擎（基于 `cryptography`，无需额外安装 Certbot 或启动定时任务）全自动完成 80 端口验证、证书获取与到期前 30 天自动续期。
+   在 **面板设置 $\rightarrow$ 域名与 HTTPS** 中输入您的域名，面板通过 Go ACME 客户端完成 80 端口验证、证书获取与到期前 30 天自动续期，无需额外安装 Certbot 或启动定时任务。
 2. **防扫描与仅限域名访问**：
    开启“仅允许通过该域名访问”后，任何通过未授权域名或直接输入 IP 访问的请求将被一律返回 404 隐蔽状态码，阻断嗅探与非法探测。
 3. **敏感凭据安全加密**：
-   SoftEther 管理密码采用 Fernet 强对称算法加密存储于本地 SQLite 数据库中；面板会话令牌采用 Scrypt 强散列算法存储；会话 Cookie 具备 `HttpOnly` 与 `SameSite=Lax` 保护。
+   SoftEther 管理密码采用 Fernet 加密存储于本地 SQLite 数据库中；面板登录密码使用 scrypt 哈希，会话令牌使用 HMAC 签名；会话 Cookie 具备 `HttpOnly` 与 `SameSite=Lax` 保护。
 
 ---
 
 ## 🏗️ 架构设计
 
 ```
-/proc, /sys ──────┐
-                  ├──  FastAPI 后端   ──►  Next.js 15 前端单页应用
-SoftEther ────────┘      (app/)                (app/web)
- JSON-RPC API      Library/softether.py
+/proc ───────────┐
+                  ├──  Go net/http 后端  ──►  Next.js 15 前端单页应用
+SoftEther ───────┘   (internal/manager)             (app/web)
+ JSON-RPC API
 ```
 
-- **`Library/`**：完全无外部第三方依赖的 Python 客户端，完整封装 SoftEther 原生 JSON-RPC 规范，支持自动类型映射、重试、长连接复用与 TLS 策略。
-- **`app/`**：FastAPI 后端引擎，提供 `/api/v1/` RESTful 接口、内核级性能指标读取、SQLite 数据引擎与后台流量差值采样调度器。
+- **`cmd/softether-manager/`**：Go 服务和命令行入口，同一个可执行文件提供服务、健康检查、账号重置与连接配置。
+- **`internal/manager/`**：基于标准库 `net/http` 的后端，提供 `/api/v1/` 接口、SoftEther JSON-RPC 客户端、纯 Go SQLite 存储、资源监控、流量与会话采样、配额、ACME 证书和更新管理。RPC 定义随程序嵌入，无需外部 Python 模块。
 - **`app/web/`**：基于 Next.js 15 构建的纯客户端 Hash 路由静态单页，资源引用全部相对化处理，可在任意子路径或反向代理后运行，原生支持浅色/深色主题与**中英文实时无刷新切换**。
+
+从 Python 版升级时，先停止旧服务并备份整个数据目录，再运行新版安装脚本或替换容器。继续使用原来的 `manager.db`、`session.key`、`encryption.key` 和 `tls/`；账号、加密连接信息、当前版本的历史采样、配额及证书无需手动转换。请勿同时运行两个版本写入同一数据库。更早的多服务器数据库沿用原版迁移规则：采用第一个连接，并重建带 `ServerID` 的旧流量采样表。
 
 ---
 
 ## 💻 本地开发与编译
 
-```bash
-# 1. 运行后端 (端口 8000)
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python run.py
+需要 `go.mod` 指定版本的 Go，以及 Node.js 22 和 npm。
 
-# 2. 运行前端开发服务器 (端口 3000)
+```bash
+# 1. 在项目根目录运行后端 (端口 8000)
+go run ./cmd/softether-manager
+
+# 2. 在另一个终端运行前端开发服务器 (端口 3000)
 cd app/web
-npm install
+npm ci
 NEXT_PUBLIC_API_BASE=http://localhost:8000/ npm run dev
 
 # 3. 构建前端静态资源
 npm run build
 
-# 4. 运行软硬件交互离线测试套件
-python -m unittest Library.test_softether
+# 4. 回到项目根目录，构建 Go 可执行文件并检查后端
+cd ../..
+go build -o softether-manager ./cmd/softether-manager
+go test -race ./...
+go vet ./...
+
+# 5. 运行编译后的服务（同时提供已构建的前端）
+./softether-manager serve
 ```
+
+默认数据目录为 `./data`，可通过 `SEM_DATA_DIR` 修改。其余 `SEM_*` 环境变量及前端 API 路径保持原有约定。Linux 系统指标通过 `/proc` 读取，macOS 开发环境会显示资源监控不可用。
+
+发布包通过 `bash scripts/build-release.sh --version vX.Y.Z` 构建，包含 Linux amd64、arm64 两种架构的 Go 可执行文件、前端静态资源和安装脚本。
 
 ---
 

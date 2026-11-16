@@ -1,0 +1,958 @@
+[
+  {
+    "method": "GET",
+    "path": "/server/info",
+    "rpc": "GetServerInfo",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "GET",
+    "path": "/server/status",
+    "rpc": "GetServerStatus",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "GET",
+    "path": "/server/caps",
+    "rpc": "GetCaps",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "GET",
+    "path": "/server/admin-msg",
+    "rpc": "GetAdminMsg",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "GET",
+    "path": "/server/listeners",
+    "rpc": "EnumListener",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "POST",
+    "path": "/server/listeners",
+    "rpc": "CreateListener",
+    "params": {
+      "Port_u32": "@port",
+      "Enable_bool": "@enable"
+    },
+    "body": false,
+    "audit": "listener.created"
+  },
+  {
+    "method": "DELETE",
+    "path": "/server/listeners/{port}",
+    "rpc": "DeleteListener",
+    "params": {
+      "Port_u32": "$port"
+    },
+    "body": false,
+    "audit": "listener.deleted"
+  },
+  {
+    "method": "GET",
+    "path": "/server/special-listener",
+    "rpc": "GetSpecialListener",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "PUT",
+    "path": "/server/special-listener",
+    "rpc": "SetSpecialListener",
+    "params": {},
+    "body": true,
+    "readback": "GetSpecialListener",
+    "audit": "special_listener.updated"
+  },
+  {
+    "method": "GET",
+    "path": "/server/ipsec",
+    "rpc": "GetIPsecServices",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "PUT",
+    "path": "/server/ipsec",
+    "rpc": "SetIPsecServices",
+    "params": {},
+    "body": true,
+    "audit": "ipsec.updated"
+  },
+  {
+    "method": "GET",
+    "path": "/server/openvpn",
+    "rpc": "GetOpenVpnSstpConfig",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "PUT",
+    "path": "/server/openvpn",
+    "rpc": "SetOpenVpnSstpConfig",
+    "params": {},
+    "body": true,
+    "audit": "openvpn.updated"
+  },
+  {
+    "method": "GET",
+    "path": "/server/azure",
+    "rpc": "GetAzureStatus",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "PUT",
+    "path": "/server/azure",
+    "rpc": "SetAzureStatus",
+    "params": {},
+    "body": true,
+    "readback": "GetAzureStatus",
+    "audit": "azure.toggled"
+  },
+  {
+    "method": "GET",
+    "path": "/server/ddns",
+    "rpc": "GetDDnsClientStatus",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "PUT",
+    "path": "/server/ddns/hostname",
+    "rpc": "ChangeDDnsClientHostname",
+    "params": {
+      "StrValue_str": "@hostname"
+    },
+    "body": false,
+    "audit": "ddns.hostname_changed"
+  },
+  {
+    "method": "GET",
+    "path": "/server/ddns/proxy",
+    "rpc": "GetDDnsInternetSettng",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "PUT",
+    "path": "/server/ddns/proxy",
+    "rpc": "SetDDnsInternetSettng",
+    "params": {},
+    "body": true,
+    "audit": "ddns.proxy_updated"
+  },
+  {
+    "method": "GET",
+    "path": "/server/cipher",
+    "rpc": "GetServerCipher",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "PUT",
+    "path": "/server/cipher",
+    "rpc": "SetServerCipher",
+    "params": {
+      "String_str": "@cipher"
+    },
+    "body": false,
+    "audit": "cipher.updated"
+  },
+  {
+    "method": "PUT",
+    "path": "/server/cert",
+    "rpc": "SetServerCert",
+    "params": {
+      "Cert_bin": "@cert_base64",
+      "Key_bin": "@key_base64"
+    },
+    "body": false,
+    "audit": "cert.replaced"
+  },
+  {
+    "method": "POST",
+    "path": "/server/cert/regenerate",
+    "rpc": "RegenerateServerCert",
+    "params": {
+      "StrValue_str": "@common_name"
+    },
+    "body": false,
+    "audit": "cert.regenerated"
+  },
+  {
+    "method": "GET",
+    "path": "/server/connections",
+    "rpc": "EnumConnection",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "GET",
+    "path": "/server/connections/{name}",
+    "rpc": "GetConnectionInfo",
+    "params": {
+      "Name_str": "$name"
+    },
+    "body": false
+  },
+  {
+    "method": "DELETE",
+    "path": "/server/connections/{name}",
+    "rpc": "DisconnectConnection",
+    "params": {
+      "Name_str": "$name"
+    },
+    "body": false,
+    "audit": "connection.disconnected"
+  },
+  {
+    "method": "GET",
+    "path": "/server/bridges",
+    "rpc": "EnumLocalBridge",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "GET",
+    "path": "/server/bridges/support",
+    "rpc": "GetBridgeSupport",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "GET",
+    "path": "/server/bridges/devices",
+    "rpc": "EnumEthernet",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "POST",
+    "path": "/server/bridges",
+    "rpc": "AddLocalBridge",
+    "params": {
+      "DeviceName_str": "@device",
+      "HubNameLB_str": "@hub"
+    },
+    "body": false,
+    "audit": "bridge.created"
+  },
+  {
+    "method": "POST",
+    "path": "/server/bridges/delete",
+    "rpc": "DeleteLocalBridge",
+    "params": {
+      "DeviceName_str": "@device",
+      "HubNameLB_str": "@hub"
+    },
+    "body": false,
+    "audit": "bridge.deleted"
+  },
+  {
+    "method": "GET",
+    "path": "/server/l3",
+    "rpc": "EnumL3Switch",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "POST",
+    "path": "/server/l3",
+    "rpc": "AddL3Switch",
+    "params": {
+      "Name_str": "@name"
+    },
+    "body": false,
+    "audit": "l3.created"
+  },
+  {
+    "method": "DELETE",
+    "path": "/server/l3/{name}",
+    "rpc": "DelL3Switch",
+    "params": {
+      "Name_str": "$name"
+    },
+    "body": false,
+    "audit": "l3.deleted"
+  },
+  {
+    "method": "GET",
+    "path": "/server/l3/{name}/interfaces",
+    "rpc": "EnumL3If",
+    "params": {
+      "Name_str": "$name"
+    },
+    "body": false
+  },
+  {
+    "method": "POST",
+    "path": "/server/l3/{name}/interfaces",
+    "rpc": "AddL3If",
+    "params": {
+      "Name_str": "$name"
+    },
+    "body": true,
+    "audit": "l3.interface_added"
+  },
+  {
+    "method": "POST",
+    "path": "/server/l3/{name}/interfaces/delete",
+    "rpc": "DelL3If",
+    "params": {
+      "Name_str": "$name"
+    },
+    "body": true,
+    "audit": "l3.interface_deleted"
+  },
+  {
+    "method": "GET",
+    "path": "/server/l3/{name}/routes",
+    "rpc": "EnumL3Table",
+    "params": {
+      "Name_str": "$name"
+    },
+    "body": false
+  },
+  {
+    "method": "POST",
+    "path": "/server/l3/{name}/routes",
+    "rpc": "AddL3Table",
+    "params": {
+      "Name_str": "$name"
+    },
+    "body": true,
+    "audit": "l3.route_added"
+  },
+  {
+    "method": "POST",
+    "path": "/server/l3/{name}/routes/delete",
+    "rpc": "DelL3Table",
+    "params": {
+      "Name_str": "$name"
+    },
+    "body": true,
+    "audit": "l3.route_deleted"
+  },
+  {
+    "method": "GET",
+    "path": "/server/farm",
+    "rpc": "GetFarmSetting",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "PUT",
+    "path": "/server/farm",
+    "rpc": "SetFarmSetting",
+    "params": {},
+    "body": true,
+    "audit": "farm.updated"
+  },
+  {
+    "method": "GET",
+    "path": "/server/farm/status",
+    "rpc": "GetFarmConnectionStatus",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "GET",
+    "path": "/server/farm/members",
+    "rpc": "EnumFarmMember",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "GET",
+    "path": "/server/farm/members/{member_id}",
+    "rpc": "GetFarmInfo",
+    "params": {
+      "Id_u32": "$member_id"
+    },
+    "body": false
+  },
+  {
+    "method": "GET",
+    "path": "/server/keepalive",
+    "rpc": "GetKeep",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "PUT",
+    "path": "/server/keepalive",
+    "rpc": "SetKeep",
+    "params": {},
+    "body": true,
+    "audit": "keepalive.updated"
+  },
+  {
+    "method": "GET",
+    "path": "/server/syslog",
+    "rpc": "GetSysLog",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "PUT",
+    "path": "/server/syslog",
+    "rpc": "SetSysLog",
+    "params": {},
+    "body": true,
+    "audit": "syslog.updated"
+  },
+  {
+    "method": "GET",
+    "path": "/server/etherip",
+    "rpc": "EnumEtherIpId",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "POST",
+    "path": "/server/etherip",
+    "rpc": "AddEtherIpId",
+    "params": {},
+    "body": true,
+    "audit": "etherip.created"
+  },
+  {
+    "method": "GET",
+    "path": "/server/etherip/{etherip_id}",
+    "rpc": "GetEtherIpId",
+    "params": {
+      "Id_str": "$etherip_id"
+    },
+    "body": false
+  },
+  {
+    "method": "DELETE",
+    "path": "/server/etherip/{etherip_id}",
+    "rpc": "DeleteEtherIpId",
+    "params": {
+      "Id_str": "$etherip_id"
+    },
+    "body": false,
+    "audit": "etherip.deleted"
+  },
+  {
+    "method": "GET",
+    "path": "/server/logs",
+    "rpc": "EnumLogFile",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "PUT",
+    "path": "/server/config",
+    "rpc": "SetConfig",
+    "params": {
+      "FileData_bin": "@config_base64"
+    },
+    "body": false,
+    "audit": "config.restored"
+  },
+  {
+    "method": "POST",
+    "path": "/server/flush",
+    "rpc": "Flush",
+    "params": {},
+    "body": false,
+    "audit": "server.flushed"
+  },
+  {
+    "method": "POST",
+    "path": "/server/reboot",
+    "rpc": "RebootServer",
+    "params": {},
+    "body": false,
+    "audit": "server.rebooted"
+  },
+  {
+    "method": "POST",
+    "path": "/server/crash",
+    "rpc": "Crash",
+    "params": {},
+    "body": false,
+    "audit": "server.crashed"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs",
+    "rpc": "EnumHub",
+    "params": {},
+    "body": false
+  },
+  {
+    "method": "POST",
+    "path": "/hubs",
+    "rpc": "CreateHub",
+    "params": {},
+    "body": true,
+    "audit": "hub.created"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}",
+    "rpc": "GetHub",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": false
+  },
+  {
+    "method": "PUT",
+    "path": "/hubs/{hub}",
+    "rpc": "SetHub",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": true,
+    "audit": "hub.updated"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/status",
+    "rpc": "GetHubStatus",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": false
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/log-settings",
+    "rpc": "GetHubLog",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": false
+  },
+  {
+    "method": "PUT",
+    "path": "/hubs/{hub}/log-settings",
+    "rpc": "SetHubLog",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": true,
+    "audit": "hub.log_settings_updated"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/radius",
+    "rpc": "GetHubRadius",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": false
+  },
+  {
+    "method": "PUT",
+    "path": "/hubs/{hub}/radius",
+    "rpc": "SetHubRadius",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": true,
+    "audit": "hub.radius_updated"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/admin-options",
+    "rpc": "GetHubAdminOptions",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": false
+  },
+  {
+    "method": "PUT",
+    "path": "/hubs/{hub}/admin-options",
+    "rpc": "SetHubAdminOptions",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": true,
+    "audit": "hub.admin_options_updated"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/ext-options",
+    "rpc": "GetHubExtOptions",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": false
+  },
+  {
+    "method": "PUT",
+    "path": "/hubs/{hub}/ext-options",
+    "rpc": "SetHubExtOptions",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": true,
+    "audit": "hub.ext_options_updated"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/users",
+    "rpc": "EnumUser",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": false
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/users/{name}",
+    "rpc": "GetUser",
+    "params": {
+      "HubName_str": "$hub",
+      "Name_str": "$name"
+    },
+    "body": false
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/groups",
+    "rpc": "EnumGroup",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": false
+  },
+  {
+    "method": "POST",
+    "path": "/hubs/{hub}/groups",
+    "rpc": "CreateGroup",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": true,
+    "audit": "group.created"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/groups/{name}",
+    "rpc": "GetGroup",
+    "params": {
+      "HubName_str": "$hub",
+      "Name_str": "$name"
+    },
+    "body": false
+  },
+  {
+    "method": "PUT",
+    "path": "/hubs/{hub}/groups/{name}",
+    "rpc": "SetGroup",
+    "params": {
+      "HubName_str": "$hub",
+      "Name_str": "$name"
+    },
+    "body": true,
+    "audit": "group.updated"
+  },
+  {
+    "method": "DELETE",
+    "path": "/hubs/{hub}/groups/{name}",
+    "rpc": "DeleteGroup",
+    "params": {
+      "HubName_str": "$hub",
+      "Name_str": "$name"
+    },
+    "body": false,
+    "audit": "group.deleted"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/sessions",
+    "rpc": "EnumSession",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": false
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/sessions/{name...}",
+    "rpc": "GetSessionStatus",
+    "params": {
+      "HubName_str": "$hub",
+      "Name_str": "$name"
+    },
+    "body": false
+  },
+  {
+    "method": "DELETE",
+    "path": "/hubs/{hub}/sessions/{name...}",
+    "rpc": "DeleteSession",
+    "params": {
+      "HubName_str": "$hub",
+      "Name_str": "$name"
+    },
+    "body": false,
+    "audit": "session.disconnected"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/access",
+    "rpc": "EnumAccess",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": false
+  },
+  {
+    "method": "DELETE",
+    "path": "/hubs/{hub}/access/{rule_id}",
+    "rpc": "DeleteAccess",
+    "params": {
+      "HubName_str": "$hub",
+      "Id_u32": "$rule_id"
+    },
+    "body": false,
+    "audit": "access.rule_deleted"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/ac-list",
+    "rpc": "GetAcList",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": false
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/ca",
+    "rpc": "EnumCa",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": false
+  },
+  {
+    "method": "POST",
+    "path": "/hubs/{hub}/ca",
+    "rpc": "AddCa",
+    "params": {
+      "HubName_str": "$hub",
+      "Cert_bin": "@cert_base64"
+    },
+    "body": false,
+    "audit": "ca.added"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/ca/{key}",
+    "rpc": "GetCa",
+    "params": {
+      "HubName_str": "$hub",
+      "Key_u32": "$key"
+    },
+    "body": false
+  },
+  {
+    "method": "DELETE",
+    "path": "/hubs/{hub}/ca/{key}",
+    "rpc": "DeleteCa",
+    "params": {
+      "HubName_str": "$hub",
+      "Key_u32": "$key"
+    },
+    "body": false,
+    "audit": "ca.deleted"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/crl",
+    "rpc": "EnumCrl",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": false
+  },
+  {
+    "method": "POST",
+    "path": "/hubs/{hub}/crl",
+    "rpc": "AddCrl",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": true,
+    "audit": "crl.added"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/crl/{key}",
+    "rpc": "GetCrl",
+    "params": {
+      "HubName_str": "$hub",
+      "Key_u32": "$key"
+    },
+    "body": false
+  },
+  {
+    "method": "PUT",
+    "path": "/hubs/{hub}/crl/{key}",
+    "rpc": "SetCrl",
+    "params": {
+      "HubName_str": "$hub",
+      "Key_u32": "$key"
+    },
+    "body": true,
+    "audit": "crl.updated"
+  },
+  {
+    "method": "DELETE",
+    "path": "/hubs/{hub}/crl/{key}",
+    "rpc": "DelCrl",
+    "params": {
+      "HubName_str": "$hub",
+      "Key_u32": "$key"
+    },
+    "body": false,
+    "audit": "crl.deleted"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/securenat/nat-table",
+    "rpc": "EnumNAT",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": false
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/securenat/dhcp-table",
+    "rpc": "EnumDHCP",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": false
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/links",
+    "rpc": "EnumLink",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": false
+  },
+  {
+    "method": "POST",
+    "path": "/hubs/{hub}/links",
+    "rpc": "CreateLink",
+    "params": {
+      "HubName_Ex_str": "$hub"
+    },
+    "body": true,
+    "audit": "link.created"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/links/{name}",
+    "rpc": "GetLink",
+    "params": {
+      "HubName_Ex_str": "$hub",
+      "AccountName_utf": "$name"
+    },
+    "body": false
+  },
+  {
+    "method": "PUT",
+    "path": "/hubs/{hub}/links/{name}",
+    "rpc": "SetLink",
+    "params": {
+      "HubName_Ex_str": "$hub",
+      "AccountName_utf": "$name"
+    },
+    "body": true,
+    "audit": "link.updated"
+  },
+  {
+    "method": "DELETE",
+    "path": "/hubs/{hub}/links/{name}",
+    "rpc": "DeleteLink",
+    "params": {
+      "HubName_str": "$hub",
+      "AccountName_utf": "$name"
+    },
+    "body": false,
+    "audit": "link.deleted"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/links/{name}/status",
+    "rpc": "GetLinkStatus",
+    "params": {
+      "HubName_Ex_str": "$hub",
+      "AccountName_utf": "$name"
+    },
+    "body": false
+  },
+  {
+    "method": "POST",
+    "path": "/hubs/{hub}/links/{name}/rename",
+    "rpc": "RenameLink",
+    "params": {
+      "HubName_str": "$hub",
+      "OldAccountName_utf": "$name",
+      "NewAccountName_utf": "@new_name"
+    },
+    "body": false,
+    "audit": "link.renamed"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/mac-table",
+    "rpc": "EnumMacTable",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": false
+  },
+  {
+    "method": "DELETE",
+    "path": "/hubs/{hub}/mac-table/{key}",
+    "rpc": "DeleteMacTable",
+    "params": {
+      "HubName_str": "$hub",
+      "Key_u32": "$key"
+    },
+    "body": false,
+    "audit": "mac_table.entry_deleted"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/ip-table",
+    "rpc": "EnumIpTable",
+    "params": {
+      "HubName_str": "$hub"
+    },
+    "body": false
+  },
+  {
+    "method": "DELETE",
+    "path": "/hubs/{hub}/ip-table/{key}",
+    "rpc": "DeleteIpTable",
+    "params": {
+      "HubName_str": "$hub",
+      "Key_u32": "$key"
+    },
+    "body": false,
+    "audit": "ip_table.entry_deleted"
+  }
+]

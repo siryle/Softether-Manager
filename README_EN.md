@@ -10,7 +10,11 @@ One command installs the panel beside your SoftEther instance. Everything after 
 users, policies, sessions, access control, SecureNAT, certificates, cascades, the works —
 happens in the browser.
 
-![Dashboard](docs/screenshots/dashboard.png)
+![Dashboard](docs/screenshots/en/dashboard.png)
+
+These previews are captured from the current Go backend and frontend running with
+isolated demo data. This page shows the English interface; the Chinese README uses
+the Chinese interface.
 
 ## What it does
 
@@ -41,7 +45,7 @@ And for anything you want to do *exactly* the way the SoftEther reference descri
 there is an **API console**: every documented method, its parameter template pre-filled,
 callable raw.
 
-![API console](docs/screenshots/console.png)
+![API console](docs/screenshots/en/console.png)
 
 **Draws what the numbers mean.** SoftEther keeps cumulative counters and no history, so
 the panel samples them on a schedule and turns the deltas into throughput charts — per
@@ -50,7 +54,7 @@ authenticate, what they've moved, whether they're online right now. Every sample
 its own clock and its own switch in Settings, so a small box can keep the cheap ones and
 turn the expensive ones off.
 
-![User detail](docs/screenshots/user.png)
+![User detail](docs/screenshots/en/user.png)
 
 **Stops what has had enough.** Any config, and any hub, can carry a traffic ceiling: an
 amount in MB, GB or TB, counting the download, the upload, or the two together. It is
@@ -75,30 +79,42 @@ reason, next to the control and in a toast.
 More rooms of the house — every user across every hub, who is connected right now, one
 Virtual Hub's home, and the whole thing in its light theme:
 
-![Users](docs/screenshots/users.png)
+![Users](docs/screenshots/en/users.png)
+
+<details>
+<summary><b>Virtual Hubs</b> — network segments and their users and sessions</summary>
+
+![Virtual Hubs](docs/screenshots/en/hubs.png)
+</details>
+
+<details>
+<summary><b>Logs</b> — server files and paginated log content</summary>
+
+![Logs](docs/screenshots/en/logs.png)
+</details>
 
 <details>
 <summary><b>Sessions</b> — who is connected, from where, over what, moving how much</summary>
 
-![Sessions](docs/screenshots/hub-sessions.png)
+![Sessions](docs/screenshots/en/hub-sessions.png)
 </details>
 
 <details>
 <summary><b>Hub overview</b> — status, throughput, and the tabs where everything lives</summary>
 
-![Hub](docs/screenshots/hub-overview.png)
+![Hub](docs/screenshots/en/hub-overview.png)
 </details>
 
 <details>
 <summary><b>Server settings</b> — listeners, protocols, encryption, bridges, L3 switches, clustering…</summary>
 
-![Server settings](docs/screenshots/server-settings.png)
+![Server settings](docs/screenshots/en/server-settings.png)
 </details>
 
 <details>
 <summary><b>Light theme</b> — a first-class mirror, not an inversion</summary>
 
-![Light theme](docs/screenshots/hub-overview-light.png)
+![Light theme](docs/screenshots/en/hub-overview-light.png)
 </details>
 
 ## The mobile panel
@@ -108,10 +124,10 @@ that knows where you are, a bottom tab bar, cards instead of tables, and bottom 
 for decisions. Managing a VPN server from a phone is a first-class path.
 
 <p align="center">
-  <img src="docs/screenshots/mobile-dashboard.png" width="24%" alt="Mobile dashboard" />
-  <img src="docs/screenshots/mobile-users.png" width="24%" alt="Mobile users" />
-  <img src="docs/screenshots/mobile-user.png" width="24%" alt="Mobile user detail" />
-  <img src="docs/screenshots/mobile-hub.png" width="24%" alt="Mobile hub" />
+  <img src="docs/screenshots/en/mobile-dashboard.png" width="24%" alt="Mobile dashboard" />
+  <img src="docs/screenshots/en/mobile-users.png" width="24%" alt="Mobile users" />
+  <img src="docs/screenshots/en/mobile-user.png" width="24%" alt="Mobile user detail" />
+  <img src="docs/screenshots/en/mobile-hub.png" width="24%" alt="Mobile hub" />
 </p>
 
 ## Install
@@ -119,15 +135,16 @@ for decisions. Managing a VPN server from a phone is a first-class path.
 On the Linux server that runs (or will run) SoftEther, as root:
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/DrSaeedHub/Softether-Manager/master/scripts/install.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/siryle/Softether-Manager/master/scripts/install.sh)
 ```
 
 The installer asks four questions — username, password, port, and a secret web path the
-panel hides behind — and answers everything else itself: it installs Python if needed,
-downloads the latest release, verifies its checksum, builds a virtualenv, writes a
+panel hides behind — and answers everything else itself: it downloads the native Go
+executable for the host architecture, verifies its checksum, writes a
 hardened systemd unit, starts the service and creates your account. There is no database
 to set up: the panel keeps everything in one SQLite file under
 `/var/lib/softether-manager`, and backing it up is copying that directory.
+Running the panel requires neither Python nor a Go compiler.
 
 First sign-in, the panel asks for the SoftEther management port and administrator
 password (127.0.0.1:5555 on a stock install), tests them, and connects. From then on it
@@ -136,7 +153,7 @@ is the server's control room.
 Non-interactive, for automation:
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/DrSaeedHub/Softether-Manager/master/scripts/install.sh) \
+bash <(curl -Ls https://raw.githubusercontent.com/siryle/Softether-Manager/master/scripts/install.sh) \
   --non-interactive --username admin --password '...' --port 8443 --path mysecret --json
 ```
 
@@ -199,21 +216,20 @@ panel (a separate project) orchestrates many of them.
 ## Architecture
 
 ```
-/proc, /sys ──┐
-              ├──  FastAPI backend  →  Next.js panel
-SoftEther ────┘        (app/)          (app/web)
- JSON-RPC  Library/softether.py
+/proc ────────┐
+              ├──  Go net/http backend  →  Next.js panel
+SoftEther ────┘    (internal/manager)       (app/web)
+ JSON-RPC
 ```
 
 One monolithic package, one process, one SQLite file:
 
-- **`Library/`** — a dependency-free Python client for the complete SoftEther JSON-RPC
-  suite: every method, typed arguments, a real error taxonomy, TLS pinning, retries.
-- **`app/`** — the FastAPI backend. It shapes the RPC surface into a REST API
-  (`/api/v1/hubs/{hub}/users/...`), reads the machine's health from `/proc`, stores
-  panel state in SQLite through a database factory (PostgreSQL later means implementing
-  one interface behind `SEM_DATABASE_URL`), samples traffic counters in the background,
-  and serves the built frontend.
+- **`cmd/softether-manager/`** — the service and management CLI entry point.
+- **`internal/manager/`** — the Go backend, using standard-library `net/http`.
+  It shapes SoftEther JSON-RPC into the existing `/api/v1/` REST API, stores panel
+  state using pure Go SQLite, samples resources, traffic and sessions, enforces
+  quotas, manages certificates and updates, and serves the built frontend.
+  RPC definitions are embedded in the executable.
 - **`app/web/`** — the Next.js frontend, exported as a single hash-routed page so the
   same build serves from any secret path prefix. Dark and light themes, desktop and
   mobile shells.
@@ -224,30 +240,50 @@ on first start into the data directory, and so are the Let's Encrypt account key
 panel's certificate; the environment file under `/etc` holds deployment facts only.
 Every state-changing action lands in an audit log.
 
-The certificate comes from a small ACME client of the panel's own (`app/services/acme.py`,
-HTTP-01 only, on the `cryptography` package the panel already depends on) rather than
-from certbot, so there is nothing to install, no cron job, and the service's
+The certificate comes from the Go ACME client (`internal/manager/tls.go`, HTTP-01),
+so there is no certbot installation or cron job, and the service's
 `ProtectSystem=full` sandbox stays as tight as it was: everything the certificate needs
 is in the data directory.
 
 ## Development
 
-```bash
-pip install -r requirements.txt
-python run.py                        # backend on :8000, serves app/web/out if built
+Use the Go version specified in `go.mod`, plus Node.js 22 and npm.
 
+```bash
+go run ./cmd/softether-manager        # backend on :8000, serves app/web/out if built
+
+# In another terminal:
 cd app/web
-npm install
-npm run dev                          # frontend dev server on :3000
+npm ci
 NEXT_PUBLIC_API_BASE=http://localhost:8000/ npm run dev   # point it at the backend
+
+npm run build                        # export frontend to app/web/out
+cd ../..
+go build -o softether-manager ./cmd/softether-manager
+go test -race ./...
+go vet ./...
+./softether-manager serve             # serve the backend and built frontend
 ```
 
-The library has its own offline test suite — a throwaway TLS server stands in for a VPN
-server — with `python -m unittest Library.test_softether`.
+The default data directory is `./data`; override it with `SEM_DATA_DIR`. Existing
+`SEM_*` configuration and frontend API paths continue to work. Resource monitoring
+reads Linux `/proc`; macOS development hosts report it as unavailable.
+
+Backend tests use a local TLS stand-in for SoftEther, verify the legacy Python crypto
+and VPN-file formats, and check persistence, quotas and the REST route contract.
 
 Releases are tag-driven: CI builds the frontend, packages one tarball, and publishes it
-with a checksum on every `v*` tag. The installer and the in-panel updater both follow
-the repository's latest release.
+with a checksum on every `v*` tag. The archive contains Linux amd64 and arm64
+executables. Build it locally with `bash scripts/build-release.sh --version vX.Y.Z`.
+The installer and the in-panel updater both follow the installed repository.
+
+To upgrade from Python, stop the old service and back up the entire data directory,
+then run the new installer or replace the container. Keep `manager.db`, `session.key`,
+`encryption.key` and `tls/` together: existing accounts, encrypted connection details,
+current-schema history, quotas and certificates retain their formats. Run only one
+version against the database at a time. Older multi-server databases follow the
+original migration behavior: adopt the first connection and rebuild traffic sample
+tables carrying the old `ServerID` column.
 
 ## Security notes
 

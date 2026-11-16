@@ -6,6 +6,8 @@ __pycache__/
 .Python
 
 # Packaging / distribution
+/softether-manager
+/bin/
 build/lib/
 dist/
 *.egg-info/

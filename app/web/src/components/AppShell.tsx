@@ -137,7 +137,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span className="topbar__avatar mono">
                 {(user || "A").slice(0, 1).toUpperCase()}
               </span>
-              <span className="hidden sm:inline font-mono">{user}</span>
+              <span className="topbar__username mono">{user}</span>
               <button
                 className="icon-btn"
                 onClick={logout}

@@ -239,15 +239,14 @@ export const IconMoon = (p: P) => (
 
 /* ── product icons ──────────────────────────────────────────────────────── */
 
-/** Hub — a switch seen as a ring of ports around a core. */
+/** Hub — one switch joining three network segments. */
 export const IconHub = (p: P) => (
   <S {...p}>
-    <circle cx="12" cy="12" r="3" />
-    <circle cx="12" cy="4" r="1.6" />
-    <circle cx="12" cy="20" r="1.6" />
-    <circle cx="4" cy="12" r="1.6" />
-    <circle cx="20" cy="12" r="1.6" />
-    <path d="M12 9V5.6M12 18.4V15M9 12H5.6M18.4 12H15" />
+    <rect x="8" y="3" width="8" height="6" rx="1.5" />
+    <path d="M12 9v8M4.5 17v-4h15v4" />
+    <rect x="2" y="17" width="5" height="4" rx="1" />
+    <rect x="9.5" y="17" width="5" height="4" rx="1" />
+    <rect x="17" y="17" width="5" height="4" rx="1" />
   </S>
 );
 

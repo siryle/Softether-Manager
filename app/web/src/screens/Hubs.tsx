@@ -9,7 +9,7 @@ import { useServer } from "../lib/server";
 import { HUB_TYPES } from "../lib/se";
 import { useToast } from "../lib/toast";
 import { formatCount } from "../lib/util";
-import { IconPlus } from "../ui/Icon";
+import { IconHub, IconPlus } from "../ui/Icon";
 import { Sheet } from "../ui/Sheet";
 
 export function Hubs() {
@@ -67,9 +67,9 @@ export function HubList({ hubs }: { hubs: Wire[] | null | undefined }) {
               style={{ marginTop: 6 }}
             >
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-8 h-8 rounded bg-blue-600/10 text-blue-500 font-mono font-semibold flex items-center justify-center text-xs border border-blue-500/20 shrink-0">
-                  HUB
-                </div>
+                <span className="hub-topology-row__icon">
+                  <IconHub size={22} />
+                </span>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-mono font-semibold text-sm text-primary truncate">{name}</span>

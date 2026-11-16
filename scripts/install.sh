@@ -2,9 +2,8 @@
 #
 # SoftEther Manager installer.
 #
-# The panel is a Python service and a built single-page frontend, and its
-# database is a single SQLite file -- so installing it is a download, a
-# virtualenv and a systemd unit. There is no database server to set up, no
+# The panel is a Go binary and a built single-page frontend. Its database
+# is a single SQLite file, so installing it is a download and a systemd unit. There is no database server to set up, no
 # role to create, no password to store in a file. Everything the operator is
 # asked for -- username, password, port, web path -- is asked once, here, and
 # never asked again: the answers end up in the database, which is what an
@@ -12,7 +11,7 @@
 # with 'sem password'.
 #
 # Usage:
-#   bash <(curl -Ls https://raw.githubusercontent.com/DrSaeedHub/Softether-Manager/master/scripts/install.sh)
+#   bash <(curl -Ls https://raw.githubusercontent.com/siryle/Softether-Manager/master/scripts/install.sh)
 #   bash <(curl -Ls .../install.sh) --non-interactive \
 #        --username admin --password '...' --port 8443 --path abc123 --json
 #
@@ -51,7 +50,7 @@ readonly SUPPORT_DIR="/usr/local/share/softether-manager"
 readonly CACHED_INSTALLER="$SUPPORT_DIR/install.sh"
 readonly CLI_ENV_PATH="$SUPPORT_DIR/cli.env"
 
-readonly DEFAULT_REPO="DrSaeedHub/Softether-Manager"
+readonly DEFAULT_REPO="siryle/Softether-Manager"
 readonly DEFAULT_RELEASE_BASE="https://github.com/$DEFAULT_REPO/releases/download"
 readonly DEFAULT_INSTALLER_URL="https://raw.githubusercontent.com/$DEFAULT_REPO/master/scripts/install.sh"
 readonly ASSET="softether-manager.tar.gz"
@@ -72,9 +71,6 @@ readonly SE_MGMT_PORT=5555
 readonly SE_STABLE_REPO="SoftEtherVPN/SoftEtherVPN_Stable"
 # Used when GitHub cannot be asked which build is newest.
 readonly SE_FALLBACK_URL="https://github.com/SoftEtherVPN/SoftEtherVPN_Stable/releases/download/v4.44-9807-rtm/softether-vpnserver-v4.44-9807-rtm-2025.04.16-linux-x64-64bit.tar.gz"
-# The backend uses X | Y annotations that are evaluated at runtime; 3.10 is
-# where they arrive.
-readonly MIN_PYTHON_MINOR=10
 
 # ---------------------------------------------------------------- arguments
 
@@ -392,7 +388,7 @@ base_path() {
   if [[ -z "${1-}" ]]; then printf '/'; else printf '/%s/' "$1"; fi
 }
 
-VENV_PYTHON="$APP_DIR/.venv/bin/python"
+MANAGER_BIN="$APP_DIR/softether-manager"
 
 # --------------------------------------------------------------- packages
 
@@ -711,14 +707,14 @@ fi
 # ---------------------------------------------------------------- dependencies
 
 detect_package_manager
-[[ -n "$PACKAGE_MANAGER" ]] || warn "No supported package manager was found; assuming python3, curl and tar are already installed."
+[[ -n "$PACKAGE_MANAGER" ]] || warn "No supported package manager was found; assuming curl and tar are already installed."
 
 step "Installing the packages the panel needs"
 case "$PACKAGE_MANAGER" in
-  apt) install_packages ca-certificates curl tar openssl python3 python3-venv python3-pip ||
-         fail "$EXIT_DEPENDENCY_FAILED" "apt-get could not install Python and its virtualenv support." ;;
-  dnf|yum) install_packages ca-certificates curl tar openssl python3 python3-pip ||
-         fail "$EXIT_DEPENDENCY_FAILED" "The package manager could not install Python." ;;
+  apt) install_packages ca-certificates curl tar openssl ||
+         fail "$EXIT_DEPENDENCY_FAILED" "apt-get could not install the required system tools." ;;
+  dnf|yum) install_packages ca-certificates curl tar openssl ||
+         fail "$EXIT_DEPENDENCY_FAILED" "The package manager could not install the required system tools." ;;
 esac
 
 if [[ -z "$DOWNLOADER" ]]; then
@@ -730,12 +726,11 @@ if source_is_remote && [[ -z "$DOWNLOADER" ]]; then
   fail "$EXIT_NO_CONNECTIVITY" "Neither curl nor wget is installed, so the release cannot be downloaded."
 fi
 
-command -v python3 >/dev/null 2>&1 || fail "$EXIT_DEPENDENCY_FAILED" "python3 is not installed and could not be installed automatically."
-PYTHON_MINOR="$(python3 -c 'import sys; print(sys.version_info[1])')"
-PYTHON_MAJOR="$(python3 -c 'import sys; print(sys.version_info[0])')"
-if (( PYTHON_MAJOR < 3 || (PYTHON_MAJOR == 3 && PYTHON_MINOR < MIN_PYTHON_MINOR) )); then
-  fail "$EXIT_DEPENDENCY_FAILED" "Python 3.$MIN_PYTHON_MINOR or newer is required; this host has $PYTHON_MAJOR.$PYTHON_MINOR. Install a newer Python and run this again."
-fi
+case "$(uname -m)" in
+  x86_64|amd64) MANAGER_ARCH=amd64 ;;
+  aarch64|arm64) MANAGER_ARCH=arm64 ;;
+  *) fail "$EXIT_UNSUPPORTED_OS" "This release supports Linux amd64 and arm64." ;;
+esac
 
 # ---------------------------------------------------------------- download
 
@@ -765,8 +760,8 @@ SOURCE_TREE="$STAGING/tree"
 if [[ ! -d "$SOURCE_TREE/app" ]]; then
   SOURCE_TREE="$(find "$STAGING/tree" -mindepth 1 -maxdepth 1 -type d | head -n1)"
 fi
-[[ -d "$SOURCE_TREE/app" && -d "$SOURCE_TREE/app/web/out" && -d "$SOURCE_TREE/Library" ]] ||
-  fail "$EXIT_DOWNLOAD_FAILED" "The archive did not contain the application, the library and a built frontend."
+[[ -d "$SOURCE_TREE/app/web/out" && -f "$SOURCE_TREE/bin/softether-manager-linux-$MANAGER_ARCH" ]] ||
+  fail "$EXIT_DOWNLOAD_FAILED" "The archive did not contain a Go binary for this architecture and the built frontend."
 INSTALLED_VERSION="$(cat "$SOURCE_TREE/VERSION" 2>/dev/null | head -n1 || true)"
 INSTALLED_VERSION="${INSTALLED_VERSION:-unknown}"
 
@@ -779,43 +774,19 @@ fi
 
 step "Installing to $APP_DIR"
 install -d -m 0755 "$APP_DIR"
-# The virtualenv is not part of a release and must survive one: it is rebuilt
-# below only when its Python is missing or its dependencies have moved.
-rm -rf "$APP_DIR/app" "$APP_DIR/Library" "$APP_DIR/scripts"
-cp -a "$SOURCE_TREE/app" "$APP_DIR/app"
-cp -a "$SOURCE_TREE/Library" "$APP_DIR/Library"
-cp -a "$SOURCE_TREE/requirements.txt" "$APP_DIR/requirements.txt"
-[[ -f "$SOURCE_TREE/run.py" ]] && cp -a "$SOURCE_TREE/run.py" "$APP_DIR/run.py"
-[[ -d "$SOURCE_TREE/scripts" ]] && cp -a "$SOURCE_TREE/scripts" "$APP_DIR/scripts"
+install -m 0755 "$SOURCE_TREE/bin/softether-manager-linux-$MANAGER_ARCH" "$MANAGER_BIN.new"
+mv -f "$MANAGER_BIN.new" "$MANAGER_BIN"
+rm -rf "$APP_DIR/app/web/out"
+mkdir -p "$APP_DIR/app/web" "$APP_DIR/scripts"
+cp -a "$SOURCE_TREE/app/web/out" "$APP_DIR/app/web/out"
+[[ -d "$SOURCE_TREE/scripts" ]] && cp -a "$SOURCE_TREE/scripts/." "$APP_DIR/scripts/"
 [[ -f "$SOURCE_TREE/VERSION" ]] && cp -a "$SOURCE_TREE/VERSION" "$APP_DIR/VERSION"
 [[ -f "$SOURCE_TREE/README.md" ]] && cp -a "$SOURCE_TREE/README.md" "$APP_DIR/README.md"
-# Compiled bytecode from the previous version, sitting beside newer sources,
-# is a whole class of confusing failure for nothing.
-find "$APP_DIR/app" "$APP_DIR/Library" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
 
 # The data directory holds the SQLite database and the generated keys. It is
 # created here so the service's first start writes into a directory that
 # already has the right owner and mode.
 install -d -m 0700 "$DATA_DIR"
-
-step "Preparing the Python environment"
-if [[ ! -x "$VENV_PYTHON" ]]; then
-  python3 -m venv "$APP_DIR/.venv" ||
-    fail "$EXIT_DEPENDENCY_FAILED" "The virtualenv could not be created. On Debian and Ubuntu this needs the python3-venv package."
-fi
-"$VENV_PYTHON" -m pip install --quiet --upgrade pip setuptools wheel >/dev/null 2>&1 || true
-
-pip_install() {
-  "$VENV_PYTHON" -m pip install --quiet --upgrade -r "$APP_DIR/requirements.txt"
-}
-if ! pip_install; then
-  warn "Installing the dependencies failed; adding the build tools and trying once more."
-  case "$PACKAGE_MANAGER" in
-    apt) install_packages build-essential python3-dev libffi-dev libssl-dev || true ;;
-    dnf|yum) install_packages gcc python3-devel libffi-devel openssl-devel || true ;;
-  esac
-  pip_install || fail "$EXIT_DEPENDENCY_FAILED" "The Python dependencies could not be installed. The previous version is still in place."
-fi
 
 # ---------------------------------------------------------------- environment
 #
@@ -870,7 +841,7 @@ fi
 # and cannot write to /etc.
 resolve_address() {
   local json
-  json="$(cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a && "$VENV_PYTHON" -m app.address 2>/dev/null)" || return 1
+  json="$(cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a && "$MANAGER_BIN" address 2>/dev/null)" || return 1
   [[ -n "$json" ]] || return 1
   local resolved_port resolved_path
   resolved_port="$(printf '%s' "$json" | sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]\{1,\}\).*/\1/p' | head -n1)"
@@ -953,7 +924,8 @@ fi
 if (( SE_INSTALLED == 1 )); then
   step "Pointing the panel at the VPN server"
   if (cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a &&
-      "$VENV_PYTHON" -m app.manage connect --host 127.0.0.1 --port "$SE_MGMT_PORT"         --password "$SE_PASSWORD") >/dev/null 2>&1; then
+      "$MANAGER_BIN" connect --host 127.0.0.1 --port "$SE_MGMT_PORT" \
+        --password "$SE_PASSWORD") >/dev/null 2>&1; then
     SE_CONNECTED=1
   else
     warn "SoftEther was installed but the panel could not be pointed at it."
@@ -972,13 +944,11 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-# Type=exec: systemd reports the unit started only once the interpreter has
-# run, so a broken virtualenv fails the unit instead of appearing to start.
+# Type=exec reports startup only after the Go executable has been started.
 Type=exec
 WorkingDirectory=$APP_DIR
 EnvironmentFile=$ENV_PATH
-Environment=PYTHONUNBUFFERED=1
-ExecStart=$APP_DIR/.venv/bin/python -m uvicorn app.main:app --host \${SEM_BIND_HOST} --port \${SEM_BIND_PORT}
+ExecStart=$APP_DIR/softether-manager serve
 Restart=always
 RestartSec=3s
 
@@ -1070,7 +1040,7 @@ fi
 PANEL_URL="http://$PUBLIC_HOST:$PORT$(base_path "$WEB_PATH")"
 # A panel that already has a domain with a certificate is reached there.
 if (( UPGRADE_EXISTING == 1 )); then
-  ADDRESS_JSON="$(cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a && "$VENV_PYTHON" -m app.address 2>/dev/null || true)"
+  ADDRESS_JSON="$(cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a && "$MANAGER_BIN" address 2>/dev/null || true)"
   if [[ -n "$ADDRESS_JSON" ]]; then
     PANEL_DOMAIN="$(printf '%s' "$ADDRESS_JSON" | sed -n 's/.*"domain"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
     PANEL_HTTPS_PORT="$(printf '%s' "$ADDRESS_JSON" | sed -n 's/.*"https_port"[[:space:]]*:[[:space:]]*\([0-9]\{1,\}\).*/\1/p' | head -n1)"

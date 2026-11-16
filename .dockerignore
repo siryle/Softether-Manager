@@ -1,4 +1,6 @@
 .git
+/softether-manager
+/bin
 .github
 .venv
 venv

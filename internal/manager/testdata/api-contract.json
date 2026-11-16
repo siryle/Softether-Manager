@@ -1,0 +1,734 @@
+[
+  {
+    "method": "GET",
+    "path": "/auth/state"
+  },
+  {
+    "method": "POST",
+    "path": "/auth/setup"
+  },
+  {
+    "method": "POST",
+    "path": "/auth/login"
+  },
+  {
+    "method": "POST",
+    "path": "/auth/logout"
+  },
+  {
+    "method": "GET",
+    "path": "/auth/me"
+  },
+  {
+    "method": "PUT",
+    "path": "/auth/password"
+  },
+  {
+    "method": "GET",
+    "path": "/system/health"
+  },
+  {
+    "method": "GET",
+    "path": "/system/resources"
+  },
+  {
+    "method": "GET",
+    "path": "/system/vpn-template"
+  },
+  {
+    "method": "PUT",
+    "path": "/system/vpn-template"
+  },
+  {
+    "method": "GET",
+    "path": "/system/info"
+  },
+  {
+    "method": "GET",
+    "path": "/system/settings"
+  },
+  {
+    "method": "PUT",
+    "path": "/system/settings"
+  },
+  {
+    "method": "GET",
+    "path": "/system/domain"
+  },
+  {
+    "method": "PUT",
+    "path": "/system/domain"
+  },
+  {
+    "method": "DELETE",
+    "path": "/system/domain"
+  },
+  {
+    "method": "POST",
+    "path": "/system/domain/issue"
+  },
+  {
+    "method": "POST",
+    "path": "/system/domain/check"
+  },
+  {
+    "method": "GET",
+    "path": "/system/update"
+  },
+  {
+    "method": "POST",
+    "path": "/system/update/check"
+  },
+  {
+    "method": "POST",
+    "path": "/system/update/apply"
+  },
+  {
+    "method": "GET",
+    "path": "/system/update/state"
+  },
+  {
+    "method": "POST",
+    "path": "/system/restart"
+  },
+  {
+    "method": "GET",
+    "path": "/system/audit"
+  },
+  {
+    "method": "GET",
+    "path": "/users"
+  },
+  {
+    "method": "GET",
+    "path": "/quotas"
+  },
+  {
+    "method": "GET",
+    "path": "/quotas/hub/{hub}"
+  },
+  {
+    "method": "PUT",
+    "path": "/quotas/hub/{hub}"
+  },
+  {
+    "method": "PUT",
+    "path": "/quotas/hub/{hub}/enabled"
+  },
+  {
+    "method": "DELETE",
+    "path": "/quotas/hub/{hub}"
+  },
+  {
+    "method": "POST",
+    "path": "/quotas/hub/{hub}/reset"
+  },
+  {
+    "method": "GET",
+    "path": "/quotas/user/{hub}/{name}"
+  },
+  {
+    "method": "PUT",
+    "path": "/quotas/user/{hub}/{name}"
+  },
+  {
+    "method": "PUT",
+    "path": "/quotas/user/{hub}/{name}/enabled"
+  },
+  {
+    "method": "DELETE",
+    "path": "/quotas/user/{hub}/{name}"
+  },
+  {
+    "method": "POST",
+    "path": "/quotas/user/{hub}/{name}/reset"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs"
+  },
+  {
+    "method": "POST",
+    "path": "/hubs"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}"
+  },
+  {
+    "method": "PUT",
+    "path": "/hubs/{hub}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/hubs/{hub}"
+  },
+  {
+    "method": "PUT",
+    "path": "/hubs/{hub}/online"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/status"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/log-settings"
+  },
+  {
+    "method": "PUT",
+    "path": "/hubs/{hub}/log-settings"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/radius"
+  },
+  {
+    "method": "PUT",
+    "path": "/hubs/{hub}/radius"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/message"
+  },
+  {
+    "method": "PUT",
+    "path": "/hubs/{hub}/message"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/admin-options"
+  },
+  {
+    "method": "PUT",
+    "path": "/hubs/{hub}/admin-options"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/ext-options"
+  },
+  {
+    "method": "PUT",
+    "path": "/hubs/{hub}/ext-options"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/users"
+  },
+  {
+    "method": "POST",
+    "path": "/hubs/{hub}/users"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/users/{name}"
+  },
+  {
+    "method": "PUT",
+    "path": "/hubs/{hub}/users/{name}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/hubs/{hub}/users/{name}"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/users/{name}/credential-state"
+  },
+  {
+    "method": "POST",
+    "path": "/hubs/{hub}/users/{name}/vpn-file"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/users-online"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/session-history"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/users/{name}/session-history"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/session-history/{session_id}/usage"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/users/{name}/sessions"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/users/{name}/usage"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/traffic"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/groups"
+  },
+  {
+    "method": "POST",
+    "path": "/hubs/{hub}/groups"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/groups/{name}"
+  },
+  {
+    "method": "PUT",
+    "path": "/hubs/{hub}/groups/{name}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/hubs/{hub}/groups/{name}"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/sessions"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/sessions/{name:path}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/hubs/{hub}/sessions/{name:path}"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/access"
+  },
+  {
+    "method": "POST",
+    "path": "/hubs/{hub}/access"
+  },
+  {
+    "method": "PUT",
+    "path": "/hubs/{hub}/access"
+  },
+  {
+    "method": "DELETE",
+    "path": "/hubs/{hub}/access/{rule_id}"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/ac-list"
+  },
+  {
+    "method": "PUT",
+    "path": "/hubs/{hub}/ac-list"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/ca"
+  },
+  {
+    "method": "POST",
+    "path": "/hubs/{hub}/ca"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/ca/{key}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/hubs/{hub}/ca/{key}"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/crl"
+  },
+  {
+    "method": "POST",
+    "path": "/hubs/{hub}/crl"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/crl/{key}"
+  },
+  {
+    "method": "PUT",
+    "path": "/hubs/{hub}/crl/{key}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/hubs/{hub}/crl/{key}"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/securenat"
+  },
+  {
+    "method": "POST",
+    "path": "/hubs/{hub}/securenat/enable"
+  },
+  {
+    "method": "POST",
+    "path": "/hubs/{hub}/securenat/disable"
+  },
+  {
+    "method": "PUT",
+    "path": "/hubs/{hub}/securenat/options"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/securenat/nat-table"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/securenat/dhcp-table"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/links"
+  },
+  {
+    "method": "POST",
+    "path": "/hubs/{hub}/links"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/links/{name}"
+  },
+  {
+    "method": "PUT",
+    "path": "/hubs/{hub}/links/{name}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/hubs/{hub}/links/{name}"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/links/{name}/status"
+  },
+  {
+    "method": "PUT",
+    "path": "/hubs/{hub}/links/{name}/online"
+  },
+  {
+    "method": "POST",
+    "path": "/hubs/{hub}/links/{name}/rename"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/mac-table"
+  },
+  {
+    "method": "DELETE",
+    "path": "/hubs/{hub}/mac-table/{key}"
+  },
+  {
+    "method": "GET",
+    "path": "/hubs/{hub}/ip-table"
+  },
+  {
+    "method": "DELETE",
+    "path": "/hubs/{hub}/ip-table/{key}"
+  },
+  {
+    "method": "GET",
+    "path": "/server/info"
+  },
+  {
+    "method": "GET",
+    "path": "/server/status"
+  },
+  {
+    "method": "GET",
+    "path": "/server/caps"
+  },
+  {
+    "method": "GET",
+    "path": "/server/admin-msg"
+  },
+  {
+    "method": "GET",
+    "path": "/server/overview"
+  },
+  {
+    "method": "GET",
+    "path": "/server/traffic"
+  },
+  {
+    "method": "GET",
+    "path": "/server/listeners"
+  },
+  {
+    "method": "POST",
+    "path": "/server/listeners"
+  },
+  {
+    "method": "PUT",
+    "path": "/server/listeners/{port}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/server/listeners/{port}"
+  },
+  {
+    "method": "GET",
+    "path": "/server/special-listener"
+  },
+  {
+    "method": "PUT",
+    "path": "/server/special-listener"
+  },
+  {
+    "method": "GET",
+    "path": "/server/ipsec"
+  },
+  {
+    "method": "PUT",
+    "path": "/server/ipsec"
+  },
+  {
+    "method": "GET",
+    "path": "/server/openvpn"
+  },
+  {
+    "method": "PUT",
+    "path": "/server/openvpn"
+  },
+  {
+    "method": "POST",
+    "path": "/server/openvpn/sample-config"
+  },
+  {
+    "method": "GET",
+    "path": "/server/azure"
+  },
+  {
+    "method": "PUT",
+    "path": "/server/azure"
+  },
+  {
+    "method": "GET",
+    "path": "/server/ddns"
+  },
+  {
+    "method": "PUT",
+    "path": "/server/ddns/hostname"
+  },
+  {
+    "method": "GET",
+    "path": "/server/ddns/proxy"
+  },
+  {
+    "method": "PUT",
+    "path": "/server/ddns/proxy"
+  },
+  {
+    "method": "GET",
+    "path": "/server/cipher"
+  },
+  {
+    "method": "PUT",
+    "path": "/server/cipher"
+  },
+  {
+    "method": "GET",
+    "path": "/server/cert"
+  },
+  {
+    "method": "PUT",
+    "path": "/server/cert"
+  },
+  {
+    "method": "POST",
+    "path": "/server/cert/regenerate"
+  },
+  {
+    "method": "PUT",
+    "path": "/server/admin-password"
+  },
+  {
+    "method": "GET",
+    "path": "/server/connections"
+  },
+  {
+    "method": "GET",
+    "path": "/server/connections/{name}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/server/connections/{name}"
+  },
+  {
+    "method": "GET",
+    "path": "/server/bridges"
+  },
+  {
+    "method": "GET",
+    "path": "/server/bridges/support"
+  },
+  {
+    "method": "GET",
+    "path": "/server/bridges/devices"
+  },
+  {
+    "method": "POST",
+    "path": "/server/bridges"
+  },
+  {
+    "method": "POST",
+    "path": "/server/bridges/delete"
+  },
+  {
+    "method": "GET",
+    "path": "/server/l3"
+  },
+  {
+    "method": "POST",
+    "path": "/server/l3"
+  },
+  {
+    "method": "DELETE",
+    "path": "/server/l3/{name}"
+  },
+  {
+    "method": "POST",
+    "path": "/server/l3/{name}/start"
+  },
+  {
+    "method": "POST",
+    "path": "/server/l3/{name}/stop"
+  },
+  {
+    "method": "GET",
+    "path": "/server/l3/{name}/interfaces"
+  },
+  {
+    "method": "POST",
+    "path": "/server/l3/{name}/interfaces"
+  },
+  {
+    "method": "POST",
+    "path": "/server/l3/{name}/interfaces/delete"
+  },
+  {
+    "method": "GET",
+    "path": "/server/l3/{name}/routes"
+  },
+  {
+    "method": "POST",
+    "path": "/server/l3/{name}/routes"
+  },
+  {
+    "method": "POST",
+    "path": "/server/l3/{name}/routes/delete"
+  },
+  {
+    "method": "GET",
+    "path": "/server/farm"
+  },
+  {
+    "method": "PUT",
+    "path": "/server/farm"
+  },
+  {
+    "method": "GET",
+    "path": "/server/farm/status"
+  },
+  {
+    "method": "GET",
+    "path": "/server/farm/members"
+  },
+  {
+    "method": "GET",
+    "path": "/server/farm/members/{member_id}"
+  },
+  {
+    "method": "GET",
+    "path": "/server/keepalive"
+  },
+  {
+    "method": "PUT",
+    "path": "/server/keepalive"
+  },
+  {
+    "method": "GET",
+    "path": "/server/syslog"
+  },
+  {
+    "method": "PUT",
+    "path": "/server/syslog"
+  },
+  {
+    "method": "GET",
+    "path": "/server/etherip"
+  },
+  {
+    "method": "POST",
+    "path": "/server/etherip"
+  },
+  {
+    "method": "GET",
+    "path": "/server/etherip/{etherip_id}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/server/etherip/{etherip_id}"
+  },
+  {
+    "method": "GET",
+    "path": "/server/logs"
+  },
+  {
+    "method": "GET",
+    "path": "/server/logs/read"
+  },
+  {
+    "method": "GET",
+    "path": "/server/config"
+  },
+  {
+    "method": "PUT",
+    "path": "/server/config"
+  },
+  {
+    "method": "POST",
+    "path": "/server/flush"
+  },
+  {
+    "method": "POST",
+    "path": "/server/reboot"
+  },
+  {
+    "method": "POST",
+    "path": "/server/crash"
+  },
+  {
+    "method": "GET",
+    "path": "/server/default-hub-admin-options"
+  },
+  {
+    "method": "GET",
+    "path": "/rpc/methods"
+  },
+  {
+    "method": "POST",
+    "path": "/rpc/call"
+  },
+  {
+    "method": "GET",
+    "path": "/server/connection"
+  },
+  {
+    "method": "PUT",
+    "path": "/server/connection"
+  },
+  {
+    "method": "POST",
+    "path": "/server/connection/test"
+  },
+  {
+    "method": "POST",
+    "path": "/server/probe"
+  }
+]

@@ -2,6 +2,8 @@
 
 本项目已成功容器化移植为 Docker 项目，支持通过现代化的 Web 控制台集中管理**局域网（LAN）内的 SoftEther VPN 服务器**，亦可管理宿主机或同宿主其他容器内的 SoftEther 实例。
 
+后端使用 Go 编译为原生可执行文件，运行镜像无需 Python。构建时分别编译 Go 后端和前端静态资源，容器使用 `softether-manager healthcheck` 检查服务状态。
+
 ---
 
 ## 快速开始
@@ -10,7 +12,7 @@
 
 1. **克隆项目到本地**：
    ```bash
-   git clone https://github.com/DrSaeedHub/Softether-Manager.git
+   git clone https://github.com/siryle/Softether-Manager.git
    cd Softether-Manager
    ```
 
@@ -121,7 +123,7 @@ docker build -t softether-manager:latest .
 
 ## 容器运维与 CLI 工具 (`sem`)
 
-容器内内置了快捷运维脚本 `sem`，可在容器外部免登录执行各种应急维护：
+容器内的 `sem` 是 Go 可执行文件的别名，可在容器外部免登录执行各种应急维护：
 
 ### 1. 检查面板与连接状态
 ```bash
@@ -156,6 +158,8 @@ docker compose logs -f
 所有持久化配置均保存在容器的 `/data` 目录（对应宿主机映射的 `./data` 目录）：
 - `manager.db`：SQLite 数据库，包含账号、历史流量采样记录、配额设置、配置参数。
 - 密钥与凭据文件。
+
+从 Python 版容器升级时，停止旧容器，备份整个 `./data`，再执行 `docker compose up -d --build`。保留原有挂载及 `session.key`、`encryption.key`、`tls/`，即可继续使用既有账号、加密连接信息、配额和证书。
 
 **备份**：只需备份宿主机的 `./data` 目录即可：
 ```bash

@@ -91,7 +91,7 @@
   font-size: var(--t-micro);
   white-space: nowrap;
 }
-@media (min-width: 640px) {
+@media (min-width: 768px) {
   .topbar__status {
     display: flex;
   }
@@ -112,8 +112,9 @@
   display: none;
   align-items: center;
   width: 20rem;
+  min-width: 0;
 }
-@media (min-width: 768px) {
+@media (min-width: 1200px) {
   .topbar__center {
     display: flex;
   }
@@ -207,6 +208,30 @@
   font-weight: 700;
   color: var(--text-primary);
   border: 1px solid var(--border-hairline);
+}
+@media (max-width: 639px) {
+  .topbar__left,
+  .topbar__brand {
+    min-width: 0;
+    flex-shrink: 1;
+  }
+  .topbar__brand > svg,
+  .topbar__right {
+    flex-shrink: 0;
+  }
+  .topbar__brand-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .topbar__brand-ver,
+  .topbar__avatar,
+  .topbar__username {
+    display: none;
+  }
+  .topbar__right {
+    gap: var(--s2);
+  }
 }
 
 /* ════════════════════════════════════════════════════════════════ sidebar ══ */

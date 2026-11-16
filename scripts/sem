@@ -19,7 +19,7 @@ export HOME="${HOME:-/root}"
 readonly SUPPORT_DIR="/usr/local/share/softether-manager"
 readonly CLI_ENV_PATH="$SUPPORT_DIR/cli.env"
 readonly CACHED_INSTALLER="$SUPPORT_DIR/install.sh"
-readonly DEFAULT_REPO="DrSaeedHub/Softether-Manager"
+readonly DEFAULT_REPO="siryle/Softether-Manager"
 
 # Defaults, overridden by whatever the installer recorded. A host installed
 # from a fork keeps following the fork, because these came from the install.
@@ -37,7 +37,7 @@ if [[ -f "$CLI_ENV_PATH" ]]; then
   . "$CLI_ENV_PATH"
 fi
 
-VENV_PYTHON="$APP_DIR/.venv/bin/python"
+MANAGER_BIN="$APP_DIR/softether-manager"
 
 say() { printf '%s\n' "$*" >&2; }
 step() { printf '\033[1;34m==>\033[0m %s\n' "$*" >&2; }
@@ -93,10 +93,10 @@ service_state() {
 
 # The address is asked of the panel's own code rather than read from the
 # environment file: the file is a seed, and the Settings page can have moved
-# the web path since. `python -m app.address` answers with what is stored.
+# the web path since. `softether-manager address` answers with what is stored.
 address_json() {
-  [[ -x "$VENV_PYTHON" ]] || return 1
-  (cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a && "$VENV_PYTHON" -m app.address 2>/dev/null)
+  [[ -x "$MANAGER_BIN" ]] || return 1
+  (cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a && "$MANAGER_BIN" address 2>/dev/null)
 }
 
 json_field() {
@@ -244,7 +244,7 @@ cmd_update() {
 
 cmd_password() {
   require_root
-  [[ -x "$VENV_PYTHON" ]] || die "The panel is not installed here."
+  [[ -x "$MANAGER_BIN" ]] || die "The panel is not installed here."
   local username="" password=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -272,18 +272,18 @@ cmd_password() {
   fi
 
   (cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a &&
-    "$VENV_PYTHON" -m app.manage password --username "$username" --password "$password")
+    "$MANAGER_BIN" password --username "$username" --password "$password")
 }
 
 cmd_users() {
   require_root
-  [[ -x "$VENV_PYTHON" ]] || die "The panel is not installed here."
-  (cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a && "$VENV_PYTHON" -m app.manage users)
+  [[ -x "$MANAGER_BIN" ]] || die "The panel is not installed here."
+  (cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a && "$MANAGER_BIN" users)
 }
 
-# The port is an environment fact: systemd hands it to uvicorn at start, so
+# The port is an environment fact: systemd hands it to the server at start, so
 # changing it is editing the file and restarting. The web path lives in the
-# database, so changing it goes through app.manage.
+# database, so changing it goes through the manager CLI.
 cmd_port() {
   require_root
   local port="${1:-}"
@@ -304,7 +304,7 @@ cmd_port() {
 
 cmd_path() {
   require_root
-  [[ -x "$VENV_PYTHON" ]] || die "The panel is not installed here."
+  [[ -x "$MANAGER_BIN" ]] || die "The panel is not installed here."
   local path="${1-}"
   [[ $# -ge 1 ]] || die "Usage: sem path <path|none>"
   [[ "${path,,}" == "none" ]] && path=""
@@ -312,7 +312,7 @@ cmd_path() {
     die "The web path may contain only letters, digits, dot, underscore, tilde and hyphen."
   fi
   (cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a &&
-    "$VENV_PYTHON" -m app.manage webpath "$path") >/dev/null
+    "$MANAGER_BIN" webpath "$path") >/dev/null
   step "Restarting the panel"
   systemctl restart "$SERVICE_NAME"
   say ""
@@ -325,22 +325,22 @@ cmd_path() {
 # that the restriction is what a locked-out operator is here to lift, and
 # waiting is unkind, so 'only off' restarts to make it immediate.
 cmd_domain() {
-  [[ -x "$VENV_PYTHON" ]] || die "The panel is not installed here."
+  [[ -x "$MANAGER_BIN" ]] || die "The panel is not installed here."
   local action="${1-show}"
   shift || true
   case "$action" in
     show|"")
-      (cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a && "$VENV_PYTHON" -m app.manage domain show)
+      (cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a && "$MANAGER_BIN" domain show)
       ;;
     set)
       require_root
       [[ -n "${1-}" ]] || die "Usage: sem domain set <name>"
-      (cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a && "$VENV_PYTHON" -m app.manage domain set "$1")
+      (cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a && "$MANAGER_BIN" domain set "$1")
       say "The panel obtains a certificate on its own; watch Settings -> Domain & HTTPS, or 'sem domain'."
       ;;
     clear)
       require_root
-      (cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a && "$VENV_PYTHON" -m app.manage domain clear)
+      (cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a && "$MANAGER_BIN" domain clear)
       ;;
     only)
       require_root
@@ -348,7 +348,7 @@ cmd_domain() {
         on|off) ;;
         *) die "Usage: sem domain only on|off" ;;
       esac
-      (cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a && "$VENV_PYTHON" -m app.manage domain only "$1")
+      (cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a && "$MANAGER_BIN" domain only "$1")
       if [[ "$1" == "off" ]]; then
         step "Restarting the panel so the restriction lifts at once"
         systemctl restart "$SERVICE_NAME"

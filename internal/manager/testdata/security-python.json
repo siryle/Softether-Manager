@@ -1,0 +1,7 @@
+{
+  "password": "legacy 密码",
+  "password_hash": "scrypt$16384$8$1$cwpYW6z16aSCSCyUU/fOLw==$B8xf5NMFemR26fjqq4nXVoJhW+TCAWXwH/dDPSn8Oag=",
+  "plaintext": "SoftEther blank/空格 password",
+  "fernet": "gAAAAABq-nVpVchWH-gWStjx-PrtGCHIjaWU_rbitSIXVQfPo_Ql5yIY04Jah0Vy9Saf-aEoPUnRs0SxZ6Gbw1qptsjbYqm0nsk1Yz_2sCiBEemIPHR1L9I=",
+  "token": "eyJ1aWQiOjcsInN1YiI6ImxlZ2FjeS1hZG1pbiIsImV4cCI6NDEwMjQ0NDgwMH0.pH_Z3mBYITHDG9Yf2RAlkyfuUoPtesNazraZ8W9Jbn8"
+}

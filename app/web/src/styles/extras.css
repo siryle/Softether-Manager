@@ -511,6 +511,16 @@
   flex: none;
   color: var(--text-faint);
 }
+.hub-topology-row__icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-ctl);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
 @media (max-width: 767px) {
   .hub-topology-row__go {
     display: none;
