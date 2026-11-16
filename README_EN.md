@@ -304,6 +304,13 @@ Access-list replacements and deletions require the list's returned `version` in 
 request JSON as `expected_version`. Stale versions return 409; missing versions return
 428. Read the current list before writing it to avoid overwriting another tab's changes.
 
+For the optional live VPN test, set `SEM_TEST_VPNSERVER_DIR` to a compiled official
+SoftEther v4.44 directory containing `vpnserver` and `hamcore.se2`, then run
+`go test -race ./internal/manager -run TestSoftEtherLiveQuotaReset -count=1`.
+It starts two temporary servers and a real cascade session, checks that resets leave
+the user and session unchanged, and verifies reconnection after quota cancellation.
+The test is skipped when the variable is unset.
+
 Releases are tag-driven: CI builds the frontend, packages one tarball, and publishes it
 with a checksum on every `v*` tag. The archive contains Linux amd64 and arm64
 executables. Build it locally with `bash scripts/build-release.sh --version vX.Y.Z`.

@@ -700,6 +700,10 @@ const zhCN: Record<string, string> = {
   "generating the certificate key": "正在生成证书密钥",
 
   // --- Connection files ---
+  "access restoration pending": "访问恢复待完成",
+  "The limit is disabled, but VPN access has not been confirmed restored. The panel will retry; check the server connection and its last error.": "限额已停用，但尚未确认 VPN 访问已恢复。面板会继续重试，请检查服务器连接和最近的错误。",
+  "SoftEther has not confirmed that the hub is online. The panel will retry restoration.": "SoftEther 尚未确认 HUB 已上线，面板会继续重试恢复。",
+  "SoftEther has not confirmed the restored user policy. The panel will retry restoration.": "SoftEther 尚未确认用户策略已恢复，面板会继续重试恢复。",
   "Release this server's enforced quotas before changing its address, disabling it, or removing the connection.": "请先解除该服务器已执行的配额限制，再修改地址、停用或移除连接。",
   "Reload the access list before saving changes.": "请重新加载访问规则后再保存。",
   "The access list changed. Reload it before saving changes.": "访问规则已被修改，请重新加载后再保存。",

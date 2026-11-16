@@ -115,14 +115,34 @@ func (a *App) releaseQuota(ctx context.Context, row M) {
 	hub, name := str(row["HubName"]), str(row["UserName"])
 	if str(row["SubjectType"]) == "hub" {
 		if boolean(withDefault(restore, "Online_bool", true)) {
-			a.rpc(ctx, "SetHubOnline", M{"HubName_str": hub, "Online_bool": true})
+			current := a.rpc(ctx, "GetHub", M{"HubName_str": hub})
+			if !boolean(current["Online_bool"]) {
+				a.rpc(ctx, "SetHubOnline", M{"HubName_str": hub, "Online_bool": true})
+				current = a.rpc(ctx, "GetHub", M{"HubName_str": hub})
+			}
+			if !boolean(current["Online_bool"]) {
+				fail(502, "SoftEther has not confirmed that the hub is online. The panel will retry restoration.")
+			}
 		}
 	} else {
-		body := userWriteBody(a.rpc(ctx, "GetUser", M{"HubName_str": hub, "Name_str": name}))
-		body["HubName_str"], body["Name_str"] = hub, name
-		body["UsePolicy_bool"] = boolean(restore["UsePolicy_bool"])
-		body["policy:Access_bool"] = boolean(withDefault(restore, "policy:Access_bool", true))
-		a.rpc(ctx, "SetUser", body)
+		params := M{"HubName_str": hub, "Name_str": name}
+		current := a.rpc(ctx, "GetUser", params)
+		usePolicy := boolean(restore["UsePolicy_bool"])
+		access := boolean(withDefault(restore, "policy:Access_bool", true))
+		matches := func(user M) bool {
+			// SoftEther omits UsePolicy and all policy fields when the user inherits a policy.
+			return boolean(user["UsePolicy_bool"]) == usePolicy && (!usePolicy || boolean(user["policy:Access_bool"]) == access)
+		}
+		if !matches(current) {
+			body := userWriteBody(current)
+			body["HubName_str"], body["Name_str"] = hub, name
+			body["UsePolicy_bool"], body["policy:Access_bool"] = usePolicy, access
+			a.rpc(ctx, "SetUser", body)
+			current = a.rpc(ctx, "GetUser", params)
+		}
+		if !matches(current) {
+			fail(502, "SoftEther has not confirmed the restored user policy. The panel will retry restoration.")
+		}
 	}
 	execute(a.db, `UPDATE TrafficQuota SET EnforcedDate=NULL,ExceededDate=NULL,RestoreState='',UpdatedDate=? WHERE TrafficQuotaID=?`, now(), row["TrafficQuotaID"])
 	a.audit(nil, "quota.released", str(row["SubjectType"]), hub, name, integer(row["ServerID"]))
@@ -164,6 +184,8 @@ func (a *App) cutQuotaSessions(ctx context.Context, row M) {
 			_, err := a.client(ctx).Call(ctx, "DeleteSession", M{"HubName_str": hub, "Name_str": s["Name_str"]})
 			if err != nil {
 				log.Printf("quota disconnect: %v", err)
+			} else {
+				a.audit(nil, "quota.session_disconnected", "vpn_session", str(s["Name_str"]), "hub "+hub+", user "+name, integer(row["ServerID"]))
 			}
 		}
 	}
@@ -178,11 +200,6 @@ func (a *App) guardHubOnline(ctx context.Context, method string, params M) {
 	}
 }
 func (a *App) enforceQuota(ctx context.Context, row M) {
-	defer func() {
-		if p := recover(); p != nil {
-			log.Printf("quota enforcement: %v", p)
-		}
-	}()
 	if a.quotaOver(row) {
 		a.blockQuota(ctx, row)
 		if str(row["SubjectType"]) == "user" {
@@ -217,7 +234,14 @@ func (a *App) quotaTick(ctx context.Context) {
 					}
 					continue
 				}
-				a.enforceQuota(serverCtx, a.quotaRow(id, subject, hub, name))
+				func() {
+					defer func() {
+						if p := recover(); p != nil {
+							log.Printf("quota enforcement: %v", p)
+						}
+					}()
+					a.enforceQuota(serverCtx, a.quotaRow(id, subject, hub, name))
+				}()
 			}
 		}()
 	}
@@ -290,6 +314,8 @@ func (a *App) registerQuotas() {
 					if row == nil {
 						fail(404, "No traffic limit is set on this subject.")
 					}
+					// Persist cancellation before attempting recovery so a failure cannot reapply the limit.
+					execute(a.db, `UPDATE TrafficQuota SET LimitBytes=0,IsEnabled=0,UpdatedDate=? WHERE TrafficQuotaID=?`, now(), row["TrafficQuotaID"])
 					a.releaseQuota(r.Context(), row)
 					if integer(row["BaseSendBytes"]) != 0 || integer(row["BaseRecvBytes"]) != 0 {
 						execute(a.db, `UPDATE TrafficQuota SET LimitBytes=0,ExceededDate=NULL,UpdatedDate=? WHERE TrafficQuotaID=?`, now(), row["TrafficQuotaID"])

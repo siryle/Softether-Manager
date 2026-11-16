@@ -171,3 +171,14 @@ test("a limit and transfer reset are sent as one operation", async () => {
   assert.deepEqual(client.requests.map(r => [r.method, r.url]), [["PUT", "api/v1/quotas/user/DEFAULT/admin"]]);
   assert.equal(JSON.parse(client.requests[0].body).reset, true);
 });
+
+test("a removed limit still shows pending VPN access restoration", () => {
+  const client = backend();
+  const { QuotaSummary } = component("../src/components/QuotaCard.tsx", "QuotaSummary", [], {
+    "../lib/api": { api: client.api }, "../lib/util": load("../src/lib/util.ts", {}, { "./i18n": { t: value => value } }),
+  });
+  const quota = { has_limit: false, enabled: false, blocked: true, limit_bytes: 0, used_bytes: 1000, upload_bytes: 600, download_bytes: 400, metric: "total" };
+  const summary = QuotaSummary({ quota, subject: "user" });
+  assert.ok(find(summary, node => node.props?.label === "access restoration pending"));
+  assert.ok(find(summary, node => node.type === "div" && node.props.className === "alert alert--warn"));
+});

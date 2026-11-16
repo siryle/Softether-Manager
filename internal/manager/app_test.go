@@ -378,11 +378,13 @@ type fakeSoftEther struct {
 	access, ac            []M
 	failRestore           bool
 	failSessionStatus     bool
+	userUsePolicy         bool
+	ignoreRestore         bool
 }
 
 func attachSoftEther(t *testing.T, a *App) *fakeSoftEther {
 	t.Helper()
-	fake := &fakeSoftEther{hubOnline: true, userAccess: true, send: 600, recv: 400, userHash: hashedPassword("secret", "Alice"), radius: M{"RadiusSecret_str": "existing-radius-secret"}, access: []M{}, ac: []M{}}
+	fake := &fakeSoftEther{hubOnline: true, userAccess: true, userUsePolicy: true, send: 600, recv: 400, userHash: hashedPassword("secret", "Alice"), radius: M{"RadiusSecret_str": "existing-radius-secret"}, access: []M{}, ac: []M{}}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req M
 		decoder := json.NewDecoder(r.Body)
@@ -424,10 +426,24 @@ func attachSoftEther(t *testing.T, a *App) *fakeSoftEther {
 				writeJSON(w, 200, M{"jsonrpc": "2.0", "id": req["id"], "error": M{"code": 1, "message": "ERR_BUSY"}})
 				return
 			}
+			if fake.ignoreRestore && boolean(params["Online_bool"]) {
+				break
+			}
 			fake.hubOnline = boolean(params["Online_bool"])
 		case "GetUser":
-			out = M{"Name_str": params["Name_str"], "AuthType_u32": 1, "HashedKey_bin": fake.userHash, "UsePolicy_bool": true, "policy:Access_bool": fake.userAccess, "Send.UnicastBytes_u64": fake.send, "Recv.UnicastBytes_u64": fake.recv}
+			out = M{"Name_str": params["Name_str"], "AuthType_u32": 1, "HashedKey_bin": fake.userHash, "Send.UnicastBytes_u64": fake.send, "Recv.UnicastBytes_u64": fake.recv}
+			if fake.userUsePolicy {
+				out["UsePolicy_bool"], out["policy:Access_bool"] = true, fake.userAccess
+			}
 		case "SetUser":
+			if fake.ignoreRestore && (!boolean(params["UsePolicy_bool"]) || boolean(params["policy:Access_bool"])) {
+				break
+			}
+			if fake.failRestore && (!boolean(params["UsePolicy_bool"]) || boolean(params["policy:Access_bool"])) {
+				writeJSON(w, 200, M{"jsonrpc": "2.0", "id": req["id"], "error": M{"code": 1, "message": "ERR_BUSY"}})
+				return
+			}
+			fake.userUsePolicy = boolean(params["UsePolicy_bool"])
 			// SoftEther gives a supplied hash precedence over Auth_Password.
 			if hash := str(params["HashedKey_bin"]); hash != "" {
 				fake.userHash = hash
@@ -552,8 +568,8 @@ func TestQuotaBlockRestoreAndCounterReset(t *testing.T) {
 	fake.failRestore = true
 	fake.mu.Unlock()
 	status, out, _ = call(t, a, "PUT", path+"/enabled", M{"enabled": false}, token)
-	if status != 200 || !boolean(out["blocked"]) {
-		t.Fatal("failed restore must remain retryable")
+	if status < 400 || !boolean(quotaPublic(a.quotaRow(1, "hub", "Office / 上海", ""))["blocked"]) {
+		t.Fatal("failed restore must report failure and remain retryable")
 	}
 	fake.mu.Lock()
 	fake.failRestore = false

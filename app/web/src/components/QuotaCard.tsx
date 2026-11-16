@@ -280,9 +280,9 @@ export function QuotaSummary({
             crossed but the cut-off has not landed yet -- the tick is due, or it
             could not reach the server -- which is worth saying rather than
             showing the same pill as a block that took. */}
-        {!quota.has_limit ? null : quota.blocked ? (
-          <Pill kind="err" label={subject === "hub" ? "offline — over limit" : "cut off — over limit"} />
-        ) : !quota.enabled ? (
+        {quota.blocked ? (
+          <Pill kind="err" label={!quota.has_limit || !quota.enabled ? "access restoration pending" : subject === "hub" ? "offline — over limit" : "cut off — over limit"} />
+        ) : !quota.has_limit ? null : !quota.enabled ? (
           <Pill kind="idle" label="not enforced" />
         ) : percent >= 100 ? (
           <Pill kind="busy" label="spent — cutting off" />
@@ -301,7 +301,9 @@ export function QuotaSummary({
       </div>
       {quota.blocked && (
         <div className="alert alert--warn">
-          {subject === "hub" ? (
+          {!quota.has_limit || !quota.enabled ? (
+            <>{t("The limit is disabled, but VPN access has not been confirmed restored. The panel will retry; check the server connection and its last error.")}</>
+          ) : subject === "hub" ? (
             <>{t("This hub was taken offline when the limit was reached, and every session in it was dropped. Raise the limit or reset the transfer to bring it back — the panel puts it online again by itself.")}</>
           ) : (
             <>{t("Access for this config was denied when the limit was reached, and its sessions were cut. Raise the limit or reset the transfer and the panel restores exactly the policy it removed.")}</>
@@ -620,7 +622,7 @@ export function QuotaCard({ hub, onChanged }: { hub: string; onChanged?: () => v
   return (
     <div className="card" style={{ padding: "var(--s4)" }}>
       {quota?.has_limit && <QuotaEnforceSwitch quota={quota} subject="hub" onChanged={(next) => { absorb(next); onChanged?.(); }} />}
-      {quota?.has_limit ? (
+      {quota && (quota.has_limit || quota.blocked) ? (
         <QuotaSummary quota={quota} subject="hub" />
       ) : (
         <p className="lede" style={{ marginBottom: "var(--s3)" }}>

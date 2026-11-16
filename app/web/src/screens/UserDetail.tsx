@@ -271,7 +271,7 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
         </div>
       </div>
 
-      {quota?.has_limit && (
+      {quota && (quota.has_limit || quota.blocked) && (
         <>
           <SectionTitle
             actions={
@@ -281,7 +281,7 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
             {t("Traffic limit")}
           </SectionTitle>
           <div className="card" style={{ padding: "var(--s4)" }}>
-            <QuotaEnforceSwitch quota={quota} subject="user" onChanged={setQuota} />
+            {quota.has_limit && <QuotaEnforceSwitch quota={quota} subject="user" onChanged={setQuota} />}
             <QuotaSummary quota={quota} subject="user" net={bytes} />
           </div>
         </>

@@ -270,6 +270,8 @@ python3 scripts/test-install.py
 ./softether-manager serve
 ```
 
+可选的真实 VPN 集成测试：将 `SEM_TEST_VPNSERVER_DIR` 指向已编译的官方 SoftEther v4.44 目录（含 `vpnserver` 与 `hamcore.se2`），运行 `go test -race ./internal/manager -run TestSoftEtherLiveQuotaReset -count=1`。测试会临时启动两个服务端，建立真实级联会话，检查清零不改写用户、不替换会话，以及取消封禁后可重新认证；未设置该变量时跳过。
+
 默认数据目录为 `./data`，可通过 `SEM_DATA_DIR` 修改。其余 `SEM_*` 环境变量及前端 API 路径保持原有约定。Linux 系统指标通过 `/proc` 读取，macOS 开发环境会显示资源监控不可用。
 
 访问规则的整表替换与删除需先读取列表，并在请求 JSON 中携带返回的 `version` 作为 `expected_version`；列表已变化时返回 409，缺少版本时返回 428，避免多个标签页互相覆盖。
