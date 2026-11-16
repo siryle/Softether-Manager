@@ -154,8 +154,10 @@
     flex-direction: column;
     min-height: 0;
     min-width: 0;
-    padding: var(--s5) var(--s3);
+    padding: var(--s4) var(--s3);
     overflow: hidden;
+    background: var(--canvas);
+    border-right: 1px solid var(--glass-line);
   }
   .side__top {
     display: flex;
@@ -214,42 +216,41 @@
     gap: 4px;
     padding: var(--s1);
   }
-  /* one destination, one soft key; the active one is pressed and lit */
+  /* one destination, one modern clean key; active is subtly tinted */
   .side__item {
     display: flex;
     align-items: center;
     gap: var(--s3);
-    min-height: 44px;
+    min-height: 38px;
     padding: 0 var(--s3);
     border-radius: var(--r-ctl);
     font-size: var(--t-small);
-    font-weight: 700;
+    font-weight: 600;
     color: var(--text-muted);
     text-align: start;
     white-space: nowrap;
+    border: 1px solid transparent;
     transition:
       color var(--d-fast) ease,
-      box-shadow var(--d-quick) ease,
-      background var(--d-quick) ease;
+      background var(--d-quick) ease,
+      border-color var(--d-quick) ease;
   }
   .side__item > svg {
     flex: none;
   }
   @media (hover: hover) and (pointer: fine) {
     .side__item:hover {
-      color: var(--text-2);
-      background: var(--card-grad);
-      box-shadow: var(--nm-raise-sm);
+      color: var(--text);
+      background: var(--glass-hi);
     }
   }
   .side__item.on {
     color: var(--accent);
-    background: var(--glass-lo);
-    box-shadow: var(--nm-inset-sm);
+    background: var(--accent-soft);
+    border-color: var(--accent-line);
   }
   .side__item:active {
-    background: var(--glass-lo);
-    box-shadow: var(--nm-inset-sm);
+    background: var(--accent-soft);
   }
   .side__item .side__label {
     flex: 1;
@@ -275,29 +276,29 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    min-height: 36px;
+    min-height: 34px;
     padding: 0 var(--s3) 0 var(--s4);
     border-radius: var(--r-ctl);
     font-size: var(--t-small);
-    font-weight: 600;
+    font-weight: 500;
     color: var(--text-muted);
     text-align: start;
+    border: 1px solid transparent;
     transition:
       color var(--d-fast) ease,
-      box-shadow var(--d-quick) ease,
-      background var(--d-quick) ease;
+      background var(--d-quick) ease,
+      border-color var(--d-quick) ease;
   }
   @media (hover: hover) and (pointer: fine) {
     .side__leaf:hover {
-      color: var(--text-2);
-      background: var(--card-grad);
-      box-shadow: var(--nm-raise-sm);
+      color: var(--text);
+      background: var(--glass-hi);
     }
   }
   .side__leaf.on {
-    color: var(--text);
-    background: var(--glass-lo);
-    box-shadow: var(--nm-inset-sm);
+    color: var(--accent);
+    background: var(--accent-soft);
+    border-color: var(--accent-line);
   }
   .side__leaf .side__label {
     flex: 1;

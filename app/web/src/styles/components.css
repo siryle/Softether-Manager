@@ -12,6 +12,7 @@
   position: relative;
   background: var(--card-grad);
   border-radius: var(--r-card);
+  border: 1px solid var(--glass-line);
   box-shadow: var(--nm-raise-sm);
 }
 
@@ -20,6 +21,7 @@
   background: var(--inverse-grad);
   color: var(--inverse-text);
   border-radius: var(--r-card);
+  border: 1px solid var(--glass-line);
   box-shadow: var(--nm-raise);
 }
 .inverse .micro {
@@ -186,18 +188,21 @@
   align-items: center;
   justify-content: center;
   gap: var(--s2);
-  height: 40px;
-  padding: 0 18px;
-  border-radius: var(--r-pill);
+  height: 36px;
+  padding: 0 16px;
+  border-radius: var(--r-ctl);
   font-family: var(--font-ui);
   font-size: var(--t-small);
-  font-weight: 700;
+  font-weight: 600;
   white-space: nowrap;
-  color: var(--text-2);
-  background: var(--card-grad);
+  color: var(--text);
+  background: var(--glass-hi);
+  border: 1px solid var(--glass-line);
   box-shadow: var(--nm-raise-sm);
   transition:
     box-shadow var(--d-fast) ease,
+    background var(--d-fast) ease,
+    border-color var(--d-fast) ease,
     color var(--d-fast) ease,
     transform var(--d-press) var(--ease-out-quart);
 }
@@ -215,26 +220,25 @@
 @media (hover: hover) and (pointer: fine) {
   .btn:hover {
     color: var(--text);
+    border-color: var(--glass-line-hi);
   }
 }
 
-/* The primary action is the lit lime pill. */
+/* Primary action */
 .btn--primary {
   color: var(--action-fg);
-  background: linear-gradient(150deg, var(--action-bg-hi), var(--action-bg));
-  box-shadow:
-    var(--nm-raise-sm),
-    0 6px 18px rgb(126 201 59 / 0.25);
+  background: var(--action-bg);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--nm-raise-sm);
 }
 @media (hover: hover) and (pointer: fine) {
   .btn--primary:hover {
     color: var(--action-fg);
-    filter: brightness(1.05);
+    background: var(--action-bg-hi);
   }
 }
 .btn--primary:active {
   box-shadow: var(--nm-inset-sm);
-  filter: brightness(0.95);
 }
 
 .btn--ghost {
@@ -294,22 +298,20 @@
   color: var(--text-2);
   margin-bottom: 8px;
 }
-/* Inputs are pressed into the surface; focus lights the rim. */
+/* Clean modern input surfaces */
 .input,
 .textarea,
 .select {
   width: 100%;
-  /* 16px minimum: Safari zooms the viewport on focus below it and never zooms
-     back out. Desktop steps it down. */
-  font-size: 16px;
-  min-height: 46px;
-  padding: 11px 16px;
+  font-size: 14px;
+  min-height: 40px;
+  padding: 8px 14px;
   border-radius: var(--r-ctl);
   color: var(--text);
   background: var(--glass-lo);
-  border: 0;
-  box-shadow: var(--nm-inset);
-  transition: box-shadow var(--d-fast) ease;
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--nm-inset-sm);
+  transition: border-color var(--d-fast) ease, box-shadow var(--d-fast) ease;
 }
 .input.mono,
 .textarea.mono {
@@ -319,9 +321,8 @@
 .textarea:focus,
 .select:focus {
   outline: none;
-  box-shadow:
-    var(--nm-inset),
-    0 0 0 2px var(--accent-line);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 .textarea {
   min-height: 110px;

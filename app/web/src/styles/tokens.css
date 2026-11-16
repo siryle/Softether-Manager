@@ -43,12 +43,12 @@
   --s8: 32px;
   --s12: 48px;
 
-  /* ── shape — soft, generous ──────────────────────────────────────────── */
-  --r-chip: 10px;
-  --r-ctl: 14px;
-  --r-card: 20px;
-  --r-lg: 24px;
-  --r-sheet: 28px;
+  /* ── shape — clean modern geometry ─────────────────────────────────── */
+  --r-chip: 6px;
+  --r-ctl: 8px;
+  --r-card: 14px;
+  --r-lg: 16px;
+  --r-sheet: 20px;
   --r-pill: 999px;
 
   /* ── layout ───────────────────────────────────────────────────────────── */
@@ -73,189 +73,160 @@
   --d-modal: 300ms;
   --d-sheet: 380ms;
 
-  /* ══ DARK (primary) ═══════════════════════════════════════════════════ */
-  --bg: #16181d;        /* the one canvas everything is made of */
-  --panel: #16181d;     /* content shares the canvas — no frame */
-  --canvas: #0c0d10;    /* deepest well: logs, code */
+  /* ══ DARK (primary) — Unslop Ink neutral ramp ══════════════════════════ */
+  --bg: #0b0d14;        /* Deep Ink page canvas */
+  --panel: #0b0d14;
+  --canvas: #07080d;    /* Deepest well & sidebar */
 
-  --glass: #1d2026;     /* card face */
-  --glass-hi: #232730;  /* hover, raised sheets */
-  --glass-lo: #101216;  /* pressed wells, inputs */
-  --glass-line: rgb(255 255 255 / 0.06);
-  --glass-line-hi: rgb(255 255 255 / 0.12);
+  --glass: #11141c;     /* Clean flat card face */
+  --glass-hi: #1a1e28;  /* Raised surface / hover */
+  --glass-lo: #0f121a;  /* Inset wells & inputs */
+  --glass-line: rgba(255, 255, 255, 0.08);
+  --glass-line-hi: rgba(255, 255, 255, 0.16);
 
-  /* the extrusion system */
-  --card-grad: linear-gradient(150deg, #21252c, #191c21);
-  --nm-raise:
-    inset 0 1px 0 rgb(255 255 255 / 0.05),
-    -8px -8px 20px rgb(255 255 255 / 0.035),
-    10px 12px 26px rgb(0 0 0 / 0.5);
-  --nm-raise-sm:
-    inset 0 1px 0 rgb(255 255 255 / 0.05),
-    -4px -4px 10px rgb(255 255 255 / 0.035),
-    5px 6px 14px rgb(0 0 0 / 0.45);
-  --nm-inset:
-    inset 4px 4px 9px rgb(0 0 0 / 0.5),
-    inset -3px -3px 8px rgb(255 255 255 / 0.035);
-  --nm-inset-sm:
-    inset 2px 2px 5px rgb(0 0 0 / 0.5),
-    inset -2px -2px 5px rgb(255 255 255 / 0.035);
+  --card-grad: #11141c;
+  --nm-raise: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
+  --nm-raise-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.3), 0 1px 2px -1px rgba(0, 0, 0, 0.2);
+  --nm-inset: inset 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --nm-inset-sm: inset 0 1px 1px 0 rgba(0, 0, 0, 0.3);
 
-  /* the inverse card — the one light surface on the deck. Its buttons carry
-     their own fills: the card's ground is the opposite of the page's, so the
-     deck's own button tokens would be invisible on it. */
-  --inverse-grad: linear-gradient(150deg, #e9e6df, #c9c6bf);
-  --inverse-text: #1b1d22;
-  --inverse-muted: #56585f;
-  --inverse-btn: rgb(255 255 255 / 0.92);
-  --inverse-btn-ink: #1b1d22;
-  --inverse-btn-ghost: rgb(0 0 0 / 0.08);
-  --inverse-btn-ghost-hi: rgb(0 0 0 / 0.14);
+  --inverse-grad: #1e293b;
+  --inverse-text: #f8fafc;
+  --inverse-muted: #94a3b8;
+  --inverse-btn: #ffffff;
+  --inverse-btn-ink: #0f172a;
+  --inverse-btn-ghost: rgba(255, 255, 255, 0.12);
+  --inverse-btn-ghost-hi: rgba(255, 255, 255, 0.2);
 
-  --text: #e8e9eb;
-  --text-2: #c3c6cb;
-  --text-muted: #8f939b;
-  --text-faint: #63666e;
+  --text: #f1f5f9;
+  --text-2: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-faint: #64748b;
 
-  /* the one accent — lime */
-  --accent: #8fd94a;
-  --accent-strong: #a5e668;
-  --accent-ink: #16210a;
-  --accent-soft: rgb(143 217 74 / 0.12);
-  --accent-line: rgb(143 217 74 / 0.35);
-  --accent-2: #8fd94a; /* legacy alias */
+  --accent: #2563eb;
+  --accent-strong: #3b82f6;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(37, 99, 235, 0.12);
+  --accent-line: rgba(37, 99, 235, 0.3);
+  --accent-2: #2563eb;
 
-  /* the primary action: a lit lime pill */
-  --action-bg: #8fd94a;
-  --action-bg-hi: #a0e35f;
-  --action-fg: #16210a;
-  --action-line: rgb(143 217 74 / 0);
+  --action-bg: #f1f5f9;
+  --action-bg-hi: #ffffff;
+  --action-fg: #0b0d14;
+  --action-line: transparent;
 
-  --ok: #8fd94a;
-  --ok-soft: rgb(143 217 74 / 0.12);
-  --ok-line: rgb(143 217 74 / 0.3);
-  --warn: #f0b64a;
-  --warn-soft: rgb(240 182 74 / 0.12);
-  --warn-line: rgb(240 182 74 / 0.3);
-  --err: #f57a7a;
-  --err-soft: rgb(245 122 122 / 0.12);
-  --err-line: rgb(245 122 122 / 0.32);
-  --busy: #b18cff;
-  --busy-soft: rgb(177 140 255 / 0.12);
-  --busy-line: rgb(177 140 255 / 0.32);
-  /* chart series — lime/violet separate under CVD against the card face */
-  --chart-recv: #8fd94a;
-  --chart-send: #b18cff;
-  --idle: #878b93;
-  --idle-soft: rgb(135 139 147 / 0.12);
-  --idle-line: rgb(135 139 147 / 0.28);
+  --ok: #10b981;
+  --ok-soft: rgba(16, 185, 129, 0.12);
+  --ok-line: rgba(16, 185, 129, 0.3);
+  --warn: #f59e0b;
+  --warn-soft: rgba(245, 158, 11, 0.12);
+  --warn-line: rgba(245, 158, 11, 0.3);
+  --err: #ef4444;
+  --err-soft: rgba(239, 68, 68, 0.12);
+  --err-line: rgba(239, 68, 68, 0.3);
+  --busy: #8b5cf6;
+  --busy-soft: rgba(139, 92, 246, 0.12);
+  --busy-line: rgba(139, 92, 246, 0.3);
+
+  --chart-recv: #10b981;
+  --chart-send: #3b82f6;
+  --idle: #64748b;
+  --idle-soft: rgba(100, 116, 139, 0.12);
+  --idle-line: rgba(100, 116, 139, 0.3);
 
   /* log colours, on the dark well */
-  --a-fg: #c6c9ce;
-  --a-dim: #63666e;
-  --a-green: #8fd94a;
-  --a-red: #ff9090;
-  --a-cyan: #62c5ff;
+  --a-fg: #cbd5e1;
+  --a-dim: #64748b;
+  --a-green: #10b981;
+  --a-red: #ef4444;
+  --a-cyan: #38bdf8;
 
-  /* legacy depth aliases: cards raise, they do not outline */
   --edge: var(--nm-raise-sm);
   --sheen: 0 0 #0000;
-  --drop: 0 0 #0000;
-  --drop-lg: -10px -10px 30px rgb(255 255 255 / 0.03), 18px 22px 50px rgb(0 0 0 / 0.6);
+  --drop: 0 1px 3px 0 rgba(0, 0, 0, 0.4);
+  --drop-lg: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
   --glow: 0 0 #0000;
-  --scrim: rgb(6 7 9 / 0.66);
+  --scrim: rgba(0, 0, 0, 0.7);
   --blur: 0px;
   --blur-sm: 0px;
 
   color-scheme: dark;
 }
 
-/* ══ LIGHT — classic soft UI ═════════════════════════════════════════════ */
+/* ══ LIGHT — Sleek Modern High-Contrast Slate ════════════════════════════ */
 :root[data-theme="light"] {
-  --bg: #e3e7ee;
-  --panel: #e3e7ee;
-  --canvas: #d5dae3;
+  --bg: #f8fafc;        /* Clean light slate page canvas */
+  --panel: #f8fafc;
+  --canvas: #f1f5f9;    /* Clean light contrast well */
 
-  --glass: #e6eaf1;
-  --glass-hi: #edf0f6;
-  --glass-lo: #dde1e9;
-  --glass-line: rgb(70 85 110 / 0.1);
-  --glass-line-hi: rgb(70 85 110 / 0.2);
+  --glass: #ffffff;     /* Crisp pure white card */
+  --glass-hi: #f8fafc;  /* Raised / hover */
+  --glass-lo: #f1f5f9;  /* Inset wells & inputs */
+  --glass-line: rgba(17, 24, 39, 0.08);
+  --glass-line-hi: rgba(17, 24, 39, 0.16);
 
-  --card-grad: linear-gradient(150deg, #eef1f7, #dfe3ea);
-  --nm-raise:
-    inset 0 1px 0 rgb(255 255 255 / 0.8),
-    -8px -8px 18px rgb(255 255 255 / 0.85),
-    10px 12px 24px rgb(148 162 184 / 0.5);
-  --nm-raise-sm:
-    inset 0 1px 0 rgb(255 255 255 / 0.8),
-    -4px -4px 9px rgb(255 255 255 / 0.85),
-    5px 6px 12px rgb(148 162 184 / 0.5);
-  --nm-inset:
-    inset 4px 4px 9px rgb(148 162 184 / 0.55),
-    inset -4px -4px 9px rgb(255 255 255 / 0.9);
-  --nm-inset-sm:
-    inset 2px 2px 5px rgb(148 162 184 / 0.55),
-    inset -2px -2px 5px rgb(255 255 255 / 0.9);
+  --card-grad: #ffffff;
+  --nm-raise: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  --nm-raise-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.03);
+  --nm-inset: inset 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+  --nm-inset-sm: inset 0 1px 1px 0 rgba(0, 0, 0, 0.03);
 
-  /* the inverse card flips dark on the pale deck */
-  --inverse-grad: linear-gradient(150deg, #2b2e35, #1b1d22);
-  --inverse-text: #f0f1f3;
-  --inverse-muted: #a5a8af;
-  /* the card is dark here, so the ghost lifts with light rather than shade */
-  --inverse-btn: rgb(255 255 255 / 0.95);
-  --inverse-btn-ink: #1b1d22;
-  --inverse-btn-ghost: rgb(255 255 255 / 0.14);
-  --inverse-btn-ghost-hi: rgb(255 255 255 / 0.22);
+  --inverse-grad: #0f172a;
+  --inverse-text: #f8fafc;
+  --inverse-muted: #94a3b8;
+  --inverse-btn: #ffffff;
+  --inverse-btn-ink: #0f172a;
+  --inverse-btn-ghost: rgba(255, 255, 255, 0.12);
+  --inverse-btn-ghost-hi: rgba(255, 255, 255, 0.2);
 
-  --text: #262a33;
-  --text-2: #454b58;
-  --text-muted: #69707f;
-  --text-faint: #949bab;
+  --text: #0f172a;
+  --text-2: #334155;
+  --text-muted: #64748b;
+  --text-faint: #94a3b8;
 
-  --accent: #547d14;
-  --accent-strong: #446409;
+  --accent: #2563eb;
+  --accent-strong: #1d4ed8;
   --accent-ink: #ffffff;
-  --accent-soft: rgb(122 173 47 / 0.16);
-  --accent-line: rgb(122 173 47 / 0.4);
-  --accent-2: #547d14;
+  --accent-soft: rgba(37, 99, 235, 0.08);
+  --accent-line: rgba(37, 99, 235, 0.25);
+  --accent-2: #2563eb;
 
-  /* the primary action stays a lit lime pill */
-  --action-bg: #7ec93b;
-  --action-bg-hi: #8bd44b;
-  --action-fg: #1a2b07;
-  --action-line: rgb(126 201 59 / 0);
+  --action-bg: #0f172a;
+  --action-bg-hi: #1e293b;
+  --action-fg: #ffffff;
+  --action-line: transparent;
 
-  --ok: #4c7a0d;
-  --ok-soft: rgb(101 152 26 / 0.15);
-  --ok-line: rgb(101 152 26 / 0.35);
-  --warn: #9d6407;
-  --warn-soft: rgb(179 118 12 / 0.14);
-  --warn-line: rgb(179 118 12 / 0.32);
-  --err: #c73d4b;
-  --err-soft: rgb(199 61 75 / 0.12);
-  --err-line: rgb(199 61 75 / 0.3);
-  --busy: #7443c9;
-  --busy-soft: rgb(116 67 201 / 0.12);
-  --busy-line: rgb(116 67 201 / 0.3);
-  --chart-recv: #5c8f14;
-  --chart-send: #7443c9;
-  --idle: #7d8494;
-  --idle-soft: rgb(125 132 148 / 0.14);
-  --idle-line: rgb(125 132 148 / 0.32);
+  --ok: #059669;
+  --ok-soft: rgba(5, 150, 105, 0.1);
+  --ok-line: rgba(5, 150, 105, 0.25);
+  --warn: #d97706;
+  --warn-soft: rgba(217, 119, 6, 0.1);
+  --warn-line: rgba(217, 119, 6, 0.25);
+  --err: #dc2626;
+  --err-soft: rgba(220, 38, 38, 0.1);
+  --err-line: rgba(220, 38, 38, 0.25);
+  --busy: #7c3aed;
+  --busy-soft: rgba(124, 58, 237, 0.1);
+  --busy-line: rgba(124, 58, 237, 0.25);
 
-  --a-fg: #3a4150;
-  --a-dim: #949bab;
-  --a-green: #4c7a0d;
-  --a-red: #b8323f;
-  --a-cyan: #0b6ea6;
+  --chart-recv: #059669;
+  --chart-send: #2563eb;
+  --idle: #94a3b8;
+  --idle-soft: rgba(148, 163, 184, 0.1);
+  --idle-line: rgba(148, 163, 184, 0.25);
+
+  --a-fg: #334155;
+  --a-dim: #94a3b8;
+  --a-green: #059669;
+  --a-red: #dc2626;
+  --a-cyan: #0284c7;
 
   --edge: var(--nm-raise-sm);
   --sheen: 0 0 #0000;
-  --drop: 0 0 #0000;
-  --drop-lg: -10px -10px 26px rgb(255 255 255 / 0.9), 18px 22px 44px rgb(148 162 184 / 0.6);
+  --drop: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+  --drop-lg: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
   --glow: 0 0 #0000;
-  --scrim: rgb(58 68 88 / 0.35);
+  --scrim: rgba(15, 23, 42, 0.4);
 
   color-scheme: light;
 }
@@ -263,83 +234,78 @@
 /* System preference — only while the operator has not chosen explicitly. */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]):not([data-theme="light"]) {
-    --bg: #e3e7ee;
-    --panel: #e3e7ee;
-    --canvas: #d5dae3;
+    --bg: #f8fafc;
+    --panel: #f8fafc;
+    --canvas: #f1f5f9;
 
-    --glass: #e6eaf1;
-    --glass-hi: #edf0f6;
-    --glass-lo: #dde1e9;
-    --glass-line: rgb(70 85 110 / 0.1);
-    --glass-line-hi: rgb(70 85 110 / 0.2);
+    --glass: #ffffff;
+    --glass-hi: #f8fafc;
+    --glass-lo: #f1f5f9;
+    --glass-line: rgba(17, 24, 39, 0.08);
+    --glass-line-hi: rgba(17, 24, 39, 0.16);
 
-    --card-grad: linear-gradient(150deg, #eef1f7, #dfe3ea);
-    --nm-raise:
-      inset 0 1px 0 rgb(255 255 255 / 0.8),
-      -8px -8px 18px rgb(255 255 255 / 0.85),
-      10px 12px 24px rgb(148 162 184 / 0.5);
-    --nm-raise-sm:
-      inset 0 1px 0 rgb(255 255 255 / 0.8),
-      -4px -4px 9px rgb(255 255 255 / 0.85),
-      5px 6px 12px rgb(148 162 184 / 0.5);
-    --nm-inset:
-      inset 4px 4px 9px rgb(148 162 184 / 0.55),
-      inset -4px -4px 9px rgb(255 255 255 / 0.9);
-    --nm-inset-sm:
-      inset 2px 2px 5px rgb(148 162 184 / 0.55),
-      inset -2px -2px 5px rgb(255 255 255 / 0.9);
+    --card-grad: #ffffff;
+    --nm-raise: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+    --nm-raise-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.03);
+    --nm-inset: inset 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+    --nm-inset-sm: inset 0 1px 1px 0 rgba(0, 0, 0, 0.03);
 
-    --inverse-grad: linear-gradient(150deg, #2b2e35, #1b1d22);
-    --inverse-text: #f0f1f3;
-    --inverse-muted: #a5a8af;
+    --inverse-grad: #0f172a;
+    --inverse-text: #f8fafc;
+    --inverse-muted: #94a3b8;
+    --inverse-btn: #ffffff;
+    --inverse-btn-ink: #0f172a;
+    --inverse-btn-ghost: rgba(255, 255, 255, 0.12);
+    --inverse-btn-ghost-hi: rgba(255, 255, 255, 0.2);
 
-    --text: #262a33;
-    --text-2: #454b58;
-    --text-muted: #69707f;
-    --text-faint: #949bab;
+    --text: #0f172a;
+    --text-2: #334155;
+    --text-muted: #64748b;
+    --text-faint: #94a3b8;
 
-    --accent: #547d14;
-    --accent-strong: #446409;
+    --accent: #2563eb;
+    --accent-strong: #1d4ed8;
     --accent-ink: #ffffff;
-    --accent-soft: rgb(122 173 47 / 0.16);
-    --accent-line: rgb(122 173 47 / 0.4);
-    --accent-2: #547d14;
+    --accent-soft: rgba(37, 99, 235, 0.08);
+    --accent-line: rgba(37, 99, 235, 0.25);
+    --accent-2: #2563eb;
 
-    --action-bg: #7ec93b;
-    --action-bg-hi: #8bd44b;
-    --action-fg: #1a2b07;
-    --action-line: rgb(126 201 59 / 0);
+    --action-bg: #0f172a;
+    --action-bg-hi: #1e293b;
+    --action-fg: #ffffff;
+    --action-line: transparent;
 
-    --ok: #4c7a0d;
-    --ok-soft: rgb(101 152 26 / 0.15);
-    --ok-line: rgb(101 152 26 / 0.35);
-    --warn: #9d6407;
-    --warn-soft: rgb(179 118 12 / 0.14);
-    --warn-line: rgb(179 118 12 / 0.32);
-    --err: #c73d4b;
-    --err-soft: rgb(199 61 75 / 0.12);
-    --err-line: rgb(199 61 75 / 0.3);
-    --busy: #7443c9;
-    --busy-soft: rgb(116 67 201 / 0.12);
-    --busy-line: rgb(116 67 201 / 0.3);
-    --chart-recv: #5c8f14;
-    --chart-send: #7443c9;
-    --idle: #7d8494;
-    --idle-soft: rgb(125 132 148 / 0.14);
-    --idle-line: rgb(125 132 148 / 0.32);
+    --ok: #059669;
+    --ok-soft: rgba(5, 150, 105, 0.1);
+    --ok-line: rgba(5, 150, 105, 0.25);
+    --warn: #d97706;
+    --warn-soft: rgba(217, 119, 6, 0.1);
+    --warn-line: rgba(217, 119, 6, 0.25);
+    --err: #dc2626;
+    --err-soft: rgba(220, 38, 38, 0.1);
+    --err-line: rgba(220, 38, 38, 0.25);
+    --busy: #7c3aed;
+    --busy-soft: rgba(124, 58, 237, 0.1);
+    --busy-line: rgba(124, 58, 237, 0.25);
 
-    --a-fg: #3a4150;
-    --a-dim: #949bab;
-    --a-green: #4c7a0d;
-    --a-red: #b8323f;
-    --a-cyan: #0b6ea6;
+    --chart-recv: #059669;
+    --chart-send: #2563eb;
+    --idle: #94a3b8;
+    --idle-soft: rgba(148, 163, 184, 0.1);
+    --idle-line: rgba(148, 163, 184, 0.25);
+
+    --a-fg: #334155;
+    --a-dim: #94a3b8;
+    --a-green: #059669;
+    --a-red: #dc2626;
+    --a-cyan: #0284c7;
 
     --edge: var(--nm-raise-sm);
     --sheen: 0 0 #0000;
-    --drop: 0 0 #0000;
-    --drop-lg: -10px -10px 26px rgb(255 255 255 / 0.9), 18px 22px 44px rgb(148 162 184 / 0.6);
+    --drop: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+    --drop-lg: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
     --glow: 0 0 #0000;
-    --scrim: rgb(58 68 88 / 0.35);
+    --scrim: rgba(15, 23, 42, 0.4);
 
     color-scheme: light;
   }

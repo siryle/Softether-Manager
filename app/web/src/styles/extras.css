@@ -180,31 +180,33 @@
 @media (hover: hover) and (pointer: fine) {
   button.feed__i:hover,
   a.feed__i:hover {
-    background: var(--glass-lo);
-    box-shadow: var(--nm-inset-sm);
+    background: var(--glass-hi);
+    box-shadow: none;
   }
   button.feed__i:hover::before,
   a.feed__i:hover::before {
     opacity: 0;
   }
 }
-/* a soft coin holding an initial or an icon */
+/* a clean initial or icon badge */
 .feed__ava {
   flex: none;
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  background: var(--glass-lo);
-  box-shadow: var(--nm-inset-sm);
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-ctl);
+  background: var(--glass-hi);
+  border: 1px solid var(--glass-line);
   color: var(--text-muted);
-  font-size: 14px;
-  font-weight: 800;
+  font-size: 13px;
+  font-weight: 700;
   text-transform: uppercase;
 }
 .feed__ava--on {
   color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
 }
 .feed__m {
   flex: 1;
