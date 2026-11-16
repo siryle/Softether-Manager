@@ -24,7 +24,7 @@ usage() {
   cat >&2 <<'USAGE'
 Build the SoftEther Manager release tarball.
 
-  --version <tag>    Version to stamp into VERSION (default: git describe)
+  --version <tag>    Version to stamp into VERSION (default: HEAD tag or VERSION)
   --output <dir>     Where to write the tarball (default: dist/release)
   --skip-frontend    Use the existing app/web/out instead of rebuilding
   -h, --help         Show this message
@@ -44,12 +44,7 @@ done
 step() { printf '\033[1;34m==>\033[0m %s\n' "$*" >&2; }
 
 if [[ -z "$VERSION" ]]; then
-  # The same rule CI uses: the exact tag on HEAD, or an unversioned build that
-  # is deliberately not installable.
-  VERSION="$(git -C "$ROOT" describe --tags --exact-match 2>/dev/null || true)"
-  if [[ -z "$VERSION" ]]; then
-    VERSION="0.0.0-$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
-  fi
+  VERSION="$(bash "$ROOT/scripts/version.sh")"
 fi
 
 if (( SKIP_FRONTEND == 0 )); then

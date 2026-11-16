@@ -115,6 +115,12 @@
   --action-fg: #0b0d14;
   --action-line: transparent;
 
+  /* Switches keep a visible track and thumb in both themes. */
+  --switch-track-off: #64748b;
+  --switch-track-on: var(--accent);
+  --switch-thumb-bg: #ffffff;
+  --switch-thumb-fg: #0f172a;
+
   /* Signature BrandMark tokens (the authentic lime coin with 4-node ring) */
   --brand-coin: #8fd94a;
   --brand-coin-hi: #a0e35f;

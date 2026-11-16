@@ -229,6 +229,8 @@ SoftEther ───────┘   (internal/manager)             (app/web)
 
 需要 `go.mod` 指定版本的 Go，以及 Node.js 22 和 npm。
 
+克隆后运行一次 `git config --local core.hooksPath .githooks`，启用提交时自动更新版本号。每次提交已暂存的修改时，`VERSION` 的补丁号自动加一并包含在同一次提交中，例如 `1.0.13 → 1.0.14`。手动暂存的新版本号会被保留，提交失败后重试也不会重复递增。
+
 ```bash
 # 1. 在项目根目录运行后端 (端口 8000)
 go run ./cmd/softether-manager
@@ -254,6 +256,8 @@ go vet ./...
 默认数据目录为 `./data`，可通过 `SEM_DATA_DIR` 修改。其余 `SEM_*` 环境变量及前端 API 路径保持原有约定。Linux 系统指标通过 `/proc` 读取，macOS 开发环境会显示资源监控不可用。
 
 发布包通过 `bash scripts/build-release.sh --version vX.Y.Z` 构建，包含 Linux amd64、arm64 两种架构的 Go 可执行文件、前端静态资源和安装脚本。
+
+未指定版本时，本地打包与 CI 优先使用当前提交的标签，否则读取 `VERSION`。Docker 和面板也读取该文件。发布 GitHub Release 仍需推送 `vX.Y.Z` 标签。
 
 ---
 

@@ -1,9 +1,7 @@
 # Build and publish a release on every tag.
 #
-# The version is derived from git, not stored in the source: a tag on the
-# commit produces vMAJOR.MINOR.PATCH, and an untagged commit produces
-# 0.0.0-<sha>, which is deliberately not installable. See claude.md for the
-# tagging rules.
+# Tagged builds use the exact tag; other builds read VERSION, which the
+# repository's pre-commit hook increments with each change.
 #
 # On a pushed tag this builds the frontend, packages the one release tarball
 # (Go binaries + built frontend + scripts + VERSION), and attaches it and
@@ -53,16 +51,19 @@ jobs:
       - name: Determine the version
         id: version
         run: |
-          VERSION="$(git describe --tags --exact-match 2>/dev/null || echo "0.0.0-$(git rev-parse --short HEAD)")"
+          VERSION="$(bash scripts/version.sh)"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Building $VERSION from $(git rev-parse HEAD)"
 
       - name: Lint the shell scripts
         run: |
-          bash -n scripts/install.sh scripts/sem scripts/build-release.sh docker/docker-entrypoint.sh docker/sem
+          bash -n .githooks/* scripts/*.sh scripts/sem docker/docker-entrypoint.sh docker/sem
           if command -v shellcheck >/dev/null 2>&1; then
-            shellcheck --severity=warning scripts/install.sh scripts/sem scripts/build-release.sh docker/docker-entrypoint.sh docker/sem || true
+            shellcheck --severity=warning .githooks/* scripts/*.sh scripts/sem docker/docker-entrypoint.sh docker/sem || true
           fi
+
+      - name: Test commit versioning
+        run: bash scripts/test-version.sh
 
       - name: Test and vet the Go backend
         run: |

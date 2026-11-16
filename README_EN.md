@@ -249,6 +249,12 @@ is in the data directory.
 
 Use the Go version specified in `go.mod`, plus Node.js 22 and npm.
 
+After cloning, run `git config --local core.hooksPath .githooks` once to enable
+automatic version bumps on commit. Each commit with staged changes increments
+the patch number in `VERSION` and includes it in the same commit, for example
+`1.0.13 → 1.0.14`. Explicitly staged version changes are preserved, and retrying
+a failed commit does not increment it again.
+
 ```bash
 go run ./cmd/softether-manager        # backend on :8000, serves app/web/out if built
 
@@ -276,6 +282,10 @@ Releases are tag-driven: CI builds the frontend, packages one tarball, and publi
 with a checksum on every `v*` tag. The archive contains Linux amd64 and arm64
 executables. Build it locally with `bash scripts/build-release.sh --version vX.Y.Z`.
 The installer and the in-panel updater both follow the installed repository.
+
+Without an explicit version, local packaging and CI use the exact tag on HEAD,
+or fall back to `VERSION`. Docker and the panel also read this file. Publishing
+a GitHub release still requires pushing a `vX.Y.Z` tag.
 
 To upgrade from Python, stop the old service and back up the entire data directory,
 then run the new installer or replace the container. Keep `manager.db`, `session.key`,

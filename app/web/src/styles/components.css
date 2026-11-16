@@ -947,9 +947,8 @@
 }
 
 /* ══════════════════════════════════════════════════════════════ switches ══ */
-/* A switch is a pressed track with a raised knob. On, the track lights lime
- * and the knob carries a check -- a silhouette, so the state survives
- * colour-blindness. Busy, the knob carries a spinner and the control locks. */
+/* A switch has a grey off track and blue on track, with a white knob.
+ * Position and a check also identify the state; pending locks the control. */
 
 .switch {
   display: inline-flex;
@@ -965,12 +964,13 @@
   transition: color var(--d-fast) ease;
 }
 .switch:disabled {
-  cursor: default;
+  cursor: not-allowed;
 }
-.switch:disabled:not(.switch--busy) {
-  opacity: 0.45;
+.switch:disabled:not(.switch--busy) .switch__track {
+  border-color: var(--text);
+  border-style: dashed;
 }
-.switch--busy {
+.switch.switch--busy {
   cursor: progress;
 }
 .switch__track {
@@ -979,61 +979,52 @@
   width: 46px;
   height: 26px;
   border-radius: var(--r-pill);
-  background: var(--glass-lo);
-  box-shadow: var(--nm-inset-sm);
+  border: 1px solid var(--switch-track-off);
+  background: var(--switch-track-off);
   transition:
     background var(--d-quick) ease,
-    box-shadow var(--d-quick) ease,
-    opacity var(--d-quick) ease;
+    border-color var(--d-quick) ease;
 }
 .switch__knob {
   position: absolute;
-  top: 3px;
-  inset-inline-start: 3px;
+  top: 2px;
+  inset-inline-start: 2px;
   width: 20px;
   height: 20px;
   border-radius: 50%;
   display: grid;
   place-items: center;
-  color: var(--action-fg);
-  background: var(--card-grad);
+  color: var(--switch-thumb-fg);
+  background: var(--switch-thumb-bg);
   box-shadow: var(--nm-raise-sm);
   transition:
     transform var(--d-quick) var(--ease-out-quart),
     background var(--d-quick) ease;
 }
 .switch--on .switch__track {
-  background: linear-gradient(150deg, var(--action-bg-hi), var(--action-bg));
-  box-shadow:
-    inset 2px 2px 5px rgb(0 0 0 / 0.22),
-    0 0 14px rgb(126 201 59 / 0.28);
+  border-color: var(--switch-track-on);
+  background: var(--switch-track-on);
 }
 .switch--on .switch__knob {
   transform: translateX(20px);
-  background: #fff;
 }
 [dir="rtl"] .switch--on .switch__knob {
   transform: translateX(-20px);
-}
-.switch--busy .switch__track {
-  opacity: 0.75;
 }
 .switch__knob .spin {
   width: 11px;
   height: 11px;
   border-width: 2px;
-  color: var(--text-muted);
-}
-.switch--on .switch__knob .spin {
-  color: var(--action-fg);
+  color: var(--switch-thumb-fg);
 }
 .switch:focus-visible {
-  outline: none;
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
 }
-.switch:focus-visible .switch__track {
-  box-shadow:
-    var(--nm-inset-sm),
-    0 0 0 2px var(--accent-line);
+@media (hover: hover) and (pointer: fine) {
+  .switch:not(:disabled):hover .switch__track {
+    border-color: var(--text);
+  }
 }
 /* the verdict after a change */
 .outcome {
@@ -1073,7 +1064,7 @@
     var(--nm-inset-sm),
     0 0 0 2px var(--accent-line);
 }
-.switchrow--off {
+.switchrow--off .switchrow__m {
   opacity: 0.7;
 }
 .switchrow__m {
