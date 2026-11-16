@@ -10,6 +10,7 @@
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 const TOKEN_KEY = "sem_token";
+const SERVER_ID_KEY = "sem_server_id";
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -19,6 +20,33 @@ export function setToken(t: string) {
 }
 export function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
+}
+
+export function getStoredServerId(): number | null {
+  if (typeof window === "undefined") return null;
+  const v = localStorage.getItem(SERVER_ID_KEY);
+  return v ? Number(v) : null;
+}
+export function setStoredServerId(id: number) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(SERVER_ID_KEY, String(id));
+}
+export function clearStoredServerId() {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(SERVER_ID_KEY);
+}
+
+export interface ManagedServer {
+  id: number;
+  name: string;
+  host: string;
+  port: number;
+  auth: string;
+  is_enabled: boolean;
+  is_default: boolean;
+  sort_order?: number;
+  created_date?: string;
+  updated_date?: string;
 }
 
 export class ApiError extends Error {
@@ -37,6 +65,8 @@ async function request<T = Wire>(method: string, path: string, body?: unknown): 
   const headers: Record<string, string> = {};
   const token = getToken();
   if (token) headers["Authorization"] = `Bearer ${token}`;
+  const serverId = getStoredServerId();
+  if (serverId) headers["X-Server-ID"] = String(serverId);
   if (body !== undefined) headers["Content-Type"] = "application/json";
 
   const res = await fetch(`${BASE}api/v1${path}`, {
@@ -259,10 +289,21 @@ export const api = {
     request<Wire[]>("GET", `/system/audit?limit=100${beforeId ? `&before_id=${beforeId}` : ""}`),
 
   // -- the connection to SoftEther ----------------------------------------------
-  connection: () => request<{ host: string; port: number; configured: boolean }>("GET", "/server/connection"),
+  connection: () => request<{ host: string; port: number; configured: boolean; name?: string; server_id?: number }>("GET", "/server/connection"),
   saveConnection: (body: Wire) => request("PUT", "/server/connection", body),
   testConnection: (body: Wire) => request("POST", "/server/connection/test", body),
   probe: () => request<Probe>("POST", "/server/probe"),
+
+  // -- multi-server cluster management -----------------------------------------
+  servers: () => request<ManagedServer[]>("GET", "/servers"),
+  server: (id: number) => request<ManagedServer>("GET", `/servers/${id}`),
+  createServer: (body: Wire) => request<ManagedServer>("POST", "/servers", body),
+  updateServer: (id: number, body: Wire) => request<ManagedServer>("PUT", `/servers/${id}`, body),
+  deleteServer: (id: number) => request<{ ok: boolean }>("DELETE", `/servers/${id}`),
+  testServerConnection: (body: Wire) => request<Wire>("POST", "/servers/test", body),
+  testServerId: (id: number) => request<Wire>("POST", `/servers/${id}/test`),
+  setDefaultServer: (id: number) => request<{ ok: boolean; default_id: number }>("POST", `/servers/${id}/set-default`),
+  probeServer: (id: number) => request<Probe>("POST", `/servers/${id}/probe`),
 
   // -- server-level SoftEther -----------------------------------------------------
   overview: () => request("GET", "/server/overview"),

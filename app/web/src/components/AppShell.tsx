@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../lib/auth";
 import { useServer } from "../lib/server";
 import { Link, navigate, seg, useRoute } from "../lib/router";
@@ -9,6 +9,8 @@ import { api, type Wire } from "../lib/api";
 import { formatBytes } from "../lib/util";
 import {
   BrandMark,
+  IconCheck,
+  IconChevron,
   IconHub,
   IconLogs,
   IconMoon,
@@ -41,7 +43,7 @@ import { useTheme } from "../ui/theme";
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
-  const { probe, hubs, health } = useServer();
+  const { probe, hubs, health, servers } = useServer();
   const { t } = useI18n();
   const route = useRoute();
   const p = route.parts;
@@ -90,14 +92,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span className="topbar__brand-ver">v1.0.13</span>
           </Link>
 
-          {probe?.online && (
-            <div className="topbar__status">
-              <span className="topbar__led" />
-              <span className="topbar__endpoint mono">
-                {probe.hostname?.includes(":") ? probe.hostname : `${probe.hostname || "127.0.0.1"}:5555`} · {t("Running")}
-              </span>
-            </div>
-          )}
+          <ServerSwitcher />
         </div>
 
         {/* Center: Monospace Search (Cmd+K) */}
@@ -170,6 +165,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <IconPanels size={16} />
                     <span>{t("Console overview")}</span>
                   </span>
+                </Link>
+
+                <Link
+                  to="/servers"
+                  className={`side__item${active === "servers" ? " on" : ""}`}
+                >
+                  <span className="side__item-left">
+                    <IconNode size={16} />
+                    <span>{t("Server nodes")}</span>
+                  </span>
+                  <span className="side__count">{servers?.length ?? 1}</span>
                 </Link>
 
                 <Link
@@ -289,6 +295,155 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+function ServerSwitcher() {
+  const { servers, currentServer, currentServerId, switchServer, probe } = useServer();
+  const { t } = useI18n();
+  const [isOpen, setIsOpen] = useState(false);
+  const [filter, setFilter] = useState("");
+  const [switchingId, setSwitchingId] = useState<number | null>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [isOpen]);
+
+  const activeId = currentServer?.id ?? currentServerId;
+  const filtered = (servers ?? []).filter((s) => {
+    if (!filter.trim()) return true;
+    const q = filter.toLowerCase();
+    return s.name.toLowerCase().includes(q) || `${s.host}:${s.port}`.includes(q);
+  });
+
+  return (
+    <div className="topbar__switcher" ref={dropdownRef}>
+      <button
+        type="button"
+        className="topbar__switcher-btn"
+        onClick={() => setIsOpen((prev) => !prev)}
+        title={t("Switch server node")}
+      >
+        <span
+          style={{
+            width: 7,
+            height: 7,
+            borderRadius: "50%",
+            backgroundColor: probe?.online ? "var(--color-emerald, #10b981)" : "var(--color-amber, #f59e0b)",
+            boxShadow: probe?.online ? "0 0 6px var(--color-emerald, #10b981)" : undefined,
+            flexShrink: 0,
+          }}
+        />
+        <span className="mono" style={{ fontWeight: 600, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {currentServer?.name || probe?.hostname || "127.0.0.1"}
+        </span>
+        <span style={{ color: "var(--text-muted)", fontSize: 11 }} className="mono">
+          :{currentServer?.port || 5555}
+        </span>
+        <span style={{ display: "inline-flex", transform: isOpen ? "rotate(-90deg)" : "rotate(90deg)", transition: "transform 0.15s ease", opacity: 0.6 }}>
+          <IconChevron size={11} />
+        </span>
+      </button>
+
+      {isOpen && (
+        <div className="topbar__dropdown">
+          <input
+            type="text"
+            className="topbar__dropdown-search"
+            placeholder={t("Filter servers...")}
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            autoFocus
+          />
+          <div className="topbar__dropdown-list">
+            {filtered.map((s) => {
+              const isActive = s.id === activeId;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  className={`topbar__dropdown-item ${isActive ? "active" : ""}`}
+                  onClick={async () => {
+                    if (!isActive) {
+                      setSwitchingId(s.id);
+                      await switchServer(s.id);
+                      setSwitchingId(null);
+                    }
+                    setIsOpen(false);
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                    <span
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: "50%",
+                        backgroundColor: s.is_enabled
+                          ? isActive && probe?.online
+                            ? "var(--color-emerald, #10b981)"
+                            : "var(--text-muted)"
+                          : "var(--color-rose, #f43f5e)",
+                        flexShrink: 0,
+                      }}
+                    />
+                    <div style={{ minWidth: 0, textAlign: "left" }}>
+                      <div style={{ fontWeight: isActive ? 600 : 400, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {s.name}
+                        {s.is_default && (
+                          <span style={{ marginLeft: 6, fontSize: 9, padding: "1px 4px", borderRadius: 3, background: "var(--bg-raised)", color: "var(--text-muted)" }}>
+                            {t("Default")}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mono" style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                        {s.host}:{s.port}
+                      </div>
+                    </div>
+                  </div>
+                  {isActive && (
+                    <span style={{ color: "var(--accent, #a0e35f)", marginLeft: 6, flexShrink: 0 }}>
+                      <IconCheck size={14} />
+                    </span>
+                  )}
+                  {switchingId === s.id && (
+                    <span className="spin" style={{ fontSize: 10, marginLeft: 6 }}>⟳</span>
+                  )}
+                </button>
+              );
+            })}
+            {filtered.length === 0 && (
+              <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-muted)", textAlign: "center" }}>
+                {t("No matching servers")}
+              </div>
+            )}
+          </div>
+          <div className="topbar__dropdown-footer">
+            <Link
+              to="/servers"
+              onClick={() => setIsOpen(false)}
+              style={{ color: "var(--text-muted)", textDecoration: "none", fontSize: 11 }}
+            >
+              {t("Manage cluster →")}
+            </Link>
+            <Link
+              to="/servers/add"
+              onClick={() => setIsOpen(false)}
+              style={{ color: "var(--accent, #a0e35f)", textDecoration: "none", fontSize: 11, fontWeight: 500 }}
+            >
+              + {t("Add server")}
+            </Link>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TabBar() {
   const route = useRoute();
   const { t } = useI18n();
@@ -302,6 +457,7 @@ function TabBar() {
   return (
     <nav className="tabbar" aria-label={t("Primary")}>
       {tab((p) => p === "" || p === "connect", "/", "Dashboard", <IconPanels size={18} />)}
+      {tab((p) => p === "servers", "/servers", "Servers", <IconNode size={18} />)}
       {tab((p) => p === "hubs" || p === "hub", "/hubs", "Virtual Hubs", <IconHub size={18} />)}
       {tab((p) => p === "users", "/users", "Users", <IconUsers size={18} />)}
       {tab((p) => p === "connections", "/connections", "Sessions", <IconPulse size={18} />)}

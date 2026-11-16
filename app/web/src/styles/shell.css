@@ -108,6 +108,91 @@
   color: var(--text-secondary);
 }
 
+.topbar__switcher {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.topbar__switcher-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-ctl);
+  color: var(--text-primary);
+  font-size: var(--t-micro);
+  cursor: pointer;
+  transition: all var(--d-fast) ease;
+}
+.topbar__switcher-btn:hover {
+  background: var(--glass-hi);
+  border-color: var(--glass-line-hi);
+}
+.topbar__dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 290px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-card);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.4);
+  padding: var(--s2);
+  z-index: 50;
+}
+.topbar__dropdown-search {
+  width: 100%;
+  padding: 5px 8px;
+  font-size: var(--t-micro);
+  font-family: var(--font-mono);
+  background: var(--bg-deep);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-ctl);
+  color: var(--text-primary);
+  margin-bottom: var(--s2);
+}
+.topbar__dropdown-list {
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.topbar__dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-radius: var(--r-ctl);
+  cursor: pointer;
+  font-size: var(--t-micro);
+  color: var(--text-secondary);
+  transition: background var(--d-fast) ease;
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+}
+.topbar__dropdown-item:hover {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+}
+.topbar__dropdown-item.active {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+.topbar__dropdown-footer {
+  margin-top: var(--s2);
+  padding-top: var(--s2);
+  border-top: 1px solid var(--border-hairline);
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--t-micro);
+}
+
 .topbar__center {
   display: none;
   align-items: center;

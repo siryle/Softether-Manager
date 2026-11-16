@@ -11,6 +11,7 @@ import (
 func (a *App) register() {
 	a.registerAuth()
 	a.registerConnection()
+	a.registerServers()
 	a.registerSystem()
 	a.registerRPCRoutes()
 	a.registerCustomRPC()
@@ -137,8 +138,9 @@ func (a *App) registerCustomRPC() {
 	a.endpoint("DELETE /hubs/{hub}", func(_ http.ResponseWriter, r *http.Request, u M) any {
 		hub := r.PathValue("hub")
 		out := a.rpc(r.Context(), "DeleteHub", M{"HubName_str": hub})
-		execute(a.db, `DELETE FROM TrafficQuota WHERE HubName=?`, hub)
-		execute(a.db, `DELETE FROM VpnUserCredential WHERE HubName=?`, hub)
+		serverID := a.serverIDFromContext(r.Context())
+		execute(a.db, `DELETE FROM TrafficQuota WHERE ServerID=? AND HubName=?`, serverID, hub)
+		execute(a.db, `DELETE FROM VpnUserCredential WHERE ServerID=? AND HubName=?`, serverID, hub)
 		a.audit(u, "hub.deleted", "hub", hub, "")
 		return out
 	})
@@ -191,11 +193,12 @@ func (a *App) registerCustomRPC() {
 			body["HubName_str"], body["Name_str"] = hub, name
 			validateWire(body)
 			out := a.rpc(r.Context(), rpcMethod, body)
+			serverID := a.serverIDFromContext(r.Context())
 			if method == "DELETE" {
-				execute(a.db, `DELETE FROM VpnUserCredential WHERE HubName=? AND UserName=?`, hub, name)
-				execute(a.db, `DELETE FROM TrafficQuota WHERE SubjectType='user' AND HubName=? AND UserKey=?`, hub, fold(name))
+				execute(a.db, `DELETE FROM VpnUserCredential WHERE ServerID=? AND HubName=? AND UserName=?`, serverID, hub, name)
+				execute(a.db, `DELETE FROM TrafficQuota WHERE ServerID=? AND SubjectType='user' AND HubName=? AND UserKey=?`, serverID, hub, fold(name))
 			} else if password := str(body["Auth_Password_str"]); password != "" && integer(withDefault(body, "AuthType_u32", 1)) == 1 {
-				a.saveCredential(hub, name, hashedPassword(password, name))
+				a.saveCredential(serverID, hub, name, hashedPassword(password, name))
 			}
 			a.audit(u, "user."+strings.ToLower(method), "vpn_user", name, "hub "+hub)
 			return out

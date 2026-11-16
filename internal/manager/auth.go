@@ -77,7 +77,7 @@ func connectionInput(body M) (string, int, string) {
 	return host, port, auth
 }
 func (a *App) registerConnection() {
-	a.handle("GET /api/v1/server/connection", false, func(_ http.ResponseWriter, _ *http.Request, _ M) any { return a.connection() })
+	a.handle("GET /api/v1/server/connection", false, func(_ http.ResponseWriter, r *http.Request, _ M) any { return a.connection(r.Context()) })
 	for _, action := range []string{"save", "test"} {
 		pattern := "PUT /api/v1/server/connection"
 		if action == "test" {
@@ -105,11 +105,11 @@ func (a *App) registerConnection() {
 			}
 			a.saveConnection(host, port, pwd, auth)
 			a.audit(user, "connection.updated", "server", "", host)
-			return a.connection()
+			return a.connection(r.Context())
 		})
 	}
 	a.handle("POST /api/v1/server/probe", false, func(_ http.ResponseWriter, r *http.Request, _ M) (result any) {
-		if !boolean(a.connection()["configured"]) {
+		if !boolean(a.connection(r.Context())["configured"]) {
 			return M{"online": false, "configured": false, "error": "not connected yet"}
 		}
 		defer func() {

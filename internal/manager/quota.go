@@ -8,8 +8,11 @@ import (
 	"net/http"
 )
 
-func (a *App) quotaRow(subject, hub, name string) M {
-	return one(a.db, `SELECT * FROM TrafficQuota WHERE SubjectType=? AND HubName=? AND UserKey=?`, subject, hub, fold(name))
+func (a *App) quotaRow(serverID int64, subject, hub, name string) M {
+	if serverID == 0 {
+		serverID = 1
+	}
+	return one(a.db, `SELECT * FROM TrafficQuota WHERE ServerID=? AND SubjectType=? AND HubName=? AND UserKey=?`, serverID, subject, hub, fold(name))
 }
 func quotaPublic(row M) M {
 	limit := integer(row["LimitBytes"])
@@ -40,24 +43,30 @@ func quotaPublic(row M) M {
 	}
 	return M{"subject": row["SubjectType"], "hub": row["HubName"], "username": row["UserName"], "has_limit": limit > 0, "limit_bytes": limit, "limit": math.Round(amount*100) / 100, "unit": unit, "metric": row["Metric"], "enabled": boolean(row["IsEnabled"]), "upload_bytes": up, "download_bytes": down, "base_send_bytes": row["BaseSendBytes"], "base_recv_bytes": row["BaseRecvBytes"], "used_bytes": used, "remaining_bytes": remaining, "percent": percent, "exceeded": str(row["ExceededDate"]) != "", "exceeded_date": row["ExceededDate"], "blocked": str(row["EnforcedDate"]) != "", "blocked_date": row["EnforcedDate"], "cycle_start": row["CycleStartDate"], "updated_date": row["UpdatedDate"]}
 }
-func (a *App) saveQuota(subject, hub, name string, limit int64, metric string, enabled bool) {
+func (a *App) saveQuota(serverID int64, subject, hub, name string, limit int64, metric string, enabled bool) {
+	if serverID == 0 {
+		serverID = 1
+	}
 	if metric != "total" && metric != "upload" && metric != "download" {
 		fail(422, "Metric must be total, upload or download.")
 	}
-	execute(a.db, `INSERT INTO TrafficQuota(SubjectType,HubName,UserName,UserKey,LimitBytes,Metric,IsEnabled,CycleStartDate,CreatedDate,UpdatedDate) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(SubjectType,HubName,UserKey) DO UPDATE SET UserName=excluded.UserName,LimitBytes=excluded.LimitBytes,Metric=excluded.Metric,IsEnabled=excluded.IsEnabled,UpdatedDate=excluded.UpdatedDate`, subject, hub, name, fold(name), limit, metric, enabled, now(), now(), now())
+	execute(a.db, `INSERT INTO TrafficQuota(ServerID,SubjectType,HubName,UserName,UserKey,LimitBytes,Metric,IsEnabled,CycleStartDate,CreatedDate,UpdatedDate) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(ServerID,SubjectType,HubName,UserKey) DO UPDATE SET UserName=excluded.UserName,LimitBytes=excluded.LimitBytes,Metric=excluded.Metric,IsEnabled=excluded.IsEnabled,UpdatedDate=excluded.UpdatedDate`, serverID, subject, hub, name, fold(name), limit, metric, enabled, now(), now(), now())
 }
-func (a *App) observeQuota(subject, hub, name string, send, recv int64) {
+func (a *App) observeQuota(serverID int64, subject, hub, name string, send, recv int64) {
 	a.quotaMu.Lock()
 	defer a.quotaMu.Unlock()
-	a.observeQuotaLocked(subject, hub, name, send, recv)
+	a.observeQuotaLocked(serverID, subject, hub, name, send, recv)
 }
-func (a *App) observeQuotaLocked(subject, hub, name string, send, recv int64) {
-	execute(a.db, `UPDATE TrafficQuota SET BaseSendBytes=CASE WHEN ?<BaseSendBytes THEN 0 ELSE BaseSendBytes END,BaseRecvBytes=CASE WHEN ?<BaseRecvBytes THEN 0 ELSE BaseRecvBytes END,LastSendBytes=?,LastRecvBytes=?,UpdatedDate=? WHERE SubjectType=? AND HubName=? AND UserKey=?`, send, recv, send, recv, now(), subject, hub, fold(name))
+func (a *App) observeQuotaLocked(serverID int64, subject, hub, name string, send, recv int64) {
+	if serverID == 0 {
+		serverID = 1
+	}
+	execute(a.db, `UPDATE TrafficQuota SET BaseSendBytes=CASE WHEN ?<BaseSendBytes THEN 0 ELSE BaseSendBytes END,BaseRecvBytes=CASE WHEN ?<BaseRecvBytes THEN 0 ELSE BaseRecvBytes END,LastSendBytes=?,LastRecvBytes=?,UpdatedDate=? WHERE ServerID=? AND SubjectType=? AND HubName=? AND UserKey=?`, send, recv, send, recv, now(), serverID, subject, hub, fold(name))
 }
-func (a *App) refreshQuota(ctx context.Context, subject, hub, name string) {
+func (a *App) refreshQuota(ctx context.Context, serverID int64, subject, hub, name string) {
 	defer func() {
 		if p := recover(); p != nil {
-			log.Printf("quota reading %s/%s: %v", hub, name, p)
+			log.Printf("quota reading %d/%s/%s: %v", serverID, hub, name, p)
 		}
 	}()
 	method := "GetHubStatus"
@@ -68,7 +77,7 @@ func (a *App) refreshQuota(ctx context.Context, subject, hub, name string) {
 	}
 	out := a.rpc(ctx, method, params)
 	send, recv := bytesFor(out, "")
-	a.observeQuotaLocked(subject, hub, name, send, recv)
+	a.observeQuotaLocked(serverID, subject, hub, name, send, recv)
 }
 func userWriteBody(row M) M {
 	out := M{}
@@ -148,16 +157,18 @@ func (a *App) enforceQuotasLocked(ctx context.Context) {
 					log.Printf("quota enforcement: %v", p)
 				}
 			}()
+			serverID := integer(row["ServerID"])
+			serverCtx := context.WithValue(ctx, serverIDKey, serverID)
 			out := quotaPublic(row)
 			over := global && boolean(out["enabled"]) && integer(out["limit_bytes"]) > 0 && integer(out["used_bytes"]) >= integer(out["limit_bytes"])
 			blocked := boolean(out["blocked"])
 			if over && !blocked {
-				a.blockQuota(ctx, row)
+				a.blockQuota(serverCtx, row)
 			} else if !over && blocked {
-				a.releaseQuota(ctx, row)
+				a.releaseQuota(serverCtx, row)
 			}
 			if over && str(row["SubjectType"]) == "user" {
-				a.cutQuotaSessions(ctx, row)
+				a.cutQuotaSessions(serverCtx, row)
 			}
 		}()
 	}
@@ -165,18 +176,18 @@ func (a *App) enforceQuotasLocked(ctx context.Context) {
 func (a *App) quotaTick(ctx context.Context) {
 	a.quotaMu.Lock()
 	defer a.quotaMu.Unlock()
-	if !boolean(a.connection()["configured"]) {
-		return
-	}
 	for _, row := range query(a.db, `SELECT * FROM TrafficQuota`) {
-		a.refreshQuota(ctx, str(row["SubjectType"]), str(row["HubName"]), str(row["UserName"]))
+		serverID := integer(row["ServerID"])
+		serverCtx := context.WithValue(ctx, serverIDKey, serverID)
+		a.refreshQuota(serverCtx, serverID, str(row["SubjectType"]), str(row["HubName"]), str(row["UserName"]))
 	}
 	a.enforceQuotasLocked(ctx)
 }
 func (a *App) registerQuotas() {
-	a.endpoint("GET /quotas", func(_ http.ResponseWriter, _ *http.Request, _ M) any {
+	a.endpoint("GET /quotas", func(_ http.ResponseWriter, r *http.Request, _ M) any {
 		out := []M{}
-		for _, row := range query(a.db, `SELECT * FROM TrafficQuota ORDER BY HubName,SubjectType,UserName`) {
+		serverID := a.serverIDFromContext(r.Context())
+		for _, row := range query(a.db, `SELECT * FROM TrafficQuota WHERE ServerID=? ORDER BY HubName,SubjectType,UserName`, serverID) {
 			out = append(out, quotaPublic(row))
 		}
 		return out
@@ -201,8 +212,9 @@ func (a *App) registerQuotas() {
 			a.endpoint(pattern, func(w http.ResponseWriter, r *http.Request, u M) any {
 				a.quotaMu.Lock()
 				defer a.quotaMu.Unlock()
+				serverID := a.serverIDFromContext(r.Context())
 				hub, name := r.PathValue("hub"), r.PathValue("name")
-				row := a.quotaRow(subject, hub, name)
+				row := a.quotaRow(serverID, subject, hub, name)
 				if action == "set" {
 					b := readBody(w, r)
 					amount := number(b["limit"])
@@ -214,7 +226,7 @@ func (a *App) registerQuotas() {
 					if size == 0 {
 						fail(422, "Unit must be MB, GB or TB.")
 					}
-					a.saveQuota(subject, hub, name, int64(math.Round(amount*size)), str(withDefault(b, "metric", "total")), boolean(withDefault(b, "enabled", true)))
+					a.saveQuota(serverID, subject, hub, name, int64(math.Round(amount*size)), str(withDefault(b, "metric", "total")), boolean(withDefault(b, "enabled", true)))
 				} else if action == "enabled" {
 					if row == nil || integer(row["LimitBytes"]) == 0 {
 						fail(409, "No traffic limit is set on this subject.")
@@ -239,21 +251,21 @@ func (a *App) registerQuotas() {
 					return M{"ok": true}
 				} else if action == "reset" {
 					if row == nil {
-						a.saveQuota(subject, hub, name, 0, "total", true)
+						a.saveQuota(serverID, subject, hub, name, 0, "total", true)
 					}
-					a.refreshQuota(r.Context(), subject, hub, name)
-					row = a.quotaRow(subject, hub, name)
+					a.refreshQuota(r.Context(), serverID, subject, hub, name)
+					row = a.quotaRow(serverID, subject, hub, name)
 					a.releaseQuota(r.Context(), row)
 					execute(a.db, `UPDATE TrafficQuota SET BaseSendBytes=LastSendBytes,BaseRecvBytes=LastRecvBytes,CycleStartDate=?,ExceededDate=NULL,UpdatedDate=? WHERE TrafficQuotaID=?`, now(), now(), row["TrafficQuotaID"])
 				} else if row == nil {
 					fail(404, "No traffic limit is set on this subject.")
 				}
-				a.refreshQuota(r.Context(), subject, hub, name)
+				a.refreshQuota(r.Context(), serverID, subject, hub, name)
 				if action != "get" {
 					a.enforceQuotasLocked(r.Context())
 					a.audit(u, "quota."+action, subject, hub, name)
 				}
-				return quotaPublic(a.quotaRow(subject, hub, name))
+				return quotaPublic(a.quotaRow(serverID, subject, hub, name))
 			})
 		}
 	}

@@ -121,13 +121,17 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+type contextKey string
+
+const serverIDKey contextKey = "server_id"
+
 type App struct {
 	cfg                            Config
 	db                             *sql.DB
 	sessionKey, encryptionKey      string
 	mux                            *http.ServeMux
 	setupMu, connectionMu, quotaMu sync.Mutex
-	rpcClient                      *RPCClient
+	rpcClients                     map[int64]*RPCClient
 	resources                      resourceState
 	tls                            *tlsManager
 	updates                        updateState
@@ -152,7 +156,7 @@ func New(cfg Config) (app *App, err error) {
 	if err != nil {
 		return nil, err
 	}
-	app = &App{cfg: cfg, db: db, mux: http.NewServeMux()}
+	app = &App{cfg: cfg, db: db, mux: http.NewServeMux(), rpcClients: make(map[int64]*RPCClient)}
 	if err = app.initSecrets(); err != nil {
 		db.Close()
 		return nil, err
@@ -168,15 +172,23 @@ func (a *App) Close() error {
 	a.workers.Wait()
 	a.tls.close()
 	a.connectionMu.Lock()
-	if a.rpcClient != nil {
-		a.rpcClient.Close()
+	for _, c := range a.rpcClients {
+		if c != nil {
+			c.Close()
+		}
 	}
+	a.rpcClients = make(map[int64]*RPCClient)
 	a.connectionMu.Unlock()
 	return a.db.Close()
 }
 func (a *App) bootstrap() {
 	if a.cfg.AdminUsername != "" && a.cfg.AdminPassword != "" && integer(one(a.db, `SELECT COUNT(*) n FROM PanelUser WHERE IsDeleted=0`)["n"]) == 0 {
 		a.SetPassword(a.cfg.AdminUsername, a.cfg.AdminPassword)
+	}
+	if a.cfg.SEPassword != "" && integer(one(a.db, `SELECT COUNT(*) n FROM Server`)["n"]) == 0 {
+		stamp := now()
+		enc := a.encrypt(a.cfg.SEPassword)
+		execute(a.db, `INSERT INTO Server(Name,Host,Port,EncryptedPassword,AuthType,IsEnabled,IsDefault,SortOrder,CreatedDate,UpdatedDate) VALUES(?,?,?,?,?,1,1,0,?,?)`, "Default Server", a.cfg.SEHost, a.cfg.SEPort, enc, a.cfg.SEAuth, stamp, stamp)
 	}
 	if a.cfg.SEPassword != "" && !boolean(a.connection()["configured"]) {
 		a.saveConnection(a.cfg.SEHost, a.cfg.SEPort, &a.cfg.SEPassword, a.cfg.SEAuth)
@@ -245,8 +257,40 @@ func (a *App) Handler() http.Handler {
 		a.mux.ServeHTTP(w, r)
 	})
 }
+func (a *App) serverIDFromContext(ctx context.Context) int64 {
+	if ctx != nil {
+		if id, ok := ctx.Value(serverIDKey).(int64); ok && id > 0 {
+			return id
+		}
+	}
+	row := one(a.db, `SELECT ServerID FROM Server WHERE IsDefault=1 LIMIT 1`)
+	if row == nil {
+		row = one(a.db, `SELECT ServerID FROM Server ORDER BY ServerID LIMIT 1`)
+	}
+	if row != nil {
+		return integer(row["ServerID"])
+	}
+	return 0
+}
+
 func (a *App) handle(pattern string, public bool, fn func(http.ResponseWriter, *http.Request, M) any) {
 	a.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+		serverID := int64(0)
+		if sid := r.Header.Get("X-Server-ID"); sid != "" {
+			if n, err := strconv.ParseInt(sid, 10, 64); err == nil && n > 0 {
+				serverID = n
+			}
+		}
+		if serverID == 0 {
+			if sid := r.URL.Query().Get("server_id"); sid != "" {
+				if n, err := strconv.ParseInt(sid, 10, 64); err == nil && n > 0 {
+					serverID = n
+				}
+			}
+		}
+		if serverID > 0 {
+			r = r.WithContext(context.WithValue(r.Context(), serverIDKey, serverID))
+		}
 		var user M
 		if !public {
 			user = a.requireUser(r)

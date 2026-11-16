@@ -122,27 +122,95 @@ func (c *RPCClient) Call(ctx context.Context, method string, params M) (M, error
 	}
 	return reply.Result, nil
 }
-func (a *App) connection() M {
-	return M{"host": a.setting("se_host"), "port": a.setting("se_port"), "auth": a.setting("se_auth"), "configured": boolean(a.setting("se_configured")) || str(a.setting("se_password")) != ""}
+func (a *App) connection(ctx ...context.Context) M {
+	var c context.Context
+	if len(ctx) > 0 {
+		c = ctx[0]
+	}
+	serverID := a.serverIDFromContext(c)
+	if serverID == 0 {
+		return M{"host": a.setting("se_host"), "port": a.setting("se_port"), "auth": a.setting("se_auth"), "configured": boolean(a.setting("se_configured")) || str(a.setting("se_password")) != ""}
+	}
+	row := one(a.db, `SELECT ServerID, Name, Host, Port, AuthType, EncryptedPassword FROM Server WHERE ServerID=?`, serverID)
+	if row == nil {
+		return M{"host": a.setting("se_host"), "port": a.setting("se_port"), "auth": a.setting("se_auth"), "configured": boolean(a.setting("se_configured")) || str(a.setting("se_password")) != ""}
+	}
+	return M{
+		"server_id":  integer(row["ServerID"]),
+		"name":       row["Name"],
+		"host":       row["Host"],
+		"port":       integer(row["Port"]),
+		"auth":       row["AuthType"],
+		"configured": str(row["EncryptedPassword"]) != "" || boolean(a.setting("se_configured")),
+	}
 }
-func (a *App) client() *RPCClient {
+
+func (a *App) clientFor(serverID int64) (*RPCClient, error) {
 	a.connectionMu.Lock()
 	defer a.connectionMu.Unlock()
-	if a.rpcClient == nil {
+	if c, ok := a.rpcClients[serverID]; ok && c != nil {
+		return c, nil
+	}
+	row := one(a.db, `SELECT ServerID, Host, Port, EncryptedPassword, AuthType FROM Server WHERE ServerID=? AND IsEnabled=1`, serverID)
+	if row == nil {
 		if !boolean(a.connection()["configured"]) {
-			fail(409, M{"message": "The panel is not connected to SoftEther yet.", "se_error": "NotConfigured", "se_code": nil})
+			return nil, fmt.Errorf("panel is not connected to SoftEther yet")
 		}
 		pwd, err := a.decrypt(str(a.setting("se_password")))
-		check(err)
-		a.rpcClient = NewRPCClient(str(a.setting("se_host")), int(integer(a.setting("se_port"))), pwd, str(a.setting("se_auth")))
+		if err != nil {
+			return nil, err
+		}
+		c := NewRPCClient(str(a.setting("se_host")), int(integer(a.setting("se_port"))), pwd, str(a.setting("se_auth")))
+		a.rpcClients[serverID] = c
+		return c, nil
 	}
-	return a.rpcClient
+	encPwd := str(row["EncryptedPassword"])
+	pwd := ""
+	if encPwd != "" {
+		p, err := a.decrypt(encPwd)
+		if err != nil {
+			return nil, err
+		}
+		pwd = p
+	}
+	c := NewRPCClient(str(row["Host"]), int(integer(row["Port"])), pwd, str(row["AuthType"]))
+	a.rpcClients[serverID] = c
+	return c, nil
 }
+
+func (a *App) invalidateClient(serverID int64) {
+	a.connectionMu.Lock()
+	defer a.connectionMu.Unlock()
+	if c, ok := a.rpcClients[serverID]; ok && c != nil {
+		c.Close()
+		delete(a.rpcClients, serverID)
+	}
+}
+
+func (a *App) client(ctx ...context.Context) *RPCClient {
+	var c context.Context
+	if len(ctx) > 0 {
+		c = ctx[0]
+	}
+	serverID := a.serverIDFromContext(c)
+	client, err := a.clientFor(serverID)
+	if err != nil {
+		fail(409, M{"message": err.Error(), "se_error": "NotConfigured", "se_code": nil})
+	}
+	return client
+}
+
 func (a *App) rpc(ctx context.Context, method string, params M) M {
-	out, err := a.client().Call(ctx, method, params)
+	serverID := a.serverIDFromContext(ctx)
+	client, err := a.clientFor(serverID)
+	if err != nil {
+		fail(409, M{"message": err.Error(), "se_error": "NotConfigured", "se_code": nil})
+	}
+	out, err := client.Call(ctx, method, params)
 	check(err)
 	return out
 }
+
 func (a *App) saveConnection(host string, port int, password *string, auth string) {
 	a.connectionMu.Lock()
 	defer a.connectionMu.Unlock()
@@ -155,9 +223,30 @@ func (a *App) saveConnection(host string, port int, password *string, auth strin
 	if auth != "" {
 		a.set("se_auth", auth)
 	}
-	if a.rpcClient != nil {
-		a.rpcClient.Close()
-		a.rpcClient = nil
+	for id, c := range a.rpcClients {
+		if c != nil {
+			c.Close()
+		}
+		delete(a.rpcClients, id)
+	}
+	var defID int64
+	row := one(a.db, `SELECT ServerID FROM Server WHERE IsDefault=1 LIMIT 1`)
+	if row != nil {
+		defID = integer(row["ServerID"])
+	} else {
+		row = one(a.db, `SELECT ServerID FROM Server ORDER BY ServerID LIMIT 1`)
+		if row != nil {
+			defID = integer(row["ServerID"])
+		}
+	}
+	enc := str(a.setting("se_password"))
+	if auth == "" {
+		auth = "header"
+	}
+	if defID > 0 {
+		execute(a.db, `UPDATE Server SET Host=?,Port=?,EncryptedPassword=?,AuthType=?,UpdatedDate=? WHERE ServerID=?`, host, port, enc, auth, now(), defID)
+	} else {
+		execute(a.db, `INSERT INTO Server(Name,Host,Port,EncryptedPassword,AuthType,IsEnabled,IsDefault,SortOrder,CreatedDate,UpdatedDate) VALUES(?,?,?,?,?,1,1,0,?,?)`, "Default Server", host, port, enc, auth, now(), now())
 	}
 }
 func (a *App) testConnection(ctx context.Context, host string, port int, password, auth string) M {

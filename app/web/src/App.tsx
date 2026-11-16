@@ -20,6 +20,7 @@ import { HubDetail } from "./screens/HubDetail";
 import { Hubs } from "./screens/Hubs";
 import { UserDetail } from "./screens/UserDetail";
 import { Settings } from "./screens/Settings";
+import { Servers } from "./screens/Servers";
 
 export default function App() {
   return (
@@ -68,6 +69,8 @@ function Routed() {
 
   if (p[0] === "connect") {
     screen = <Connect />;
+  } else if (p[0] === "servers") {
+    screen = <Servers />;
   } else if (p[0] === "users") {
     screen = <AllUsers />;
   } else if (p[0] === "hubs") {

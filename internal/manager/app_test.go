@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -112,7 +113,7 @@ func TestSecretFiles(t *testing.T) {
 		t.Fatal("secret changed on restart")
 	}
 	info, err := os.Stat(path)
-	if err != nil || info.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && (err != nil || info.Mode().Perm() != 0600) {
 		t.Fatal("secret must be owner-only")
 	}
 	check(os.WriteFile(path, nil, 0600))

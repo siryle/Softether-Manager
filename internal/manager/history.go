@@ -51,18 +51,19 @@ func (a *App) registerHistory() {
 		}
 		a.endpoint("GET "+path, func(_ http.ResponseWriter, r *http.Request, _ M) any {
 			hours := queryInt(r, "hours", 24, 1, 2160)
+			serverID := a.serverIDFromContext(r.Context())
 			cutoff := time.Now().UTC().Add(-time.Duration(hours) * time.Hour).Format(time.RFC3339)
-			statement := `SELECT SendBytes,RecvBytes,NumSessions,SampledDate FROM HubTrafficSample WHERE datetime(SampledDate)>=datetime(?)`
-			args := []any{cutoff}
+			statement := `SELECT SendBytes,RecvBytes,NumSessions,SampledDate FROM HubTrafficSample WHERE ServerID=? AND datetime(SampledDate)>=datetime(?)`
+			args := []any{serverID, cutoff}
 			if kind == "server" {
-				statement = `SELECT SUM(SendBytes) SendBytes,SUM(RecvBytes) RecvBytes,SUM(NumSessions) NumSessions,SampledDate FROM HubTrafficSample WHERE datetime(SampledDate)>=datetime(?) GROUP BY SampledDate`
+				statement = `SELECT SUM(SendBytes) SendBytes,SUM(RecvBytes) RecvBytes,SUM(NumSessions) NumSessions,SampledDate FROM HubTrafficSample WHERE ServerID=? AND datetime(SampledDate)>=datetime(?) GROUP BY SampledDate`
 			} else {
 				statement += " AND HubName=?"
 				args = append(args, r.PathValue("hub"))
 			}
 			if kind == "user" {
-				statement = `SELECT SendBytes,RecvBytes,SampledDate FROM UserTrafficSample WHERE datetime(SampledDate)>=datetime(?) AND HubName=? AND UserName=? COLLATE NOCASE`
-				args = append(args, r.PathValue("name"))
+				statement = `SELECT SendBytes,RecvBytes,SampledDate FROM UserTrafficSample WHERE ServerID=? AND datetime(SampledDate)>=datetime(?) AND HubName=? AND UserName=? COLLATE NOCASE`
+				args = []any{serverID, cutoff, r.PathValue("hub"), r.PathValue("name")}
 			}
 			statement += " ORDER BY SampledDate"
 			return usage(query(a.db, statement, args...), hours, "SendBytes", "RecvBytes", kind != "user")
@@ -74,8 +75,9 @@ func (a *App) registerHistory() {
 			path = "/hubs/{hub}/users/{name}/session-history"
 		}
 		a.endpoint("GET "+path, func(_ http.ResponseWriter, r *http.Request, _ M) any {
-			statement := `SELECT VpnSessionSampleID id,HubName hub,UserName username,ClientIP client_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,LastSeenDate last_seen_date,BytesTotal bytes_total,PacketsTotal packets_total,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE HubName=?`
-			args := []any{r.PathValue("hub")}
+			serverID := a.serverIDFromContext(r.Context())
+			statement := `SELECT VpnSessionSampleID id,HubName hub,UserName username,ClientIP client_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,LastSeenDate last_seen_date,BytesTotal bytes_total,PacketsTotal packets_total,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE ServerID=? AND HubName=?`
+			args := []any{serverID, r.PathValue("hub")}
 			if userOnly {
 				statement += " AND UserName=? COLLATE NOCASE"
 				args = append(args, r.PathValue("name"))
@@ -90,7 +92,8 @@ func (a *App) registerHistory() {
 		})
 	}
 	a.endpoint("GET /hubs/{hub}/session-history/{session_id}/usage", func(_ http.ResponseWriter, r *http.Request, _ M) any {
-		session := one(a.db, `SELECT VpnSessionSampleID id,UserName username,ClientIP client_ip,StartedDate started_date,EndedDate ended_date,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE VpnSessionSampleID=? AND HubName=?`, r.PathValue("session_id"), r.PathValue("hub"))
+		serverID := a.serverIDFromContext(r.Context())
+		session := one(a.db, `SELECT VpnSessionSampleID id,UserName username,ClientIP client_ip,StartedDate started_date,EndedDate ended_date,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE ServerID=? AND VpnSessionSampleID=? AND HubName=?`, serverID, r.PathValue("session_id"), r.PathValue("hub"))
 		if session == nil {
 			fail(404, "No such session in this hub's history.")
 		}
@@ -167,30 +170,45 @@ func (a *App) prune() {
 }
 func (a *App) sampleTraffic(ctx context.Context) {
 	a.prune()
-	if !boolean(a.setting("traffic_monitor_enabled")) || !boolean(a.connection()["configured"]) {
+	if !boolean(a.setting("traffic_monitor_enabled")) {
+		return
+	}
+	servers := query(a.db, `SELECT ServerID FROM Server WHERE IsEnabled=1`)
+	if len(servers) == 0 {
 		return
 	}
 	stamp := now()
-	for _, h := range list(a.rpc(ctx, "EnumHub", nil)["HubList"]) {
-		hub := str(h["HubName_str"])
-		if hub == "" {
-			continue
-		}
+	for _, s := range servers {
+		serverID := integer(s["ServerID"])
+		serverCtx := context.WithValue(ctx, serverIDKey, serverID)
 		func() {
 			defer func() {
 				if p := recover(); p != nil {
-					log.Printf("traffic sample %s: %v", hub, p)
+					log.Printf("traffic sample server %d: %v", serverID, p)
 				}
 			}()
-			status := a.rpc(ctx, "GetHubStatus", M{"HubName_str": hub})
-			send, recv := bytesFor(status, "")
-			execute(a.db, `INSERT INTO HubTrafficSample(HubName,SendBytes,RecvBytes,NumSessions,NumUsers,SampledDate) VALUES(?,?,?,?,?,?)`, hub, send, recv, integer(status["NumSessions_u32"]), integer(status["NumUsers_u32"]), stamp)
-			a.observeQuota("hub", hub, "", send, recv)
-			for _, u := range list(a.rpc(ctx, "EnumUser", M{"HubName_str": hub})["UserList"]) {
-				name := str(u["Name_str"])
-				s, r := bytesFor(u, "Ex.")
-				execute(a.db, `INSERT INTO UserTrafficSample(HubName,UserName,SendBytes,RecvBytes,NumLogin,SampledDate) VALUES(?,?,?,?,?,?)`, hub, name, s, r, integer(u["NumLogin_u32"]), stamp)
-				a.observeQuota("user", hub, name, s, r)
+			for _, h := range list(a.rpc(serverCtx, "EnumHub", nil)["HubList"]) {
+				hub := str(h["HubName_str"])
+				if hub == "" {
+					continue
+				}
+				func() {
+					defer func() {
+						if p := recover(); p != nil {
+							log.Printf("traffic sample %d/%s: %v", serverID, hub, p)
+						}
+					}()
+					status := a.rpc(serverCtx, "GetHubStatus", M{"HubName_str": hub})
+					send, recv := bytesFor(status, "")
+					execute(a.db, `INSERT INTO HubTrafficSample(ServerID,HubName,SendBytes,RecvBytes,NumSessions,NumUsers,SampledDate) VALUES(?,?,?,?,?,?,?)`, serverID, hub, send, recv, integer(status["NumSessions_u32"]), integer(status["NumUsers_u32"]), stamp)
+					a.observeQuota(serverID, "hub", hub, "", send, recv)
+					for _, u := range list(a.rpc(serverCtx, "EnumUser", M{"HubName_str": hub})["UserList"]) {
+						name := str(u["Name_str"])
+						sBytes, rBytes := bytesFor(u, "Ex.")
+						execute(a.db, `INSERT INTO UserTrafficSample(ServerID,HubName,UserName,SendBytes,RecvBytes,NumLogin,SampledDate) VALUES(?,?,?,?,?,?,?)`, serverID, hub, name, sBytes, rBytes, integer(u["NumLogin_u32"]), stamp)
+						a.observeQuota(serverID, "user", hub, name, sBytes, rBytes)
+					}
+				}()
 			}
 		}()
 	}
@@ -199,22 +217,29 @@ func (a *App) sampleTraffic(ctx context.Context) {
 	}
 }
 func (a *App) sampleSessions(ctx context.Context) {
-	if !boolean(a.setting("session_monitor_enabled")) || !boolean(a.connection()["configured"]) {
+	if !boolean(a.setting("session_monitor_enabled")) {
 		return
 	}
-	for _, h := range list(a.rpc(ctx, "EnumHub", nil)["HubList"]) {
-		hub := str(h["HubName_str"])
+	servers := query(a.db, `SELECT ServerID FROM Server WHERE IsEnabled=1`)
+	for _, s := range servers {
+		serverID := integer(s["ServerID"])
+		serverCtx := context.WithValue(ctx, serverIDKey, serverID)
 		func() {
 			defer func() {
 				if p := recover(); p != nil {
-					log.Printf("session sample %s: %v", hub, p)
+					log.Printf("session sample server %d: %v", serverID, p)
 				}
 			}()
-			a.sampleHubSessions(ctx, hub)
+			for _, h := range list(a.rpc(serverCtx, "EnumHub", nil)["HubList"]) {
+				hub := str(h["HubName_str"])
+				if hub != "" {
+					a.sampleHubSessions(serverCtx, serverID, hub)
+				}
+			}
 		}()
 	}
 }
-func (a *App) sampleHubSessions(ctx context.Context, hub string) {
+func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string) {
 	live := list(a.rpc(ctx, "EnumSession", M{"HubName_str": hub})["SessionList"])
 	seen := map[string]bool{}
 	stamp := now()
@@ -237,15 +262,17 @@ func (a *App) sampleHubSessions(ctx context.Context, hub string) {
 		if started == "" {
 			started = stamp
 		}
-		execute(a.db, `INSERT INTO VpnSessionSample(HubName,UserName,SessionKey,ClientIP,ClientHostname,StartedDate,LastSeenDate,BytesTotal,PacketsTotal,DownloadBytes,UploadBytes) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(HubName,SessionKey) DO UPDATE SET LastSeenDate=excluded.LastSeenDate,BytesTotal=excluded.BytesTotal,PacketsTotal=excluded.PacketsTotal,DownloadBytes=excluded.DownloadBytes,UploadBytes=excluded.UploadBytes`, hub, str(s["Username_str"]), key, str(s["ClientIP_ip"]), str(s["Hostname_str"]), started, stamp, integer(s["PacketSize_u64"]), integer(s["PacketNum_u64"]), down, up)
+		execute(a.db, `INSERT INTO VpnSessionSample(ServerID,HubName,UserName,SessionKey,ClientIP,ClientHostname,StartedDate,LastSeenDate,BytesTotal,PacketsTotal,DownloadBytes,UploadBytes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(ServerID,HubName,SessionKey) DO UPDATE SET LastSeenDate=excluded.LastSeenDate,BytesTotal=excluded.BytesTotal,PacketsTotal=excluded.PacketsTotal,DownloadBytes=excluded.DownloadBytes,UploadBytes=excluded.UploadBytes`, serverID, hub, str(s["Username_str"]), key, str(s["ClientIP_ip"]), str(s["Hostname_str"]), started, stamp, integer(s["PacketSize_u64"]), integer(s["PacketNum_u64"]), down, up)
 		if series {
-			row := one(a.db, `SELECT VpnSessionSampleID FROM VpnSessionSample WHERE HubName=? AND SessionKey=?`, hub, key)
-			execute(a.db, `INSERT INTO VpnSessionTrafficSample(VpnSessionSampleID,DownloadBytes,UploadBytes,TotalBytes,SampledDate) VALUES(?,?,?,?,?)`, row["VpnSessionSampleID"], down, up, integer(s["PacketSize_u64"]), stamp)
+			row := one(a.db, `SELECT VpnSessionSampleID FROM VpnSessionSample WHERE ServerID=? AND HubName=? AND SessionKey=?`, serverID, hub, key)
+			if row != nil {
+				execute(a.db, `INSERT INTO VpnSessionTrafficSample(VpnSessionSampleID,DownloadBytes,UploadBytes,TotalBytes,SampledDate) VALUES(?,?,?,?,?)`, row["VpnSessionSampleID"], down, up, integer(s["PacketSize_u64"]), stamp)
+			}
 		}
 	}
-	for _, row := range query(a.db, `SELECT SessionKey FROM VpnSessionSample WHERE HubName=? AND EndedDate IS NULL`, hub) {
+	for _, row := range query(a.db, `SELECT SessionKey FROM VpnSessionSample WHERE ServerID=? AND HubName=? AND EndedDate IS NULL`, serverID, hub) {
 		if !seen[str(row["SessionKey"])] {
-			execute(a.db, `UPDATE VpnSessionSample SET EndedDate=LastSeenDate WHERE HubName=? AND SessionKey=? AND EndedDate IS NULL`, hub, row["SessionKey"])
+			execute(a.db, `UPDATE VpnSessionSample SET EndedDate=LastSeenDate WHERE ServerID=? AND HubName=? AND SessionKey=? AND EndedDate IS NULL`, serverID, hub, row["SessionKey"])
 		}
 	}
 }

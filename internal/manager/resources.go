@@ -2,7 +2,6 @@ package manager
 
 import (
 	"context"
-	"golang.org/x/sys/unix"
 	"os"
 	"runtime"
 	"sort"
@@ -87,18 +86,12 @@ func readDisks() []M {
 			continue
 		}
 		mount := strings.NewReplacer("\\040", " ", "\\011", "\t", "\\134", "\\").Replace(f[1])
-		var stat unix.Statfs_t
-		if unix.Statfs(mount, &stat) != nil {
+		total, available, used, inodesPercent, ok := diskStatfs(mount)
+		if !ok {
 			continue
 		}
 		seen[f[0]] = true
-		total := int64(stat.Blocks) * int64(stat.Bsize)
-		if total == 0 {
-			continue
-		}
-		available := int64(stat.Bavail) * int64(stat.Bsize)
-		used := total - int64(stat.Bfree)*int64(stat.Bsize)
-		out = append(out, M{"device": f[0], "mount_point": mount, "fs_type": f[2], "total_bytes": total, "used_bytes": used, "available_bytes": available, "used_percent": percent(used, used+available), "inodes_used_percent": percent(int64(stat.Files-stat.Ffree), int64(stat.Files))})
+		out = append(out, M{"device": f[0], "mount_point": mount, "fs_type": f[2], "total_bytes": total, "used_bytes": used, "available_bytes": available, "used_percent": percent(used, used+available), "inodes_used_percent": inodesPercent})
 	}
 	sort.Slice(out, func(i, j int) bool { return str(out[i]["mount_point"]) < str(out[j]["mount_point"]) })
 	return out

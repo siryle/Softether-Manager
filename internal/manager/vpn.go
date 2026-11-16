@@ -206,18 +206,24 @@ func safeFilename(name string) string {
 	}
 	return s
 }
-func (a *App) saveCredential(hub, name, hash string) {
-	execute(a.db, `INSERT INTO VpnUserCredential(HubName,UserName,PasswordHash,UpdatedDate) VALUES(?,?,?,?) ON CONFLICT(HubName,UserName) DO UPDATE SET PasswordHash=excluded.PasswordHash,UpdatedDate=excluded.UpdatedDate`, hub, name, hash, now())
+func (a *App) saveCredential(serverID int64, hub, name, hash string) {
+	if serverID == 0 {
+		serverID = 1
+	}
+	execute(a.db, `INSERT INTO VpnUserCredential(ServerID,HubName,UserName,PasswordHash,UpdatedDate) VALUES(?,?,?,?,?) ON CONFLICT(ServerID,HubName,UserName) DO UPDATE SET PasswordHash=excluded.PasswordHash,UpdatedDate=excluded.UpdatedDate`, serverID, hub, name, hash, now())
 }
-func (a *App) storedCredential(hub, name string) string {
-	r := one(a.db, `SELECT PasswordHash FROM VpnUserCredential WHERE HubName=? AND UserName=? COLLATE NOCASE`, hub, name)
+func (a *App) storedCredential(serverID int64, hub, name string) string {
+	if serverID == 0 {
+		serverID = 1
+	}
+	r := one(a.db, `SELECT PasswordHash FROM VpnUserCredential WHERE ServerID=? AND HubName=? AND UserName=? COLLATE NOCASE`, serverID, hub, name)
 	if r == nil {
 		return ""
 	}
 	return str(r["PasswordHash"])
 }
-func (a *App) obtainCredential(ctx context.Context, hub, name string) string {
-	if hash := a.storedCredential(hub, name); hash != "" {
+func (a *App) obtainCredential(ctx context.Context, serverID int64, hub, name string) string {
+	if hash := a.storedCredential(serverID, hub, name); hash != "" {
 		return hash
 	}
 	out := a.rpc(ctx, "GetConfig", nil)
@@ -250,7 +256,7 @@ func (a *App) obtainCredential(ctx context.Context, hub, name string) string {
 				if strings.HasPrefix(line, key) {
 					hash := strings.TrimSpace(strings.TrimPrefix(line, key))
 					if decoded, e := base64.StdEncoding.DecodeString(hash); e == nil && len(decoded) == 20 {
-						a.saveCredential(hub, name, hash)
+						a.saveCredential(serverID, hub, name, hash)
 						return hash
 					}
 				}
@@ -297,19 +303,21 @@ func (a *App) registerVPN() {
 		return a.templateState()
 	})
 	a.endpoint("GET /hubs/{hub}/users/{name}/credential-state", func(_ http.ResponseWriter, r *http.Request, _ M) (result any) {
+		serverID := a.serverIDFromContext(r.Context())
 		hub, name := r.PathValue("hub"), r.PathValue("name")
-		if a.storedCredential(hub, name) != "" {
+		if a.storedCredential(serverID, hub, name) != "" {
 			return M{"available": true, "source": "panel"}
 		}
 		result = M{"available": false, "source": nil}
 		defer func() { _ = recover() }()
-		if a.obtainCredential(r.Context(), hub, name) != "" {
+		if a.obtainCredential(r.Context(), serverID, hub, name) != "" {
 			result = M{"available": true, "source": "server_config"}
 		}
 		return result
 	})
 	a.endpoint("POST /hubs/{hub}/users/{name}/vpn-file", func(w http.ResponseWriter, r *http.Request, u M) any {
 		b := readBody(w, r)
+		serverID := a.serverIDFromContext(r.Context())
 		hub, name := r.PathValue("hub"), r.PathValue("name")
 		host := strings.TrimSpace(str(b["host"]))
 		port := integer(withDefault(b, "port", 443))
@@ -324,9 +332,9 @@ func (a *App) registerVPN() {
 			if auth == 1 {
 				if password != "" {
 					hash = hashedPassword(password, name)
-					a.saveCredential(hub, name, hash)
+					a.saveCredential(serverID, hub, name, hash)
 				} else {
-					hash = a.obtainCredential(r.Context(), hub, name)
+					hash = a.obtainCredential(r.Context(), serverID, hub, name)
 					if hash == "" {
 						fail(409, "No stored credential for this user; type the password once or turn off embedding.")
 					}

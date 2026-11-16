@@ -32,6 +32,10 @@ func openDB(path string) (*sql.DB, error) {
 		if err != nil {
 			return nil, err
 		}
+		abs = filepath.ToSlash(abs)
+		if !strings.HasPrefix(abs, "/") {
+			abs = "/" + abs
+		}
 		u := url.URL{Scheme: "file", Path: abs}
 		dsn = u.String()
 	}
@@ -77,12 +81,13 @@ func initSchema(db *sql.DB) error {
 		return err
 	}
 	defer tx.Rollback()
-	// Carry the first connection forward from the former multi-server layout.
+
+	// Carry the first connection forward from the former multi-server layout if coming from legacy schema.
 	columns, err := tableColumns(tx, "Server")
 	if err != nil {
 		return err
 	}
-	if len(columns) > 0 {
+	if len(columns) > 0 && columns["IsDeleted"] {
 		if _, err = tx.Exec(`CREATE TABLE IF NOT EXISTS Setting(SettingKey TEXT PRIMARY KEY,SettingValue TEXT NOT NULL,UpdatedDate TEXT NOT NULL)`); err != nil {
 			return err
 		}
@@ -104,22 +109,112 @@ func initSchema(db *sql.DB) error {
 			}
 		}
 	}
-	// Python also rebuilt disposable series carrying the old ServerID dimension.
+
+	// Python also rebuilt disposable series carrying the old ServerID dimension without HubName.
 	for _, table := range []string{"UserTrafficSample", "HubTrafficSample"} {
 		cols, e := tableColumns(tx, table)
 		if e != nil {
 			return e
 		}
-		if cols["ServerID"] {
+		if cols["ServerID"] && !cols["HubName"] {
 			if _, e = tx.Exec(`DROP TABLE "` + table + `"`); e != nil {
 				return e
 			}
 		}
 	}
-	// Existing installations retain their accounts, settings, samples and quotas.
+
+	// 1. Ensure Server table exists with expected structure
+	if _, err = tx.Exec(`CREATE TABLE IF NOT EXISTS "Server" (
+		"ServerID"          INTEGER PRIMARY KEY AUTOINCREMENT,
+		"Name"              TEXT    NOT NULL DEFAULT 'Default Server',
+		"Host"              TEXT    NOT NULL DEFAULT '127.0.0.1',
+		"Port"              INTEGER NOT NULL DEFAULT 5555,
+		"EncryptedPassword" TEXT    NOT NULL DEFAULT '',
+		"AuthType"          TEXT    NOT NULL DEFAULT 'header',
+		"IsEnabled"         INTEGER NOT NULL DEFAULT 1,
+		"IsDefault"         INTEGER NOT NULL DEFAULT 0,
+		"SortOrder"         INTEGER NOT NULL DEFAULT 0,
+		"CreatedDate"       TEXT    NOT NULL DEFAULT '',
+		"UpdatedDate"       TEXT    NOT NULL DEFAULT ''
+	)`); err != nil {
+		return err
+	}
+
+	serverCols, err := tableColumns(tx, "Server")
+	if err != nil {
+		return err
+	}
+	for _, col := range []struct{ column, ddl string }{
+		{"Name", "TEXT NOT NULL DEFAULT 'Default Server'"},
+		{"Host", "TEXT NOT NULL DEFAULT '127.0.0.1'"},
+		{"Port", "INTEGER NOT NULL DEFAULT 5555"},
+		{"EncryptedPassword", "TEXT NOT NULL DEFAULT ''"},
+		{"AuthType", "TEXT NOT NULL DEFAULT 'header'"},
+		{"IsEnabled", "INTEGER NOT NULL DEFAULT 1"},
+		{"IsDefault", "INTEGER NOT NULL DEFAULT 0"},
+		{"SortOrder", "INTEGER NOT NULL DEFAULT 0"},
+		{"CreatedDate", "TEXT NOT NULL DEFAULT ''"},
+		{"UpdatedDate", "TEXT NOT NULL DEFAULT ''"},
+	} {
+		if !serverCols[col.column] {
+			if _, err = tx.Exec(`ALTER TABLE "Server" ADD COLUMN "` + col.column + `" ` + col.ddl); err != nil {
+				return err
+			}
+		}
+	}
+
+	// 2. Ensure Setting table exists
+	if _, err = tx.Exec(`CREATE TABLE IF NOT EXISTS Setting(SettingKey TEXT PRIMARY KEY,SettingValue TEXT NOT NULL,UpdatedDate TEXT NOT NULL)`); err != nil {
+		return err
+	}
+
+	// 3. Ensure a default server exists (migrating from Setting if present)
+	var serverCount int
+	_ = tx.QueryRow(`SELECT COUNT(*) FROM "Server"`).Scan(&serverCount)
+	if serverCount == 0 {
+		host := "127.0.0.1"
+		port := 5555
+		encPwd := ""
+		auth := "header"
+
+		var hostVal, portVal, pwdVal, authVal string
+		_ = tx.QueryRow(`SELECT SettingValue FROM Setting WHERE SettingKey='se_host'`).Scan(&hostVal)
+		_ = tx.QueryRow(`SELECT SettingValue FROM Setting WHERE SettingKey='se_port'`).Scan(&portVal)
+		_ = tx.QueryRow(`SELECT SettingValue FROM Setting WHERE SettingKey='se_password'`).Scan(&pwdVal)
+		_ = tx.QueryRow(`SELECT SettingValue FROM Setting WHERE SettingKey='se_auth'`).Scan(&authVal)
+
+		if hostVal != "" {
+			_ = json.Unmarshal([]byte(hostVal), &host)
+		}
+		if portVal != "" {
+			_ = json.Unmarshal([]byte(portVal), &port)
+		}
+		if pwdVal != "" {
+			_ = json.Unmarshal([]byte(pwdVal), &encPwd)
+		}
+		if authVal != "" {
+			_ = json.Unmarshal([]byte(authVal), &auth)
+		}
+
+		stamp := now()
+		if _, err = tx.Exec(`INSERT INTO "Server"(Name,Host,Port,EncryptedPassword,AuthType,IsEnabled,IsDefault,SortOrder,CreatedDate,UpdatedDate) VALUES(?,?,?,?,?,1,1,0,?,?)`, "Default Server", host, port, encPwd, auth, stamp, stamp); err != nil {
+			return err
+		}
+	}
+
+	// 4. Ensure all existing tables have ServerID and required migration columns
 	for _, migration := range []struct{ table, column, ddl string }{
-		{"VpnSessionSample", "DownloadBytes", `INTEGER NOT NULL DEFAULT 0`}, {"VpnSessionSample", "UploadBytes", `INTEGER NOT NULL DEFAULT 0`},
-		{"VpnSessionTrafficSample", "TotalBytes", `INTEGER NOT NULL DEFAULT 0`}, {"TrafficQuota", "BaseSendBytes", `INTEGER NOT NULL DEFAULT 0`}, {"TrafficQuota", "BaseRecvBytes", `INTEGER NOT NULL DEFAULT 0`},
+		{"UserTrafficSample", "ServerID", `INTEGER NOT NULL DEFAULT 1`},
+		{"HubTrafficSample", "ServerID", `INTEGER NOT NULL DEFAULT 1`},
+		{"VpnSessionSample", "ServerID", `INTEGER NOT NULL DEFAULT 1`},
+		{"VpnSessionSample", "DownloadBytes", `INTEGER NOT NULL DEFAULT 0`},
+		{"VpnSessionSample", "UploadBytes", `INTEGER NOT NULL DEFAULT 0`},
+		{"VpnSessionTrafficSample", "TotalBytes", `INTEGER NOT NULL DEFAULT 0`},
+		{"VpnUserCredential", "ServerID", `INTEGER NOT NULL DEFAULT 1`},
+		{"TrafficQuota", "ServerID", `INTEGER NOT NULL DEFAULT 1`},
+		{"TrafficQuota", "BaseSendBytes", `INTEGER NOT NULL DEFAULT 0`},
+		{"TrafficQuota", "BaseRecvBytes", `INTEGER NOT NULL DEFAULT 0`},
+		{"AuditLog", "ServerID", `INTEGER DEFAULT NULL`},
 	} {
 		cols, e := tableColumns(tx, migration.table)
 		if e != nil {
@@ -131,13 +226,15 @@ func initSchema(db *sql.DB) error {
 			}
 		}
 	}
+
+	// 5. Execute schema to create any missing tables / indexes
 	if _, err = tx.Exec(schema); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(`UPDATE TrafficQuota SET LastSendBytes=MAX(0,LastSendBytes),LastRecvBytes=MAX(0,LastRecvBytes) WHERE LastSendBytes<0 OR LastRecvBytes<0`); err != nil {
 		return err
 	}
-	// Keep obsolete deployment records for operators who still need their history.
+
 	return tx.Commit()
 }
 
