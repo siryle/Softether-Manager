@@ -70,10 +70,12 @@ export function Console() {
       setResult(null);
       if (e instanceof ApiError && e.seError === "UnsupportedError") {
         let hint = t("This RPC method is not supported by the current server or is unavailable in its current configuration.");
-        if (selected.name === "GetDDnsClientStatus") {
+        if (selected.name === "GetDDnsClientStatus" || selected.name === "GetAzureStatus") {
           try {
             const status = await api.ddns();
-            if (status.enabled === false) hint = t("Dynamic DNS is disabled. SoftEther returns code 33 for this status query while it is off. You can enable it in Server settings.");
+            if (status.enabled === false) hint = t(selected.name === "GetAzureStatus"
+              ? "VPN Azure requires dynamic DNS. Enable dynamic DNS first."
+              : "Dynamic DNS is disabled. SoftEther returns code 33 for this status query while it is off. You can enable it in Server settings.");
           } catch (statusError) {
             if (!(statusError instanceof ApiError) || statusError.seError !== "UnsupportedError") {
               setError(`${message}\n${t("Could not load dynamic DNS: {error}", { error: statusError instanceof Error ? statusError.message : String(statusError) })}`);
@@ -149,7 +151,7 @@ export function Console() {
                 <div className="alert" role="status">
                   <div>
                     <p>{notice}</p>
-                    {selected.name === "GetDDnsClientStatus" && <p><Link className="linkish" to="/server-settings/protocols">{t("Open Server settings")}</Link></p>}
+                    {(selected.name === "GetDDnsClientStatus" || selected.name === "GetAzureStatus") && <p><Link className="linkish" to="/server-settings/protocols">{t("Open Server settings")}</Link></p>}
                     <details>
                       <summary>{t("Original RPC error")}</summary>
                       <pre className="mono" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{error}</pre>

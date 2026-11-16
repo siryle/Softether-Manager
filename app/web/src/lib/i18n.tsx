@@ -887,6 +887,8 @@ const zhCN: Record<string, string> = {
   "Could not load VPN Azure: {error}": "无法加载 VPN Azure：{error}",
   "Could not load dynamic DNS: {error}": "无法加载动态 DNS：{error}",
   "VPN Azure is not supported by this server.": "当前服务器不支持 VPN Azure。",
+  "VPN Azure requires dynamic DNS. Enable dynamic DNS first.": "VPN Azure 依赖动态 DNS，请先开启动态 DNS。",
+  "Requires DDNS": "需先开启 DDNS",
   "Dynamic DNS is not supported by this server.": "当前服务器不支持动态 DNS。",
   "Keep a softether.net hostname updated. Changing this setting restarts the VPN service.": "自动更新 softether.net 域名。修改此开关会重启 VPN 服务。",
   "Restarting the VPN server; waiting for dynamic DNS status…": "正在重启 VPN 服务，等待确认动态 DNS 状态…",

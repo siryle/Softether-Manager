@@ -1,7 +1,7 @@
 "use client";
 
 import { t } from "../lib/i18n";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { CheckRow, ConfirmSheet, Empty, ErrorAlert, Field, KV, LoadingBlock, PageHead, SectionTitle, usePoll } from "../components/bits";
 import { api, ApiError, type Wire } from "../lib/api";
 import { Link } from "../lib/router";
@@ -233,11 +233,11 @@ function SpecialListenerSwitch({
 
 /** VPN Azure: the switch, and beside it what the relay itself reports --
  *  enabled is a wish until the server says "connected". */
-function AzureSwitch({ azure, onFresh }: { azure: Wire; onFresh: (fresh: Wire) => void }) {
-  const on = Boolean(azure.IsEnabled_bool);
-  const connected = Boolean(azure.IsConnected_bool);
+function AzureSwitch({ azure, onFresh, ddnsDisabled = false }: { azure: Wire | null; onFresh: (fresh: Wire) => void; ddnsDisabled?: boolean }) {
+  const on = !ddnsDisabled && Boolean(azure?.IsEnabled_bool);
+  const connected = Boolean(azure?.IsConnected_bool);
   const toggle = useToggle({
-    value: on,
+    value: ddnsDisabled ? null : on,
     apply: async (next) => {
       const r = await api.setAzure(next);
       onFresh(r);
@@ -255,11 +255,14 @@ function AzureSwitch({ azure, onFresh }: { azure: Wire; onFresh: (fresh: Wire) =
   return (
     <SwitchRow
       label="VPN Azure relay"
-      hint="Reachable through azure even behind NAT, at <hostname>.vpnazure.net."
+      hint={ddnsDisabled ? "VPN Azure requires dynamic DNS. Enable dynamic DNS first." : "Reachable through azure even behind NAT, at <hostname>.vpnazure.net."}
       toggle={toggle}
       on={on}
+      disabled={ddnsDisabled}
       status={
-        on ? (
+        ddnsDisabled ? (
+          <Pill kind="idle" label="Requires DDNS" />
+        ) : on ? (
           <Pill kind={connected ? "ok" : "busy"} label={connected ? "connected" : "connecting"} />
         ) : (
           <Pill kind="idle" label="disabled" />
@@ -275,43 +278,75 @@ function AzureDdnsCard() {
   const [azureError, setAzureError] = useState<Error | null>(null);
   const [ddnsError, setDdnsError] = useState<Error | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const azureRequest = useRef(0);
+  const ddnsEnabled = ddns?.enabled;
+
+  const loadAzure = useCallback(async () => {
+    const request = ++azureRequest.current;
+    try {
+      const fresh = await api.azure();
+      if (request !== azureRequest.current) return;
+      setAzure(fresh);
+      setAzureError(null);
+    } catch (error) {
+      if (request === azureRequest.current) setAzureError(error instanceof Error ? error : new Error(String(error)));
+    }
+  }, []);
+
+  const onDdnsFresh = useCallback((fresh: Wire) => {
+    setDdns(fresh);
+    setDdnsError(null);
+    if (ddnsEnabled !== undefined && fresh.enabled !== ddnsEnabled) {
+      ++azureRequest.current;
+      setAzure(null);
+      setAzureError(null);
+      if (fresh.enabled === true) void loadAzure();
+    }
+  }, [ddnsEnabled, loadAzure]);
 
   const load = useCallback(async () => {
     setRefreshing(true);
     await Promise.all([
-      api.azure().then((r) => {
-        setAzure(r);
-        setAzureError(null);
-      }).catch((e: unknown) => setAzureError(e instanceof Error ? e : new Error(String(e)))),
-      api.ddns().then((r) => {
-        setDdns(r);
-        setDdnsError(null);
-      }).catch((e: unknown) => setDdnsError(e instanceof Error ? e : new Error(String(e)))),
+      ddnsEnabled === false ? Promise.resolve() : loadAzure(),
+      api.ddns().then(onDdnsFresh).catch((e: unknown) => setDdnsError(e instanceof Error ? e : new Error(String(e)))),
     ]);
     setRefreshing(false);
-  }, []);
+  }, [ddnsEnabled, loadAzure, onDdnsFresh]);
   usePoll(load, "list", []);
 
   const azureUnsupported = azureError instanceof ApiError && azureError.seError === "UnsupportedError";
   const ddnsUnsupported = ddnsError instanceof ApiError && ddnsError.seError === "UnsupportedError";
-  const canRetry = (azureError && !azureUnsupported) || (ddnsError && !ddnsUnsupported);
+  const canRetry = (ddnsEnabled !== false && azureError && !azureUnsupported) || (ddnsError && !ddnsUnsupported);
+  const azureControl = ddnsEnabled === false ? (
+    <AzureSwitch key="ddns-disabled" azure={null} onFresh={setAzure} ddnsDisabled />
+  ) : azureUnsupported ? (
+    !ddns && !ddnsError ? <LoadingBlock label="Loading dynamic DNS" /> :
+      <div className="alert" role="status">{t("VPN Azure is not supported by this server.")}</div>
+  ) : azureError ? (
+    <ErrorAlert><span role="alert">{t("Could not load VPN Azure: {error}", { error: azureError.message })}</span></ErrorAlert>
+  ) : azure ? (
+    <AzureSwitch azure={azure} onFresh={setAzure} />
+  ) : <LoadingBlock label="Loading VPN Azure" />;
 
   return (
     <div className="card" style={{ padding: "var(--s4)" }}>
       <div className="section__t" style={{ marginBottom: "var(--s3)" }}>{t("VPN Azure & dynamic DNS")}</div>
-      {azureUnsupported ? (
-        <div className="alert" role="status">{t("VPN Azure is not supported by this server.")}</div>
-      ) : azureError ? (
-        <ErrorAlert><span role="alert">{t("Could not load VPN Azure: {error}", { error: azureError.message })}</span></ErrorAlert>
-      ) : azure ? (
-        <AzureSwitch azure={azure} onFresh={setAzure} />
-      ) : <LoadingBlock label="Loading VPN Azure" />}
       {ddnsUnsupported ? (
-        <div className="alert" role="status">{t("Dynamic DNS is not supported by this server.")}</div>
+        <>
+          <div className="alert" role="status">{t("Dynamic DNS is not supported by this server.")}</div>
+          {azureControl}
+        </>
       ) : (
         <>
           {ddnsError && <ErrorAlert><span role="alert">{t("Could not load dynamic DNS: {error}", { error: ddnsError.message })}</span></ErrorAlert>}
-          {ddns ? <DdnsSettings ddns={ddns} onFresh={setDdns} /> : !ddnsError && <LoadingBlock label="Loading dynamic DNS" />}
+          {ddns ? (
+            <DdnsSettings ddns={ddns} onFresh={onDdnsFresh}>{azureControl}</DdnsSettings>
+          ) : (
+            <>
+              {!ddnsError && <LoadingBlock label="Loading dynamic DNS" />}
+              {azureControl}
+            </>
+          )}
         </>
       )}
       {canRetry && (
@@ -321,7 +356,7 @@ function AzureDdnsCard() {
   );
 }
 
-function DdnsSettings({ ddns, onFresh }: { ddns: Wire; onFresh: (fresh: Wire) => void }) {
+function DdnsSettings({ ddns, onFresh, children }: { ddns: Wire; onFresh: (fresh: Wire) => void; children: ReactNode }) {
   const [confirming, setConfirming] = useState(false);
   const [ddnsHost, setDdnsHost] = useState("");
   const { guard } = useToast();
@@ -363,28 +398,31 @@ function DdnsSettings({ ddns, onFresh }: { ddns: Wire; onFresh: (fresh: Wire) =>
         onToggle={() => setConfirming(true)}
         status={<Pill kind={on ? "ok" : "idle"} label={on ? "enabled" : "disabled"} />}
       />
-      {on && (
-        <fieldset disabled={toggle.pending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-          <KV rows={[
-            ["DDNS hostname", String(ddns.CurrentHostName_str || "—")],
-            ["FQDN", String(ddns.CurrentFqdn_str || "—")],
-            ["IPv4", String(ddns.CurrentIPv4_str || "—")],
-            ["last error", Number(ddns.Err_IPv4_u32 ?? 0) === 0 ? t("none") : String(ddns.ErrStr_IPv4_utf || t("code {n}", { n: String(ddns.Err_IPv4_u32) }))],
-          ]} />
-          <Field label="Change DDNS hostname" hint="The name half of <name>.softether.net — it must be globally unused.">
-            <div style={{ display: "flex", gap: "var(--s2)" }}>
-              <input className="input mono" value={ddnsHost} onChange={(e) => setDdnsHost(e.target.value)} placeholder={String(ddns.CurrentHostName_str ?? "")} autoCapitalize="none" spellCheck={false} />
-              <button className="btn" disabled={!ddnsHost.trim()} onClick={() => void guard(async () => {
-                await api.setDdnsHostname(ddnsHost.trim());
-                setDdnsHost("");
-                onFresh(await api.ddns());
-              }, "DDNS hostname changed.")}>
-                {t("Apply")}
-              </button>
-            </div>
-          </Field>
-        </fieldset>
-      )}
+      <fieldset disabled={toggle.pending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+        {children}
+        {on && (
+          <>
+            <KV rows={[
+              ["DDNS hostname", String(ddns.CurrentHostName_str || "—")],
+              ["FQDN", String(ddns.CurrentFqdn_str || "—")],
+              ["IPv4", String(ddns.CurrentIPv4_str || "—")],
+              ["last error", Number(ddns.Err_IPv4_u32 ?? 0) === 0 ? t("none") : String(ddns.ErrStr_IPv4_utf || t("code {n}", { n: String(ddns.Err_IPv4_u32) }))],
+            ]} />
+            <Field label="Change DDNS hostname" hint="The name half of <name>.softether.net — it must be globally unused.">
+              <div style={{ display: "flex", gap: "var(--s2)" }}>
+                <input className="input mono" value={ddnsHost} onChange={(e) => setDdnsHost(e.target.value)} placeholder={String(ddns.CurrentHostName_str ?? "")} autoCapitalize="none" spellCheck={false} />
+                <button className="btn" disabled={!ddnsHost.trim()} onClick={() => void guard(async () => {
+                  await api.setDdnsHostname(ddnsHost.trim());
+                  setDdnsHost("");
+                  onFresh(await api.ddns());
+                }, "DDNS hostname changed.")}>
+                  {t("Apply")}
+                </button>
+              </div>
+            </Field>
+          </>
+        )}
+      </fieldset>
       {confirming && (
         <ConfirmSheet
           title={t(on ? "Disable dynamic DNS and restart?" : "Enable dynamic DNS and restart?")}
