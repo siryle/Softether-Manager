@@ -38,7 +38,8 @@ func (c *RPCClient) Call(ctx context.Context, method string, params M) (M, error
 	if params == nil {
 		params = M{}
 	}
-	id := c.id.Add(1)
+	// SoftEther reads and returns JSON-RPC IDs as strings (JsonGetStr/JsonSetStr).
+	id := strconv.FormatUint(c.id.Add(1), 10)
 	payload, err := json.Marshal(M{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
 	if err != nil {
 		return nil, err
@@ -75,8 +76,8 @@ func (c *RPCClient) Call(ctx context.Context, method string, params M) (M, error
 		return nil, httpError{502, M{"message": msg, "se_error": kind, "se_code": nil}}
 	}
 	var reply struct {
-		ID     json.RawMessage `json:"id"`
-		Result M               `json:"result"`
+		ID     string `json:"id"`
+		Result M      `json:"result"`
 		Error  *struct {
 			Code    int    `json:"code"`
 			Message string `json:"message"`
@@ -87,7 +88,7 @@ func (c *RPCClient) Call(ctx context.Context, method string, params M) (M, error
 	if err = decoder.Decode(&reply); err != nil {
 		return nil, httpError{502, M{"message": "Invalid SoftEther JSON response.", "se_error": "ProtocolError"}}
 	}
-	if string(reply.ID) != strconv.FormatUint(id, 10) {
+	if reply.ID != id {
 		return nil, httpError{502, M{"message": "SoftEther response ID mismatch.", "se_error": "ProtocolError"}}
 	}
 	if reply.Error != nil {

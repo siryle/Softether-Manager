@@ -3,7 +3,6 @@ package manager
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"crypto/x509"
 	"database/sql"
 	"encoding/base64"
@@ -382,6 +381,9 @@ func attachSoftEther(t *testing.T, a *App) *fakeSoftEther {
 		if r.URL.Path != "/api/" || r.Header.Get("X-VPNADMIN-PASSWORD") != "vpn-secret" {
 			t.Error("RPC endpoint/auth mismatch")
 		}
+		if _, ok := req["id"].(string); !ok {
+			t.Error("SoftEther requires a string request ID")
+		}
 		fake.mu.Lock()
 		defer fake.mu.Unlock()
 		fake.calls = append(fake.calls, req)
@@ -632,19 +634,21 @@ func TestSchemaFailureRollsBack(t *testing.T) {
 	}
 }
 func TestRPCProtocolErrors(t *testing.T) {
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, `{"jsonrpc":"2.0","id":9999,"result":{}}`)
-	}))
-	defer server.Close()
-	c := NewRPCClient("localhost", 1, "", "header")
-	c.url = server.URL
-	c.http = server.Client()
-	defer c.Close()
-	_, err := c.Call(context.Background(), "GetServerInfo", nil)
-	if err == nil {
-		t.Fatal("response ID mismatch accepted")
+	for _, id := range []string{`"9999"`, `9999`, `1`, `null`, `""`} {
+		t.Run(id, func(t *testing.T) {
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"result":{}}`, id)
+			}))
+			defer server.Close()
+			c := NewRPCClient("localhost", 1, "", "header")
+			c.url = server.URL
+			defer c.Close()
+			_, err := c.Call(context.Background(), "GetServerInfo", nil)
+			if err == nil {
+				t.Fatal("invalid response ID accepted")
+			}
+		})
 	}
-	_ = tls.VersionTLS12
 }
 func TestWorkerShutdown(t *testing.T) {
 	a := testApp(t)
