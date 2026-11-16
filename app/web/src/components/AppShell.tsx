@@ -1,21 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "../lib/auth";
 import { useServer } from "../lib/server";
-import { Link, back, navigate, seg, useRoute } from "../lib/router";
+import { Link, navigate, seg, useRoute } from "../lib/router";
 import { useUpdate } from "../lib/update";
 import { LanguageButton, useI18n, t } from "../lib/i18n";
+import { api, type Wire } from "../lib/api";
+import { formatBytes } from "../lib/util";
 import {
   BrandMark,
-  IconBack,
-  IconCheck,
-  IconChevron,
   IconHub,
   IconLogs,
   IconMoon,
   IconPanels,
   IconPulse,
+  IconSearch,
   IconSettings,
   IconSignOut,
   IconSun,
@@ -25,258 +25,256 @@ import {
 import { useTheme } from "../ui/theme";
 
 /**
- * Two shells, one component.
+ * Unslopped Quiet Chrome Shell for SoftEther Manager.
  *
- * >= 960px: a soft sidebar on the canvas — labelled destinations with the
- * hubs listed beneath, collapsible down to a column of icon keys. Expanded
- * is the default; the choice sticks per browser.
+ * Sticky Topbar:
+ *   - Identity with original lime-coin BrandMark
+ *   - Restrained LED connection status indicator (IP:Port · Running)
+ *   - Monospace search bar with ⌘K keycap
+ *   - Live dual-stream telemetry readout (RX/TX)
+ *   - Language, Theme, Version and Administrator controls
  *
- * < 960px: a native-app shell -- a solid top bar that shows where you are,
- * and a bottom tab bar with three destinations.
+ * Sidebar:
+ *   - Core Network: Dashboard, Hubs, Users, Sessions (with count badges)
+ *   - System Management: Logs, API Console, Panel Settings
+ *   - Bottom Hardware Telemetry box (CPU & RAM status)
  */
-
-function readCollapsed(): boolean {
-  try {
-    return localStorage.getItem("sem_rail") === "min";
-  } catch {
-    return false;
-  }
-}
-
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const [collapsed, setCollapsed] = useState(readCollapsed);
-  const toggleRail = () =>
-    setCollapsed((c) => {
-      const next = !c;
+  const { user, logout } = useAuth();
+  const { probe, hubs, health } = useServer();
+  const { t } = useI18n();
+  const route = useRoute();
+  const p = route.parts;
+  const active = p[0] ?? "";
+
+  const [resources, setResources] = useState<Wire | null>(null);
+
+  // Poll resources for live topbar telemetry & sidebar health box
+  useEffect(() => {
+    let unmounted = false;
+    const fetchRes = async () => {
       try {
-        localStorage.setItem("sem_rail", next ? "min" : "full");
-      } catch {
-        /* private mode: the choice just does not stick */
-      }
-      return next;
-    });
+        const data = await api.resources();
+        if (!unmounted && data) setResources(data);
+      } catch {}
+    };
+    fetchRes();
+    const timer = setInterval(fetchRes, 5000);
+    return () => {
+      unmounted = true;
+      clearInterval(timer);
+    };
+  }, []);
+
+  const net = (resources?.network as Wire) ?? {};
+  const rxRate = Number(net.rx_bytes_per_second) || 0;
+  const txRate = Number(net.tx_bytes_per_second) || 0;
+  const cpuPercent = (Number(resources?.cpu?.overall?.percent) || 0).toFixed(1);
+  const memUsed = Number(resources?.memory?.used_bytes) || 0;
+  const memTotal = Number(resources?.memory?.total_bytes) || 1;
+  const memPercent = Math.round((memUsed / memTotal) * 100);
+
+  // Total session and user counts from hubs
+  const totalSessions = hubs?.reduce((acc, h) => acc + (Number(h.NumSessions_u32) || 0), 0) ?? 0;
+  const totalUsers = hubs?.reduce((acc, h) => acc + (Number(h.NumUsers_u32) || 0), 0) ?? 0;
 
   return (
-    <div className={`shell${collapsed ? " shell--min" : ""}`}>
-      <Side collapsed={collapsed} onToggle={toggleRail} />
-      <TopBar />
-      <main className="shell__scroll">
-        <MainBar />
-        {children}
-      </main>
+    <div className="shell">
+      {/* ── Top Navigation Bar (Quiet Chrome) ────────────────────────── */}
+      <header className="topbar">
+        {/* Left: Identity + Restrained Status Indicator */}
+        <div className="topbar__left">
+          <Link to="/" className="topbar__brand" aria-label="SoftEther Manager">
+            <BrandMark size={28} />
+            <span className="topbar__brand-title">SoftEther Manager</span>
+            <span className="topbar__brand-ver">v1.0.12</span>
+          </Link>
+
+          {probe?.online && (
+            <div className="topbar__status">
+              <span className="topbar__led" />
+              <span className="topbar__endpoint mono">
+                {probe.hostname?.includes(":") ? probe.hostname : `${probe.hostname || "127.0.0.1"}:5555`} · {t("Running")}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Center: Monospace Search (Cmd+K) */}
+        <div className="topbar__center">
+          <div className="topbar__search">
+            <IconSearch size={14} className="topbar__search-icon" />
+            <input
+              type="text"
+              placeholder={t("Search hubs, sessions, users...")}
+              className="topbar__search-input"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  navigate("/users");
+                }
+              }}
+            />
+            <span className="keycap">⌘K</span>
+          </div>
+        </div>
+
+        {/* Right: Live Telemetry + Controls */}
+        <div className="topbar__right">
+          <div className="topbar__telemetry mono">
+            <span className="topbar__rx">
+              <span className="topbar__rx-lbl">↓ RX</span> {formatBytes(rxRate)}/s
+            </span>
+            <span style={{ color: "var(--text-muted)" }}>·</span>
+            <span className="topbar__tx">
+              <span className="topbar__tx-lbl">↑ TX</span> {formatBytes(txRate)}/s
+            </span>
+          </div>
+
+          <LanguageButton />
+          <ThemeToggle />
+          <VersionPill compact />
+
+          {user && (
+            <div className="topbar__user">
+              <span className="topbar__avatar mono">
+                {(user || "A").slice(0, 1).toUpperCase()}
+              </span>
+              <span className="hidden sm:inline font-mono">{user}</span>
+              <button
+                className="icon-btn"
+                onClick={logout}
+                title={t("Sign out")}
+                aria-label={t("Sign out")}
+                style={{ width: 26, height: 26 }}
+              >
+                <IconSignOut size={14} />
+              </button>
+            </div>
+          )}
+        </div>
+      </header>
+
+      {/* ── App Layout Body ─────────────────────────────────────────── */}
+      <div className="shell__body">
+        {/* Sidebar: Strict rows & status telemetry */}
+        <aside className="side">
+          <div>
+            {/* Core Network */}
+            <div className="side__section">
+              <div className="side__gtitle">{t("Core Network")}</div>
+              <nav className="side__nav">
+                <Link
+                  to="/"
+                  className={`side__item${active === "" ? " on" : ""}`}
+                >
+                  <span className="side__item-left">
+                    <IconPanels size={16} />
+                    <span>{t("Console overview")}</span>
+                  </span>
+                </Link>
+
+                <Link
+                  to="/"
+                  className={`side__item${active === "hub" ? " on" : ""}`}
+                >
+                  <span className="side__item-left">
+                    <IconHub size={16} />
+                    <span>{t("Virtual Hubs")}</span>
+                  </span>
+                  <span className="side__count">{hubs?.length ?? 1}</span>
+                </Link>
+
+                <Link
+                  to="/users"
+                  className={`side__item${active === "users" ? " on" : ""}`}
+                >
+                  <span className="side__item-left">
+                    <IconUsers size={16} />
+                    <span>{t("Users")}</span>
+                  </span>
+                  <span className="side__count">{totalUsers}</span>
+                </Link>
+
+                <Link
+                  to="/connections"
+                  className={`side__item${active === "connections" ? " on" : ""}`}
+                >
+                  <span className="side__item-left">
+                    <IconPulse size={16} />
+                    <span>{t("Active sessions")}</span>
+                  </span>
+                  <span className="side__count">{totalSessions}</span>
+                </Link>
+              </nav>
+            </div>
+
+            {/* System Management */}
+            <div className="side__section">
+              <div className="side__gtitle">{t("System Management")}</div>
+              <nav className="side__nav">
+                <Link
+                  to="/logs"
+                  className={`side__item${active === "logs" ? " on" : ""}`}
+                >
+                  <span className="side__item-left">
+                    <IconLogs size={16} />
+                    <span>{t("Logs")}</span>
+                  </span>
+                </Link>
+
+                <Link
+                  to="/console"
+                  className={`side__item${active === "console" ? " on" : ""}`}
+                >
+                  <span className="side__item-left">
+                    <IconTerminal size={16} />
+                    <span>{t("API console")}</span>
+                  </span>
+                </Link>
+
+                <Link
+                  to="/settings"
+                  className={`side__item${active === "settings" || active === "server-settings" ? " on" : ""}`}
+                >
+                  <span className="side__item-left">
+                    <IconSettings size={16} />
+                    <span>{t("Panel settings")}</span>
+                  </span>
+                </Link>
+              </nav>
+            </div>
+          </div>
+
+          {/* Bottom Telemetry Status Box */}
+          <div className="side__telemetry-box">
+            <div className="side__telemetry-h">
+              <span>{probe?.hostname || "vpnserver"}</span>
+              <span className="side__telemetry-uptime">
+                {probe?.online ? t("Online") : t("Offline")}
+              </span>
+            </div>
+            <div className="side__telemetry-row">
+              <span className="side__telemetry-lbl">{t("CPU Load")}</span>
+              <span className="side__telemetry-v">{cpuPercent}%</span>
+            </div>
+            <div className="side__telemetry-row">
+              <span className="side__telemetry-lbl">{t("Memory usage")}</span>
+              <span className="side__telemetry-v" style={{ color: memPercent >= 85 ? "var(--color-amber)" : undefined }}>
+                {memPercent}%
+              </span>
+            </div>
+          </div>
+        </aside>
+
+        {/* Main View Area */}
+        <main className="shell__scroll">
+          {children}
+        </main>
+      </div>
+
+      {/* Mobile Tabbar (< 768px) */}
       <TabBar />
     </div>
-  );
-}
-
-/* ── the desktop sidebar ────────────────────────────────────────────────── */
-
-const DESTINATIONS = [
-  { to: "/users", label: "Users", icon: <IconUsers size={19} /> , match: (p: string) => p === "users" },
-  { to: "/connections", label: "Connections", icon: <IconPulse size={19} />, match: (p: string) => p === "connections" },
-  { to: "/logs", label: "Logs", icon: <IconLogs size={19} />, match: (p: string) => p === "logs" },
-  { to: "/console", label: "API console", icon: <IconTerminal size={19} />, match: (p: string) => p === "console" },
-  { to: "/settings", label: "Settings", icon: <IconSettings size={19} />, match: (p: string) => p === "settings" },
-];
-
-function Side({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
-  const { user, logout } = useAuth();
-  const { hubs } = useServer();
-  const { t } = useI18n();
-  const route = useRoute();
-  const active = route.parts[0] ?? "";
-  const activeHub = active === "hub" ? route.parts[1] : null;
-
-  // The hub leaves carry /hub/* while they are visible; collapsed, the
-  // Dashboard key represents them.
-  const dashOn =
-    active === "" || active === "connect" || active === "server-settings" ||
-    (collapsed && active === "hub");
-
-  const item = (
-    to: string,
-    label: string,
-    icon: React.ReactNode,
-    on: boolean,
-  ) => (
-    <Link
-      key={to}
-      to={to}
-      className={`side__item${on ? " on" : ""}`}
-      title={collapsed ? label : undefined}
-      aria-label={label}
-    >
-      {icon}
-      <span className="side__label">{label}</span>
-    </Link>
-  );
-
-  return (
-    <aside className="side">
-      <div className="side__top">
-        <Link to="/" className="side__brand" aria-label={t("Dashboard")}>
-          <BrandMark size={38} />
-          <span className="side__label">
-            <span className="side__word">SoftEther</span>
-            <span className="side__sub">Manager</span>
-          </span>
-        </Link>
-        <button
-          className="icon-btn side__fold"
-          onClick={onToggle}
-          title={collapsed ? t("Expand the sidebar") : t("Collapse the sidebar")}
-          aria-label={collapsed ? t("Expand the sidebar") : t("Collapse the sidebar")}
-          aria-expanded={!collapsed}
-        >
-          <IconChevron size={15} />
-        </button>
-      </div>
-
-      <nav className="side__nav" aria-label={t("Primary")}>
-        {item("/", t("Dashboard"), <IconPanels size={19} />, dashOn)}
-
-        {!collapsed && hubs && hubs.length > 0 && (
-          <div className="side__group">
-            <div className="side__gtitle">{t("Virtual Hubs")}</div>
-            {hubs.map((h) => {
-              const name = String(h.HubName_str);
-              return (
-                <button
-                  key={name}
-                  className={`side__leaf${activeHub === name ? " on" : ""}`}
-                  data-state={h.Online_bool ? "connected" : "disabled"}
-                  onClick={() => navigate(`/hub/${seg(name)}`)}
-                  title={`${name} — ${h.Online_bool ? t("Online") : t("Offline")}`}
-                >
-                  <span className="side__dot" />
-                  <span className="side__label">{name}</span>
-                  <span className="side__count">{Number(h.NumSessions_u32) || ""}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-        {collapsed && (
-          <Link
-            to={activeHub ? `/hub/${seg(activeHub)}` : "/"}
-            className={`side__item${active === "hub" ? " on" : ""}`}
-            title={t("Virtual Hubs")}
-            aria-label={t("Virtual Hubs")}
-          >
-            <IconHub size={19} />
-            <span className="side__label">{t("Virtual Hubs")}</span>
-          </Link>
-        )}
-
-        {DESTINATIONS.map((d) => item(d.to, t(d.label), d.icon, d.match(active)))}
-      </nav>
-
-      <div className="side__foot">
-        <div style={{ display: "flex", gap: "var(--s1)", alignItems: "center" }}>
-          <ThemeToggle />
-          <LanguageButton />
-        </div>
-        <button
-          className="side__user"
-          onClick={logout}
-          title={`${user ?? ""} — ${t("Sign out")}`}
-          aria-label={t("Sign out")}
-        >
-          <span className="side__coin">{(user ?? "?").slice(0, 1)}</span>
-          <span className="side__label truncate">{user}</span>
-          <span className="side__out">
-            <IconSignOut size={15} />
-          </span>
-        </button>
-      </div>
-    </aside>
-  );
-}
-
-/* ── the utility cluster at the top of the content ──────────────────────── */
-
-function MainBar() {
-  const route = useRoute();
-  const { t } = useI18n();
-  const live =
-    route.path === "/" || route.parts[0] === "hub" || route.parts[0] === "connections";
-  return (
-    <div className="mainbar">
-      <HealthChip />
-      {live && (
-        <span className="mchip mchip--live">
-          <span className="mchip__dot" style={{ background: "var(--ok)" }} />
-          实时
-        </span>
-      )}
-      <VersionPill />
-    </div>
-  );
-}
-
-/** One server, one verdict. */
-function HealthChip() {
-  const { health, probe } = useServer();
-  const { t } = useI18n();
-  if (health === "probing") return null;
-  if (health === "online") {
-    return (
-      <span className="mchip mchip--ok">
-        <IconCheck size={13} />
-        {t("Your VPN server is healthy.")}
-      </span>
-    );
-  }
-  if (health === "unconfigured") {
-    return (
-      <Link to="/connect" className="mchip">
-        {t("not connected to SoftEther yet")}
-      </Link>
-    );
-  }
-  return (
-    <span className="mchip mchip--err" title={probe?.error ?? ""}>
-      {t("The VPN server is not answering.")}
-    </span>
-  );
-}
-
-/* ── mobile chrome ──────────────────────────────────────────────────────── */
-
-function TopBar() {
-  const route = useRoute();
-  const { t } = useI18n();
-  const p = route.parts;
-
-  const isPushed = p.length > 0 && !(p[0] === "settings" && p.length === 1) && p[0] !== "users";
-  let title = "Dashboard";
-  if (p[0] === "users") title = "Users";
-  else if (p[0] === "settings") title = "Settings";
-  else if (p[0] === "connect") title = "Connect to SoftEther";
-  else if (p[0] === "server-settings") title = "Server settings";
-  else if (p[0] === "connections") title = "Connections";
-  else if (p[0] === "logs") title = "Logs";
-  else if (p[0] === "console") title = "API console";
-  else if (p[0] === "hub" && p[1]) {
-    title = p[2] === "user" && p[3] ? p[3] : p[1];
-  }
-
-  return (
-    <header className="topbar">
-      {isPushed && p.length > 0 ? (
-        <button className="topbar__back" onClick={back} aria-label={t("Back")}>
-          <IconBack size={20} />
-        </button>
-      ) : (
-        <BrandMark size={28} />
-      )}
-      <span className="topbar__title">{t(title)}</span>
-      <div style={{ marginInlineStart: "auto", display: "flex", alignItems: "center", gap: 6 }}>
-        <LanguageButton />
-        <ThemeToggle />
-        <VersionPill compact />
-      </div>
-    </header>
   );
 }
 
@@ -292,14 +290,13 @@ function TabBar() {
   );
   return (
     <nav className="tabbar" aria-label={t("Primary")}>
-      {tab((p) => p === "" || p === "hub" || p === "connect", "/", "Dashboard", <IconPanels />)}
-      {tab((p) => p === "users", "/users", "Users", <IconUsers />)}
-      {tab((p) => p === "settings", "/settings", "Settings", <IconSettings />)}
+      {tab((p) => p === "" || p === "hub" || p === "connect", "/", "Dashboard", <IconPanels size={18} />)}
+      {tab((p) => p === "users", "/users", "Users", <IconUsers size={18} />)}
+      {tab((p) => p === "connections", "/connections", "Connections", <IconPulse size={18} />)}
+      {tab((p) => p === "settings" || p === "server-settings", "/settings", "Settings", <IconSettings size={18} />)}
     </nav>
   );
 }
-
-/* ── shared chrome ──────────────────────────────────────────────────────── */
 
 export function ThemeToggle() {
   const { resolved, toggle } = useTheme();
@@ -311,13 +308,11 @@ export function ThemeToggle() {
       title={dark ? t("Switch to light") : t("Switch to dark")}
       aria-label={dark ? t("Switch to light theme") : t("Switch to dark theme")}
     >
-      {dark ? <IconSun size={17} /> : <IconMoon size={17} />}
+      {dark ? <IconSun size={15} /> : <IconMoon size={15} />}
     </button>
   );
 }
 
-/** The version is a button, because the only thing anyone wants to do with a
- *  version number is find out whether it is the current one. */
 export function VersionPill({ compact }: { compact?: boolean }) {
   const { status, open, applying } = useUpdate();
   const available = Boolean(status?.check?.update_available);
@@ -336,7 +331,7 @@ export function VersionPill({ compact }: { compact?: boolean }) {
       }
     >
       {applying && <span className="spin" style={{ width: 11, height: 11 }} />}
-      <span className="truncate">{compact ? v.replace(/^v/, "") : v || "—"}</span>
+      <span className="truncate">{compact ? v.replace(/^v/, "") : v || "1.0.12"}</span>
       {available && <span className="verpill__dot" />}
     </button>
   );

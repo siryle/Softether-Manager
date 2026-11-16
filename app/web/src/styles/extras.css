@@ -835,6 +835,7 @@
 .chart__grid {
   stroke: var(--glass-line);
   stroke-width: 1;
+  stroke-dasharray: 3 3;
 }
 .chart__axis {
   stroke: var(--glass-line-hi);

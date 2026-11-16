@@ -115,6 +115,32 @@
   --action-fg: #0b0d14;
   --action-line: transparent;
 
+  /* Signature BrandMark tokens (the authentic lime coin with 4-node ring) */
+  --brand-coin: #8fd94a;
+  --brand-coin-hi: #a0e35f;
+  --brand-ink: #16210a;
+
+  /* Unslop semantic palette aliases */
+  --bg-deep: var(--canvas);
+  --bg-page: var(--bg);
+  --bg-card: var(--glass);
+  --bg-raised: var(--glass-hi);
+  --bg-subtle: rgba(255, 255, 255, 0.02);
+  --border-hairline: var(--glass-line);
+  --border-focus: var(--accent-line);
+  --text-primary: var(--text);
+  --text-secondary: var(--text-2);
+  --color-emerald: var(--ok);
+  --color-emerald-tint: var(--ok-soft);
+  --color-amber: var(--warn);
+  --color-amber-tint: var(--warn-soft);
+  --btn-primary-bg: var(--action-bg);
+  --btn-primary-text: var(--action-fg);
+  --btn-primary-hover: var(--action-bg-hi);
+  --btn-secondary-bg: var(--glass-hi);
+  --btn-secondary-text: var(--text);
+  --btn-secondary-border: var(--glass-line);
+
   --ok: #10b981;
   --ok-soft: rgba(16, 185, 129, 0.12);
   --ok-line: rgba(16, 185, 129, 0.3);
@@ -195,6 +221,32 @@
   --action-bg-hi: #1e293b;
   --action-fg: #ffffff;
   --action-line: transparent;
+
+  /* Signature BrandMark tokens (the authentic lime coin with 4-node ring) */
+  --brand-coin: #7ec93b;
+  --brand-coin-hi: #8bd44b;
+  --brand-ink: #1a2b07;
+
+  /* Unslop semantic palette aliases */
+  --bg-deep: var(--canvas);
+  --bg-page: var(--bg);
+  --bg-card: var(--glass);
+  --bg-raised: var(--glass-hi);
+  --bg-subtle: rgba(0, 0, 0, 0.015);
+  --border-hairline: var(--glass-line);
+  --border-focus: var(--accent-line);
+  --text-primary: var(--text);
+  --text-secondary: var(--text-2);
+  --color-emerald: var(--ok);
+  --color-emerald-tint: var(--ok-soft);
+  --color-amber: var(--warn);
+  --color-amber-tint: var(--warn-soft);
+  --btn-primary-bg: var(--action-bg);
+  --btn-primary-text: var(--action-fg);
+  --btn-primary-hover: var(--action-bg-hi);
+  --btn-secondary-bg: var(--glass-hi);
+  --btn-secondary-text: var(--text);
+  --btn-secondary-border: var(--glass-line);
 
   --ok: #059669;
   --ok-soft: rgba(5, 150, 105, 0.1);

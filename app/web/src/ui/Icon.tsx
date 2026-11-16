@@ -361,15 +361,13 @@ export const IconGlobe = (p: P) => (
  */
 export function BrandMark({ size = 32 }: { size?: number }) {
   return (
-    <span className="brandmark" aria-hidden="true">
-      {/* The mark matches the deck: a lime coin with SoftEther's four-node
-          ring -- machines joined into one network -- pressed into it in dark
-          ink. The same figure as the app icon, drawn in the panel's theme. */}
+    <span className="brandmark" aria-hidden="true" style={{ display: "inline-flex", verticalAlign: "middle" }}>
+      {/* Original SoftEther Manager mark: a lime coin with four-node ring */}
       <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
         <defs>
           <linearGradient id="bm-g" x1="4" y1="4" x2="28" y2="28" gradientUnits="userSpaceOnUse">
-            <stop stopColor="var(--action-bg-hi)" />
-            <stop offset="1" stopColor="var(--action-bg)" />
+            <stop stopColor="var(--brand-coin-hi, #a0e35f)" />
+            <stop offset="1" stopColor="var(--brand-coin, #8fd94a)" />
           </linearGradient>
         </defs>
         <rect width="32" height="32" rx="9.5" fill="url(#bm-g)" />
@@ -378,14 +376,14 @@ export function BrandMark({ size = 32 }: { size?: number }) {
           y="10.7"
           width="10.6"
           height="10.6"
-          stroke="var(--action-fg)"
+          stroke="var(--brand-ink, #16210a)"
           strokeWidth="2"
           strokeLinejoin="round"
         />
-        <circle cx="10.7" cy="10.7" r="2.8" fill="var(--action-fg)" />
-        <circle cx="21.3" cy="10.7" r="2.8" fill="var(--action-fg)" />
-        <circle cx="10.7" cy="21.3" r="2.8" fill="var(--action-fg)" />
-        <circle cx="21.3" cy="21.3" r="2.8" fill="var(--action-fg)" />
+        <circle cx="10.7" cy="10.7" r="2.8" fill="var(--brand-ink, #16210a)" />
+        <circle cx="21.3" cy="10.7" r="2.8" fill="var(--brand-ink, #16210a)" />
+        <circle cx="10.7" cy="21.3" r="2.8" fill="var(--brand-ink, #16210a)" />
+        <circle cx="21.3" cy="21.3" r="2.8" fill="var(--brand-ink, #16210a)" />
       </svg>
     </span>
   );
