@@ -448,7 +448,6 @@ const zhCN: Record<string, string> = {
   "server default": "遵循服务端默认",
 
   // --- Settings ---
-  "Settings sections": "设置分区",
   "The panel itself — account, address, domain, sampling, updates.": "面板自身配置 —— 账户、访问地址、域名、监控采样与系统更新。",
   "Account": "管理员账户",
   "signed in as": "当前登录用户",

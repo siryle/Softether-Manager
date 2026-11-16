@@ -28,17 +28,6 @@ import { SwitchRow, useToggle } from "../ui/Switch";
  * The panel about itself: the account, where it serves, its sampler, its
  * updates, and the audit trail of what every administrator did.
  */
-const SETTINGS_SECTIONS = [
-  { id: "account", label: "Account" },
-  { id: "connection", label: "VPN server" },
-  { id: "panel", label: "Panel" },
-  { id: "domain", label: "Domain & HTTPS" },
-  { id: "monitoring", label: "Monitoring" },
-  { id: "vpnfile", label: "Connection files (.vpn)" },
-  { id: "audit", label: "Audit log" },
-  { id: "about", label: "About" },
-];
-
 function scrollSettingsSection(id: string) {
   const target = document.getElementById(`s-${id}`);
   if (!target) return false;
@@ -73,32 +62,17 @@ export function Settings({ section }: { section?: string }) {
   return (
     <div className="page settings-page">
       <PageHead title={t("Settings")} sub={t("The panel itself — account, address, domain, sampling, updates.")} />
-      <div className="settings-layout">
-        <nav className="settings-nav" aria-label={t("Settings sections")}>
-          {SETTINGS_SECTIONS.map(({ id, label }) => (
-            <Link
-              key={id}
-              to={`/settings/${id}`}
-              className="settings-nav__link"
-              aria-current={(section ?? "account") === id ? "location" : undefined}
-              onClick={() => { if (section === id) scrollSettingsSection(id); }}
-            >
-              {t(label)}
-            </Link>
-          ))}
-        </nav>
-        <div className="setdoc">
-          <AccountCard />
-          <div className="settings-pair">
-            <ConnectionCard />
-            <PanelCard />
-          </div>
-          <DomainCard />
-          <MonitoringCard />
-          <VpnFileTemplateCard />
-          <AuditCard />
-          <AboutCard />
+      <div className="setdoc">
+        <AccountCard />
+        <div className="settings-pair">
+          <ConnectionCard />
+          <PanelCard />
         </div>
+        <DomainCard />
+        <MonitoringCard />
+        <VpnFileTemplateCard />
+        <AuditCard />
+        <AboutCard />
       </div>
     </div>
   );
