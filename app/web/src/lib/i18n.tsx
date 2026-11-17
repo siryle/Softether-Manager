@@ -1136,6 +1136,17 @@ const zhCN: Record<string, string> = {
   "Hide from anonymous enumeration": "对匿名枚举隐藏",
   "Clients listing hubs before signing in do not see this one.": "登录前枚举 HUB 的客户端看不到这一个。",
   "Hub admin password": "HUB 管理员密码",
+  "Let's Encrypt certificate": "Let's Encrypt 证书",
+  "Install a certificate you already have": "安装已有证书",
+  "Certificate domain": "证书域名",
+  "Issue a certificate for the name below and install it on this server. Cloudflare DNS-01 needs no open port; HTTP-01 uses the panel's port 80.":
+    "为下面的域名申请证书并安装到这台服务器。Cloudflare DNS-01 无需开放端口；HTTP-01 使用面板的 80 端口。",
+  "A public hostname that resolves to this server, e.g. vpn.example.com. Empty means no certificate.":
+    "解析到本服务器的公网域名，例如 vpn.example.com。留空表示不申请证书。",
+  "No certificate yet: enter the name this server should answer for and save.":
+    "尚未申请证书：填写这台服务器对外使用的域名并保存即可。",
+  "The panel itself: account, address, sampling and updates. The VPN server and its certificate are handled under Server settings.":
+    "面板自身：账号、访问地址、采样与更新。VPN 服务器及其证书在“当前服务器配置”中管理。",
   "Leave blank for no dedicated password": "留空表示不单独设置密码",
   "Only sent when you type a new one. Lets someone administer just this hub.": "只有填写新密码才会提交。可以让别人只管理这一个 HUB。",
   "Save hub settings": "保存 HUB 设置",

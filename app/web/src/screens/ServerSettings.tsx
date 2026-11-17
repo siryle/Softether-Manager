@@ -3,7 +3,7 @@
 import { t } from "../lib/i18n";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { CheckRow, ConfirmSheet, Empty, ErrorAlert, Field, KV, LoadingBlock, PageHead, SectionTitle, usePoll } from "../components/bits";
-import { api, useServerApi, ApiError, type BackupInfo, type BackupSettings, type Wire } from "../lib/api";
+import { api, useServerApi, ApiError, type BackupInfo, type BackupSettings, type DomainStatus, type Wire } from "../lib/api";
 import { Link } from "../lib/router";
 import { useToast } from "../lib/toast";
 import { downloadBase64, fileToBase64, formatBytes, formatDate, timeAgo } from "../lib/util";
@@ -599,8 +599,10 @@ function EncryptionCard() {
           </Field>
         </div>
 
-        <div className="card" style={{ padding: "var(--s4)" }}>
-          <div className="section__t" style={{ marginBottom: "var(--s3)" }}>{t("Server certificate")}</div>
+        <div className="card" style={{ padding: "var(--s4)", gridColumn: "1 / -1" }}>
+          <div className="section__t" style={{ marginBottom: "var(--s2)" }}>{t("Server certificate")}</div>
+          <IssueCertificateSection />
+          <div className="section__t" style={{ margin: "var(--s4) 0 var(--s3)" }}>{t("Install a certificate you already have")}</div>
           <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap", marginBottom: "var(--s3)" }}>
             <button className="btn" onClick={() => void guard(async () => {
               const r = await api.cert();
@@ -667,6 +669,438 @@ function CertUpload({ onUpload }: { onUpload: (cert: File, key: File) => Promise
       >
         {busy && <span className="spin" />} <IconUpload size={14} /> {t("Install certificate")}
       </button>
+    </>
+  );
+}
+
+
+/* ── Let's Encrypt certificate for this server ────────────────────────────── */
+
+const issueForm = (s: DomainStatus | null) => ({
+  domain: s?.domain ?? (s?.vpn_public_host ?? ""),
+  acme_email: s?.acme_email ?? "",
+  acme_staging: Boolean(s?.acme_staging),
+  acme_challenge_type: (s?.acme_challenge_type as "dns-01" | "http-01") || "dns-01",
+  cf_dns_token: s?.cf_dns_token ?? "",
+  cert_key_type: (s?.cert_key_type as "rsa2048" | "ecdsa") || "rsa2048",
+  cert_auto_push: s?.cert_auto_push !== false,
+  cert_renew_hook: s?.cert_renew_hook ?? "",
+});
+
+/** Label, verdict, explanation: one line per thing that can be wrong. */
+function CertRow({ label, pill, children, error }: { label: string; pill: ReactNode; children?: ReactNode; error?: boolean }) {
+  return (
+    <div className="statrow">
+      <span className="statrow__k">{label}</span>
+      <span>{pill}</span>
+      <span className={`statrow__v${error ? " statrow__v--err" : ""}`}>{children}</span>
+    </div>
+  );
+}
+
+/**
+ * The certificate this server presents, obtained from Let's Encrypt. DNS-01
+ * through Cloudflare needs no open port; HTTP-01 uses the panel's port-80
+ * listener. The pair lands in ssl/ and, when auto push is on, is installed on
+ * the current server over RPC -- on issue and on every renewal.
+ */
+function IssueCertificateSection() {
+  const [state, setState] = useState<DomainStatus | null>(null);
+  const [form, setForm] = useState(issueForm(null));
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [acting, setActing] = useState<"" | "issue" | "check">("");
+  const [pushing, setPushing] = useState(false);
+  const [showEvents, setShowEvents] = useState(false);
+  const { guard, push } = useToast();
+
+  const absorb = useCallback(
+    (s: DomainStatus) => {
+      setState(s);
+      if (!dirty) setForm(issueForm(s));
+    },
+    [dirty],
+  );
+  const load = useCallback(async () => {
+    const s = await api.domain().catch(() => null);
+    if (s) absorb(s);
+    return s;
+  }, [absorb]);
+  // While a certificate is being obtained the card follows along closely;
+  // otherwise it re-reads at the detail tier like everything else.
+  usePoll(load, state?.busy ? 2500 : "detail", [state?.busy]);
+
+  const set = (patch: Partial<ReturnType<typeof issueForm>>) => {
+    setForm((f) => ({ ...f, ...patch }));
+    setDirty(true);
+  };
+
+  const save = async () => {
+    if (form.acme_challenge_type === "dns-01" && !form.cf_dns_token.trim()) {
+      push("err", t("Cloudflare DNS API Token is required when using DNS-01 verification."));
+      return;
+    }
+    setSaving(true);
+    await guard(async () => {
+      const s = await api.saveDomain({
+        domain: form.domain.trim(),
+        acme_email: form.acme_email.trim(),
+        acme_staging: form.acme_staging,
+        acme_challenge_type: form.acme_challenge_type,
+        cf_dns_token: form.cf_dns_token.trim(),
+        cert_key_type: form.cert_key_type,
+        cert_auto_push: form.cert_auto_push,
+        cert_renew_hook: form.cert_renew_hook.trim(),
+      });
+      setDirty(false);
+      setState(s);
+      setForm(issueForm(s));
+    }, form.domain.trim() ? t("Domain saved — obtaining certificate.") : t("Domain removed."));
+    setSaving(false);
+  };
+
+  const issue = async () => {
+    setActing("issue");
+    await guard(async () => {
+      const s = await api.issueCertificate();
+      absorb(s);
+    }, t("Certificate request started."));
+    setActing("");
+  };
+
+  const check = async () => {
+    setActing("check");
+    await guard(async () => {
+      const s = await api.checkDomain();
+      absorb(s);
+    });
+    setActing("");
+  };
+
+  const pushCert = async () => {
+    setPushing(true);
+    await guard(async () => {
+      const res = await api.pushDomainCert();
+      push("ok", res.message || t("Certificate pushed to SoftEther VPN server."));
+    }, t("Pushing certificate to SoftEther VPN server…"));
+    setPushing(false);
+  };
+
+  const s = state;
+  const busy = Boolean(s?.busy);
+  const cert = s?.certificate;
+  const certOk = Boolean(cert?.present && !cert?.stale);
+  const daysLeft = cert?.days_left ?? null;
+  const challenge = form.acme_challenge_type;
+
+  // One line per problem. The last issuance error usually *is* the DNS or
+  // port-80 problem already listed, so it is added only when it says
+  // something the stage rows do not.
+  const attention: string[] = [];
+  if (s && s.configured && !busy) {
+    if (s.config_error) attention.push(s.config_error);
+    if (s.dns?.error) attention.push(s.dns.error);
+    if (challenge === "http-01" && s.http.error) attention.push(t("Port 80: {error}", { error: s.http.error }));
+    const stageError = s.renewal.last_error_type === "dns" || s.renewal.last_error_type === "port80";
+    if (s.renewal.last_error && (!certOk || s.renewal.due) && !stageError) attention.push(s.renewal.last_error);
+  }
+  const blockedBy =
+    s?.renewal.last_error_type === "dns"
+      ? t("Waiting on the DNS record above.")
+      : s?.renewal.last_error_type === "port80"
+        ? t("Waiting on port 80 above.")
+        : "";
+
+  return (
+    <>
+      <div className="section__t" style={{ margin: "var(--s4) 0 var(--s2)" }}>{t("Let's Encrypt certificate")}</div>
+      <p className="hint" style={{ marginTop: 0, marginBottom: "var(--s3)" }}>
+        {t("Issue a certificate for the name below and install it on this server. Cloudflare DNS-01 needs no open port; HTTP-01 uses the panel's port 80.")}
+      </p>
+
+      <Field
+        label={t("Certificate domain")}
+        hint={
+          s?.vpn_public_host
+            ? t("Leave empty to use server public domain ({host}).", { host: s.vpn_public_host })
+            : t("A public hostname that resolves to this server, e.g. vpn.example.com. Empty means no certificate.")
+        }
+      >
+        <input
+          className="input mono"
+          value={form.domain}
+          onChange={(e) => set({ domain: e.target.value })}
+          placeholder={s?.vpn_public_host || "vpn.example.com"}
+          autoCapitalize="none"
+          spellCheck={false}
+          inputMode="url"
+        />
+      </Field>
+
+      <div className="row2">
+        <Field label={t("Verification method")} hint={t("DNS-01 uses Cloudflare DNS API without requiring open port 80.")}>
+          <select className="input" value={challenge} onChange={(e) => set({ acme_challenge_type: e.target.value as "dns-01" | "http-01" })}>
+            <option value="dns-01">{t("Cloudflare DNS (DNS-01) - Recommended")}</option>
+            <option value="http-01">{t("HTTP-01 (Requires public Port 80)")}</option>
+          </select>
+        </Field>
+        <Field label={t("Certificate Key Type")} hint={t("SoftEther VPN requires RSA 2048 for full compatibility.")}>
+          <select className="input" value={form.cert_key_type} onChange={(e) => set({ cert_key_type: e.target.value as "rsa2048" | "ecdsa" })}>
+            <option value="rsa2048">{t("RSA 2048 (SoftEther compatible / Default)")}</option>
+            <option value="ecdsa">{t("ECDSA P-256")}</option>
+          </select>
+        </Field>
+      </div>
+
+      {challenge === "dns-01" && (
+        <Field label={t("Cloudflare API Token")} hint={t("API token with Zone:Read and DNS:Edit permissions for the domain on Cloudflare.")}>
+          <input
+            className="input mono"
+            type="password"
+            value={form.cf_dns_token}
+            onChange={(e) => set({ cf_dns_token: e.target.value })}
+            placeholder={t("Cloudflare DNS API Token")}
+            autoCapitalize="none"
+            spellCheck={false}
+          />
+        </Field>
+      )}
+
+      <Field label={t("Contact email (optional)")} hint={t("Let's Encrypt writes to it if a certificate is about to expire unrenewed. Nothing else is done with it.")}>
+        <input className="input mono" value={form.acme_email} onChange={(e) => set({ acme_email: e.target.value })} placeholder="ops@example.com" autoCapitalize="none" spellCheck={false} inputMode="email" />
+      </Field>
+
+      <CheckRow
+        checked={form.cert_auto_push}
+        onChange={(v) => set({ cert_auto_push: v })}
+        label={t("Auto push certificate to SoftEther VPN server")}
+        hint={t("When the certificate is issued or renewed, automatically update the VPN server certificate via RPC.")}
+      />
+      <Field label={t("Custom renewal hook (optional)")} hint={t("Optional script path executed when certificate is renewed (e.g. ssl/hook.sh).")}>
+        <input
+          className="input mono"
+          value={form.cert_renew_hook}
+          onChange={(e) => set({ cert_renew_hook: e.target.value })}
+          placeholder="ssl/hook.sh"
+          autoCapitalize="none"
+          spellCheck={false}
+        />
+      </Field>
+      <CheckRow
+        checked={form.acme_staging}
+        onChange={(v) => set({ acme_staging: v })}
+        label={t("Use Let's Encrypt's staging environment")}
+        hint={t("Issues a certificate browsers do not trust, without counting against the real rate limits — for checking DNS and firewall before asking for the real thing. Switch it off afterwards and a trusted certificate is obtained in its place.")}
+      />
+      <p className="hint" style={{ marginTop: 0 }}>
+        {challenge === "dns-01"
+          ? t("Using Cloudflare DNS-01 challenge. Automatically creates and cleans up _acme-challenge TXT records.")
+          : t("Only http-01 validation is used, so the name must resolve straight to this server: no wildcards, no names behind a CDN.")}
+      </p>
+
+      {dirty && (
+        <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap" }}>
+          <button className="btn btn--primary" onClick={() => void save()} disabled={saving}>
+            {saving && <span className="spin" />} {form.domain.trim() ? t("Save and obtain the certificate") : t("Save")}
+          </button>
+          <button className="btn" onClick={() => { setForm(issueForm(state)); setDirty(false); }}>{t("Discard")}</button>
+        </div>
+      )}
+
+      {s === null ? (
+        <LoadingBlock />
+      ) : s.configured ? (
+        <>
+          {attention.length > 0 && (
+            <div className="alert alert--err" style={{ display: "block", marginTop: "var(--s3)" }}>
+              <div className="alert__t">{t("Needs attention")}</div>
+              <ul style={{ margin: "4px 0 0", paddingInlineStart: "1.2em" }}>
+                {attention.map((line, i) => <li key={i}>{line}</li>)}
+              </ul>
+            </div>
+          )}
+          <div className="statrows" style={{ marginTop: "var(--s3)" }}>
+            {busy && (
+              <div className="progressline" role="status">
+                <span className="spin" /> {s.phase === "renewing" ? t("Renewing the certificate") : t("Obtaining the certificate")}
+                {s.step ? ` — ${t(s.step)}` : "…"}
+              </div>
+            )}
+
+            <CertRow label={t("Domain")} pill={<Pill kind="ok" label="configured" />}>
+              <span className="mono">{s.domain}</span>
+              {s.acme_staging ? t(" · staging environment") : ""}
+            </CertRow>
+
+            <CertRow
+              label="DNS"
+              error={Boolean(s.dns?.error)}
+              pill={
+                !s.dns?.checked_at ? (
+                  <Pill kind="idle" label="not checked yet" />
+                ) : s.dns.error ? (
+                  <Pill kind="err" label="not resolving" />
+                ) : s.dns.match ? (
+                  <Pill kind="ok" label="points here" />
+                ) : (
+                  <Pill kind="warn" label="points elsewhere" />
+                )
+              }
+            >
+              {!s.dns?.checked_at
+                ? t("Checked when the certificate is requested, or with Re-check.")
+                : s.dns.error
+                  ? s.dns.error
+                  : s.dns.match
+                    ? <>{t("Resolves to ")}<span className="mono">{(s.dns.addresses ?? []).join(", ")}</span>{t(" — one of this machine's addresses.")}</>
+                    : <>{t("Resolves to ")}<span className="mono">{(s.dns.addresses ?? []).join(", ")}</span>{t(", but this machine's addresses are ")}<span className="mono">{(s.dns.local_addresses ?? []).join(", ") || t("unknown")}</span>{t(". Behind NAT or a port forward that can still validate; otherwise fix the record.")}</>}
+            </CertRow>
+
+            {challenge === "http-01" && (
+              <CertRow
+                label={t("Port 80")}
+                error={Boolean(s.http.error)}
+                pill={s.http.listening ? <Pill kind="ok" label="listening" /> : <Pill kind="err" label="not available" />}
+              >
+                {s.http.listening
+                  ? t("Answers Let's Encrypt's validation requests; will redirect to HTTPS once the certificate is in place.")
+                  : `${s.http.error || t("The listener is not running.")} ${t("Validation arrives on port 80 and nowhere else, so nothing can be issued until it is free.")}`}
+              </CertRow>
+            )}
+
+            <CertRow
+              label={t("Certificate")}
+              error={!busy && !certOk && Boolean(s.renewal.last_error)}
+              pill={
+                busy ? (
+                  <Pill kind="busy" label={s.phase === "renewing" ? "renewing…" : "issuing…"} />
+                ) : certOk ? (
+                  <Pill kind={daysLeft !== null && daysLeft < s.renewal.renew_before_days ? "warn" : "ok"} label={daysLeft !== null && daysLeft < s.renewal.renew_before_days ? "renewal due" : "valid"} />
+                ) : cert?.present ? (
+                  <Pill kind="warn" label="needs replacing" />
+                ) : s.renewal.last_error ? (
+                  <Pill kind="err" label="failed" />
+                ) : (
+                  <Pill kind="idle" label="none yet" />
+                )
+              }
+            >
+              {busy ? (
+                s.step ? t(s.step) : t("Working…")
+              ) : certOk ? (
+                <>
+                  {t("Valid until")} <span className="mono">{formatDate(cert!.expires_at)}</span>
+                  {daysLeft !== null ? t(" ({days} days)", { days: Math.max(0, Math.floor(daysLeft)) }) : ""}
+                  {t(" · issued by {issuer}", { issuer: cert!.issuer || "Let's Encrypt" })}
+                  {cert!.staging ? t(" — a staging certificate, which browsers will not trust.") : "."}
+                </>
+              ) : cert?.present ? (
+                cert.expired
+                  ? t("The certificate on disk expired {date}; a new one is being requested.", { date: formatDate(cert.expires_at) })
+                  : cert.domain !== s.domain
+                    ? t("The certificate on disk is for {have}; one for {want} is being requested.", { have: cert.domain, want: s.domain })
+                    : t("The certificate on disk came from the {from} environment; one from the {to} environment is being requested.", {
+                        from: t(cert.staging ? "staging" : "production"),
+                        to: t(s.acme_staging ? "staging" : "production"),
+                      })
+              ) : s.renewal.last_error ? (
+                <>
+                  {blockedBy || s.renewal.last_error}
+                  {s.renewal.next_attempt_at ? (
+                    timeAgo(s.renewal.next_attempt_at) === t("just now")
+                      ? t(" Next automatic attempt shortly; or use Issue now once it is fixed.")
+                      : t(" Next automatic attempt at {date}; or use Issue now once it is fixed.", { date: formatDate(s.renewal.next_attempt_at) })
+                  ) : null}
+                </>
+              ) : (
+                t("Requested shortly after the domain is saved.")
+              )}
+            </CertRow>
+
+            <CertRow label={t("SSL storage")} pill={<Pill kind="ok" label="ssl/" />}>
+              {s.ssl_dir ? (
+                <>
+                  {t("Saved to ")}<span className="mono">{s.ssl_dir}</span>
+                  {s.ssl_files && (
+                    <span className="tsub" style={{ marginLeft: 8 }}>
+                      ({s.ssl_files.pem ? `${s.domain}.pem, ` : ""}{s.ssl_files.key ? `${s.domain}.key, ${s.domain}.pem.key` : ""})
+                    </span>
+                  )}
+                </>
+              ) : (
+                t("Saves <domain>.pem, <domain>.key, <domain>.pem.key into ssl/")
+              )}
+            </CertRow>
+
+            <CertRow
+              label={t("Renewal")}
+              error={certOk && s.renewal.due && Boolean(s.renewal.last_error)}
+              pill={
+                !certOk ? (
+                  <Pill kind="idle" label="—" />
+                ) : s.renewal.due && s.renewal.last_error ? (
+                  <Pill kind="err" label="failing" />
+                ) : s.renewal.due ? (
+                  <Pill kind="busy" label="due" />
+                ) : (
+                  <Pill kind="ok" label="automatic" />
+                )
+              }
+            >
+              {!certOk ? (
+                t("Starts once a certificate is in place: renewed automatically a month before it expires.")
+              ) : (
+                <>
+                  {t("Renews on ")}<span className="mono">{formatDate(s.renewal.renew_at)}</span>
+                  {t(", {days} days before expiry, checked hourly.", { days: s.renewal.renew_before_days })}
+                  {s.renewal.last_attempt_at ? (
+                    <>
+                      {" "}
+                      {t("Last {kind} {when}:", { kind: t(s.renewal.last_attempt_kind || "attempt"), when: timeAgo(s.renewal.last_attempt_at) })}{" "}
+                      {s.renewal.last_success_at && s.renewal.last_success_at >= s.renewal.last_attempt_at ? t("succeeded.") : s.renewal.last_error ? t("failed — {error}", { error: s.renewal.last_error }) : t("in progress.")}
+                    </>
+                  ) : null}
+                </>
+              )}
+            </CertRow>
+          </div>
+
+          <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap", marginTop: "var(--s3)" }}>
+            <button className={`btn ${certOk ? "" : "btn--primary"}`} onClick={() => void issue()} disabled={busy || acting !== "" || dirty}>
+              {acting === "issue" && <span className="spin" />} {certOk ? t("Renew now") : t("Issue certificate now")}
+            </button>
+            <button className="btn" onClick={() => void check()} disabled={acting !== ""}>
+              {acting === "check" ? <span className="spin" /> : <IconRefresh size={14} />} {t("Re-check")}
+            </button>
+            <button className="btn" onClick={() => void pushCert()} disabled={busy || pushing || dirty || !certOk}>
+              {pushing && <span className="spin" />} {t("Push to VPN server")}
+            </button>
+          </div>
+          {dirty && <p className="hint">{t("Save the changes above before requesting a certificate for them.")}</p>}
+
+          {s.events.length > 0 && (
+            <>
+              <button className="btn btn--sm btn--ghost" onClick={() => setShowEvents((v) => !v)} aria-expanded={showEvents} style={{ marginTop: "var(--s2)" }}>
+                {showEvents ? t("Hide history") : t("History ({count})", { count: s.events.length })}
+              </button>
+              {showEvents && (
+                <div className="eventlist">
+                  {s.events.map((e, i) => (
+                    <div key={i} className={`eventlist__i${e.kind === "failed" ? " eventlist__i--failed" : ""}`}>
+                      <span className="mono">{formatDate(e.at)}</span>
+                      <span>{e.message}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </>
+      ) : (
+        <p className="hint" style={{ marginBottom: 0 }}>
+          {t("No certificate yet: enter the name this server should answer for and save.")}
+        </p>
+      )}
     </>
   );
 }
