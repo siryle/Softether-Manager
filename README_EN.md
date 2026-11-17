@@ -271,10 +271,10 @@ is in the data directory.
 Use the Go version specified in `go.mod`, plus Node.js 22 and npm.
 
 After cloning, run `git config --local core.hooksPath .githooks` once to enable
-automatic version bumps on commit. Each commit with staged changes increments
-the patch number in `VERSION` and includes it in the same commit, for example
-`1.0.13 → 1.0.14`. Explicitly staged version changes are preserved, and retrying
-a failed commit does not increment it again.
+automatic version bumps on commit. Each commit with staged code changes follows a
+decimal rollover rule (for example, `1.0.8 → 1.0.9 → 1.1.0`, `1.1.9 → 1.2.0`) in `VERSION`
+and creates the matching Git tag. Auxiliary file edits (docs, screenshots, tests) skip
+the bump, and explicitly staged version changes are always preserved.
 
 ```bash
 go run ./cmd/softether-manager        # backend on :8000, serves app/web/out if built
