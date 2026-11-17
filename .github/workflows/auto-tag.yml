@@ -8,8 +8,10 @@ on:
     paths:
       - "VERSION"
 
+# contents: write for the tag, actions: write to start the release build.
 permissions:
   contents: write
+  actions: write
 
 jobs:
   auto-tag:
@@ -21,9 +23,12 @@ jobs:
           fetch-depth: 0
 
       - name: Create and push tag if missing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="$(cat VERSION)"
           TAG="v$VERSION"
+          created=false
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "Tag $TAG already exists."
           else
@@ -32,4 +37,13 @@ jobs:
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git tag -a "$TAG" -m "Release $TAG"
             git push origin "$TAG"
+            created=true
+          fi
+          # A tag pushed with GITHUB_TOKEN never triggers another workflow, so a tag
+          # this job created would never reach release.yml (no GitHub release, and
+          # `--version latest` would stay on the previous tag). Start that build
+          # ourselves. Tags pushed by a person already trigger it on their own.
+          if [[ "$created" == true ]]; then
+            echo "Starting the release workflow for $TAG"
+            gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"
           fi
