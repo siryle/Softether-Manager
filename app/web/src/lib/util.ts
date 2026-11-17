@@ -108,3 +108,8 @@ export function formatIPLocation(location?: unknown, isp?: unknown): string {
   // leaves anything unknown untouched.
   return [clean(location), t(clean(isp))].filter(Boolean).join(" ");
 }
+
+/** True when a GeoIP location + ISP pair has anything worth rendering. */
+export function hasIPLocation(location?: unknown, isp?: unknown): boolean {
+  return formatIPLocation(location, isp) !== "";
+}

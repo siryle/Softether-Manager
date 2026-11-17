@@ -5,7 +5,7 @@ import { ConfirmSheet, Empty, KV, LoadingBlock, PageHead, usePoll } from "../com
 import { api, type Wire } from "../lib/api";
 import { useToast } from "../lib/toast";
 import { useI18n, t } from "../lib/i18n";
-import { formatDate, formatIPLocation, timeAgo } from "../lib/util";
+import { formatDate, formatIPLocation, hasIPLocation, timeAgo } from "../lib/util";
 import { IconClose } from "../ui/Icon";
 import { Sheet } from "../ui/Sheet";
 import { Pill } from "../ui/Status";
@@ -76,7 +76,7 @@ export function Connections() {
                     </td>
                     <td className="tmono">
                       <div>{String(c.Ip_ip)}:{String(c.Port_u32)}</div>
-                      {c.IpLocation_str || c.IpIsp_str ? (
+                      {hasIPLocation(c.IpLocation_str, c.IpIsp_str) ? (
                         <div className="tsub" style={{ marginTop: 2, color: "var(--accent)" }}>
                           {formatIPLocation(c.IpLocation_str, c.IpIsp_str)}
                         </div>
@@ -157,7 +157,7 @@ function ConnectionSheet({ name, onClose }: { name: string; onClose: () => void 
       rows.push(["note", String(detail.Note_utf)]);
     }
     rows.push(["source", `${detail.Hostname_str || detail.Ip_ip}:${detail.Port_u32}`]);
-    if (detail.IpLocation_str || detail.IpIsp_str) {
+    if (hasIPLocation(detail.IpLocation_str, detail.IpIsp_str)) {
       rows.push(["location", formatIPLocation(detail.IpLocation_str, detail.IpIsp_str)]);
     }
     rows.push(["connected", formatDate(detail.ConnectedTime_dt as string)]);

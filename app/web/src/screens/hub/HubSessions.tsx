@@ -7,7 +7,7 @@ import { api, type Wire } from "../../lib/api";
 import { navigate, seg } from "../../lib/router";
 import { SESSION_TYPE } from "../../lib/se";
 import { useToast } from "../../lib/toast";
-import { formatBytes, formatCount, formatDate, formatIPLocation, timeAgo } from "../../lib/util";
+import { formatBytes, formatCount, formatDate, formatIPLocation, hasIPLocation, timeAgo } from "../../lib/util";
 import { IconClose } from "../../ui/Icon";
 import { Sheet } from "../../ui/Sheet";
 import { Pill } from "../../ui/Status";
@@ -253,7 +253,7 @@ export function SessionsTable({
                               {t("WAN")}
                             </span>
                             <span>{String(s.ClientIP_ip)}</span>
-                            {s.IpLocation_str || s.IpIsp_str ? (
+                            {hasIPLocation(s.IpLocation_str, s.IpIsp_str) ? (
                               <span className="chip chip--ok" style={{ marginLeft: 6, fontSize: "11px", fontWeight: "normal" }}>
                                 {formatIPLocation(s.IpLocation_str, s.IpIsp_str)}
                               </span>
@@ -391,7 +391,7 @@ export function SessionSheet({ hub,
                     <div className="micro">{t("client IP")}</div>
                     <div className="mono" style={{ fontSize: "var(--t-data)" }}>
                       {String(detail.Client_Ip_Address_ip || "—")}
-                      {detail.IpLocation_str || detail.IpIsp_str ? (
+                      {hasIPLocation(detail.IpLocation_str, detail.IpIsp_str) ? (
                         <div style={{ marginTop: 2 }}>
                           <span className="chip chip--ok" style={{ fontSize: "10px", padding: "1px 5px", fontWeight: "normal" }}>
                             {formatIPLocation(detail.IpLocation_str, detail.IpIsp_str)}

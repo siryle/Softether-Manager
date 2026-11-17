@@ -24,7 +24,7 @@ import { Link, navigate, seg } from "../lib/router";
 import { AUTH_TYPES, isNever, userBytes, SESSION_TYPE } from "../lib/se";
 import { useToast } from "../lib/toast";
 import { useI18n, t } from "../lib/i18n";
-import { formatBytes, formatCount, formatDate, formatDuration, formatIPLocation, timeAgo } from "../lib/util";
+import { formatBytes, formatCount, formatDate, formatDuration, formatIPLocation, hasIPLocation, timeAgo } from "../lib/util";
 import { BrandMark, IconDownload, IconTrash } from "../ui/Icon";
 import { Pill } from "../ui/Status";
 import { UserStatePill } from "./hub/HubUsers";
@@ -434,7 +434,7 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
                               {t("WAN")}
                             </span>
                             <span>{String(h.client_ip)}</span>
-                            {h.ip_location || h.ip_isp ? (
+                            {hasIPLocation(h.ip_location, h.ip_isp) ? (
                               <span className="chip chip--ok" style={{ marginLeft: 6, fontSize: "11px", fontWeight: "normal" }}>
                                 {formatIPLocation(h.ip_location, h.ip_isp)}
                               </span>

@@ -276,6 +276,12 @@ test("IP location drops the placeholder ISP", () => {
   assert.equal(formatIPLocation("江苏省 苏州", "China Telecom"), "江苏省 苏州 China Telecom");
   assert.equal(formatIPLocation("", "—"), "");
   assert.equal(formatIPLocation(undefined, undefined), "");
+  const { hasIPLocation } = load("../src/lib/util.ts", {}, { "./i18n": { t: value => value } });
+  assert.equal(hasIPLocation("—", "—"), false);
+  assert.equal(hasIPLocation("", ""), false);
+  assert.equal(hasIPLocation(undefined, undefined), false);
+  assert.equal(hasIPLocation("—", "China Telecom"), true);
+  assert.equal(hasIPLocation("局域网/内网", "—"), true);
 });
 
 test("IP location localizes a known ISP and leaves unknown ones alone", () => {
