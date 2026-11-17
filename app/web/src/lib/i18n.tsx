@@ -13,6 +13,9 @@ const zhCN: Record<string, string> = {
   "Compare this fingerprint with the certificate on your VPN server before trusting a replacement.": "信任新证书前，请先与 VPN 服务器上的证书指纹核对。",
   "Previously trusted": "原信任指纹",
   "Trust this certificate": "信任此证书",
+  "Skip certificate verification (not recommended)": "跳过证书校验（不推荐）",
+  "Off: the panel pins the server certificate and refuses to send the administrator password if it changes. On: the password is sent to whatever answers on this address.":
+    "关闭：面板会锁定服务器证书，证书变化时拒绝发送管理员密码。开启：管理员密码会发送给该地址上应答的任何服务。",
   // --- Auth & Setup ---
   "Set up this panel": "初始化管理面板",
   "SoftEther Manager": "SoftEther 管理器",

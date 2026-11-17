@@ -196,7 +196,7 @@ func startLiveSoftEther(t *testing.T, a *App, binaryDir string) (*RPCClient, int
 			<-done
 		}
 	})
-	client := a.newRPCClient("127.0.0.1", port, password, "header")
+	client := a.newRPCClient("127.0.0.1", port, password, "header", false)
 	t.Cleanup(client.Close)
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {

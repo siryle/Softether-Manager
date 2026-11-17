@@ -254,7 +254,10 @@ SoftEther management connections pin the certificate's SHA-256 fingerprint on fi
 use. A mismatch blocks administrator credentials before any HTTP request is sent.
 After a legitimate replacement, use Servers → Edit → Inspect saved server certificate,
 compare the fingerprint independently with the server, then confirm trust. Establish
-the first connection over a trusted network.
+the first connection over a trusted network. On isolated/self-signed setups you can opt
+out per server with **Skip certificate verification (not recommended)** in the same form;
+the administrator password is then sent to whatever answers on that address, and the
+change is written to the audit log.
 
 The Linux installer creates the account before opening the panel listener and passes
 passwords through standard input. Its optional SoftEther installation uses pinned

@@ -158,7 +158,7 @@ func (a *App) clientFor(serverID int64) (*RPCClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := a.newRPCClient(str(row["Host"]), int(integer(row["Port"])), pwd, str(row["AuthType"]))
+	c := a.newRPCClient(str(row["Host"]), int(integer(row["Port"])), pwd, str(row["AuthType"]), boolean(row["SkipCertCheck"]))
 	c.encryptedPassword = str(row["EncryptedPassword"])
 	a.rpcClients[serverID] = c
 	return c, nil
@@ -242,14 +242,14 @@ func (a *App) probeServer(ctx context.Context) (result M) {
 	status := a.rpc(ctx, "GetServerStatus", nil)
 	return M{"online": true, "configured": true, "version": info["ServerVersionString_str"], "server_type": info["ServerType_u32"], "hostname": info["ServerHostName_str"], "sessions": status["NumSessionsTotal_u32"], "users": status["NumUsers_u32"], "hubs": status["NumHubTotal_u32"], "send_bytes": status["SendBytes_u64"], "recv_bytes": status["RecvBytes_u64"], "started": status["StartTime_dt"], "current_time": status["CurrentTime_dt"]}
 }
-func (a *App) testConnection(ctx context.Context, host string, port int, password, auth string) M {
+func (a *App) testConnection(ctx context.Context, host string, port int, password, auth string, skipCertCheck bool) M {
 	modes := []string{"header", "basic", "both"}
 	if auth != "" {
 		modes = []string{auth}
 	}
 	var last error
 	for _, mode := range modes {
-		c := a.newRPCClient(host, port, password, mode)
+		c := a.newRPCClient(host, port, password, mode, skipCertCheck)
 		info, err := c.Call(ctx, "GetServerInfo", M{})
 		if err != nil {
 			c.Close()

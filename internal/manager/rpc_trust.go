@@ -31,9 +31,15 @@ func fingerprintOfPEM(chain []byte) string {
 	return ""
 }
 
-func (a *App) newRPCClient(host string, port int, password, auth string) *RPCClient {
+func (a *App) newRPCClient(host string, port int, password, auth string, skipCertCheck bool) *RPCClient {
 	c := NewRPCClient(host, port, password, auth)
 	transport := c.http.Transport.(*http.Transport)
+	if skipCertCheck {
+		// Explicitly opted out per server: the administrator password is sent to
+		// whatever answers on this address. Audited when the flag is turned on.
+		transport.TLSClientConfig.InsecureSkipVerify = true
+		return c
+	}
 	// Self-signed SoftEther certificates are checked against a durable first-use pin.
 	transport.TLSClientConfig.InsecureSkipVerify = true
 	transport.TLSClientConfig.VerifyConnection = func(state tls.ConnectionState) error {

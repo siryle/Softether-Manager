@@ -98,6 +98,7 @@ function ServerForm({ server, onClose, onSaved }: { server: ManagedServer | null
   const [port, setPort] = useState(server?.port ?? 5555);
   const [password, setPassword] = useState("");
   const [isDefault, setIsDefault] = useState(server?.is_default ?? false);
+  const [skipCertCheck, setSkipCertCheck] = useState(server?.skip_cert_check ?? false);
   const [busy, setBusy] = useState<"test" | "save" | null>(null);
   const [test, setTest] = useState<ConnectionTest | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
@@ -121,9 +122,9 @@ function ServerForm({ server, onClose, onSaved }: { server: ManagedServer | null
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setCertificateBusy(false); }
   };
-  const dirty = name !== (server?.name ?? "") || host !== (server?.host ?? "") || port !== (server?.port ?? 5555) || password !== "" || isDefault !== (server?.is_default ?? false);
+  const dirty = name !== (server?.name ?? "") || host !== (server?.host ?? "") || port !== (server?.port ?? 5555) || password !== "" || isDefault !== (server?.is_default ?? false) || skipCertCheck !== (server?.skip_cert_check ?? false);
   const beforeClose = () => !busy && (!dirty || window.confirm(t("Discard unsaved connection changes?")));
-  const body = { name: name.trim(), host: host.trim(), port, password: server && !password ? null : password, is_default: isDefault, auth: test?.auth ?? server?.auth, skip_test: true };
+  const body = { name: name.trim(), host: host.trim(), port, password: server && !password ? null : password, is_default: isDefault, skip_cert_check: skipCertCheck, auth: test?.auth ?? server?.auth, skip_test: true };
   const testConnection = async () => {
     if (!form.current?.reportValidity()) return;
     setBusy("test"); setTest(null); setTestError(null); setError(null);
@@ -149,6 +150,7 @@ function ServerForm({ server, onClose, onSaved }: { server: ManagedServer | null
         <div className="server-form-address"><Field label={t("Host / IP")}><input className="input mono" value={host} onChange={e => setHost(e.target.value)} required maxLength={255} autoCapitalize="none" spellCheck={false} placeholder="vpn.example.com" /></Field><Field label={t("Management port")}><input className="input mono" type="number" min={1} max={65535} value={port} onChange={e => setPort(Number(e.target.value))} required /></Field></div>
         <Field label={t(server ? "Administrator password (empty keeps the stored one)" : "Administrator password")}><input className="input" type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} maxLength={256} /></Field>
         <CheckRow checked={isDefault} onChange={setIsDefault} disabled={server?.is_default} label={t("Use as default server")} hint={t("Used when a browser tab has no server selected.")} />
+        <CheckRow checked={skipCertCheck} onChange={setSkipCertCheck} label={t("Skip certificate verification (not recommended)")} hint={t("Off: the panel pins the server certificate and refuses to send the administrator password if it changes. On: the password is sent to whatever answers on this address.")} />
         <button className="btn" type="button" onClick={() => void testConnection()}><IconRefresh size={14} className={busy === "test" ? "spin" : ""} />{t(busy === "test" ? "Testing..." : "Test connection")}</button>
       </fieldset>
       {server && <div style={{ marginTop: "var(--s4)" }}>

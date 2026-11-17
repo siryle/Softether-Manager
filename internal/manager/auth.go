@@ -129,10 +129,10 @@ func (a *App) registerConnection() {
 				pwd = &p
 			}
 			if action == "test" {
-				return a.testConnection(r.Context(), host, port, password, auth)
+				return a.testConnection(r.Context(), host, port, password, auth, boolean(row["SkipCertCheck"]))
 			}
 			if !boolean(body["skip_test"]) {
-				out := a.testConnection(r.Context(), host, port, password, auth)
+				out := a.testConnection(r.Context(), host, port, password, auth, boolean(row["SkipCertCheck"]))
 				auth = str(out["auth"])
 			}
 			if v, ok := body["public_host"]; ok && v != nil {

@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS "Server" (
         "Port"              INTEGER NOT NULL DEFAULT 5555,
         "EncryptedPassword" TEXT    NOT NULL DEFAULT '',
         "AuthType"          TEXT    NOT NULL DEFAULT 'header',
+        "SkipCertCheck"     INTEGER NOT NULL DEFAULT 0,
         "IsEnabled"         INTEGER NOT NULL DEFAULT 1,
         "IsDefault"         INTEGER NOT NULL DEFAULT 0,
         "SortOrder"         INTEGER NOT NULL DEFAULT 0,

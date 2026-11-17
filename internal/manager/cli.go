@@ -132,7 +132,7 @@ func Run(args []string, stdout, stderr io.Writer) (exit int) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
-			client := a.newRPCClient(*host, *port, "", *auth)
+			client := a.newRPCClient(*host, *port, "", *auth, false)
 			defer client.Close()
 			_, err := client.Call(ctx, "SetServerPassword", M{"PlainTextPassword_str": *password})
 			check(err)
