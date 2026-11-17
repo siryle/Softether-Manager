@@ -9,9 +9,9 @@ import { Field } from "./bits";
 import { useToast } from "../lib/toast";
 
 const TEMPLATE = [
-  "name,realname,note,group,auth_type,password,expires",
-  "alice,Alice Chen,on call this week,staff,password,s3cretpet,",
-  "bob,Bob Li,,,password,another-one,2027-01-01",
+  "name,realname,note,group,auth_type,password,password_hash,expires",
+  "alice,Alice Chen,on call this week,staff,password,s3cretpet,,",
+  "bob,Bob Li,,,password,,<base64 SHA-0 hash from an export>,2027-01-01",
 ].join("\n");
 
 /**
@@ -118,7 +118,7 @@ export function UserImportSheet({ hub, onClose, onImported }: { hub: string; onC
       ) : (
         <>
           <p className="lede" style={{ marginBottom: "var(--s3)" }}>
-            {t("The first line names the columns; every following line is one user. A file exported from this panel can be filled in and imported back.")}
+            {t("The first line names the columns; every following line is one user. A file exported from this panel can be imported back as it is: the password_hash column restores the original passwords.")}
           </p>
           <Field label={t("CSV file")} hint={t("Or paste the rows below.")}>
             <input
@@ -131,7 +131,7 @@ export function UserImportSheet({ hub, onClose, onImported }: { hub: string; onC
           </Field>
           <Field
             label={t("Rows")}
-            hint={t("Columns: name, realname, note, group, auth_type, password, expires. auth_type accepts password, anonymous, certificate, signed, radius, nt — or 0–5. Existing users are skipped.")}
+            hint={t("Columns: name, realname, note, group, auth_type, password, password_hash, expires. Give a password, or the password_hash an export carries — that keeps the original password working. auth_type accepts password, anonymous, certificate, signed, radius, nt — or 0–5. Existing users are skipped.")}
           >
             <textarea
               className="input mono"

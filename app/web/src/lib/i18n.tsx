@@ -1137,15 +1137,15 @@ const zhCN: Record<string, string> = {
   "Clients listing hubs before signing in do not see this one.": "登录前枚举 HUB 的客户端看不到这一个。",
   "Export users": "导出用户",
   "Import users": "批量导入用户",
-  "{count} users exported.": "已导出 {count} 个用户。",
+  "Exported {count} users, password hashes included — keep the file safe.": "已导出 {count} 个用户，包含密码哈希 —— 请妥善保管该文件。",
   "{count} users created.": "已创建 {count} 个用户。",
-  "The first line names the columns; every following line is one user. A file exported from this panel can be filled in and imported back.":
-    "首行是列名，之后每一行是一个用户。本面板导出的文件填好后可以直接导回。",
+  "The first line names the columns; every following line is one user. A file exported from this panel can be imported back as it is: the password_hash column restores the original passwords.":
+    "首行是列名，之后每一行是一个用户。本面板导出的文件可以原样导回：password_hash 列会把原密码一并恢复。",
   "CSV file": "CSV 文件",
   "Or paste the rows below.": "也可以在下方直接粘贴内容。",
   "Rows": "内容",
-  "Columns: name, realname, note, group, auth_type, password, expires. auth_type accepts password, anonymous, certificate, signed, radius, nt — or 0–5. Existing users are skipped.":
-    "列名：name、realname、note、group、auth_type、password、expires。auth_type 可填 password、anonymous、certificate、signed、radius、nt，或 0–5。同名的用户会被跳过。",
+  "Columns: name, realname, note, group, auth_type, password, password_hash, expires. Give a password, or the password_hash an export carries — that keeps the original password working. auth_type accepts password, anonymous, certificate, signed, radius, nt — or 0–5. Existing users are skipped.":
+    "列名：name、realname、note、group、auth_type、password、password_hash、expires。填 password，或填导出文件里的 password_hash —— 用哈希可以把原密码原样恢复。auth_type 可填 password、anonymous、certificate、signed、radius、nt，或 0–5。同名的用户会被跳过。",
   "Download CSV template": "下载 CSV 模板",
   "{count} rows": "{count} 行",
   "Importing…": "正在导入…",

@@ -1,6 +1,8 @@
 package manager
 
 import (
+	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +11,15 @@ import (
 	"sync"
 	"testing"
 )
+
+// The base64 SHA-0 hash SoftEther keeps for a password: 20 bytes.
+var testPasswordHash = func() string {
+	raw := make([]byte, 20)
+	for i := range raw {
+		raw[i] = byte(i + 1)
+	}
+	return base64.StdEncoding.EncodeToString(raw)
+}()
 
 // fakeHub answers the user RPCs the bulk endpoints use and records the calls.
 func fakeHub(t *testing.T) (*httptest.Server, *[]M) {
@@ -37,7 +48,7 @@ func fakeHub(t *testing.T) (*httptest.Server, *[]M) {
 				"Expires_dt": "2027-01-02T03:04:05.000Z",
 			}}}
 		case "GetUser":
-			result = M{"Name_str": req.Params["Name_str"], "AuthType_u32": 1, "IsExpiresFilled_bool": false}
+			result = M{"Name_str": req.Params["Name_str"], "AuthType_u32": 1, "IsExpiresFilled_bool": false, "HashedKey_bin": testPasswordHash}
 		}
 		writeJSON(w, 200, M{"jsonrpc": "2.0", "id": req.ID, "result": result})
 	})
@@ -67,10 +78,11 @@ func TestUserExportWritesCSV(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("expected header + one row, got %q", str(out["csv"]))
 	}
-	if lines[0] != "name,realname,note,group,auth_type,password,expires" {
+	if lines[0] != "name,realname,note,group,auth_type,password,password_hash,expires" {
 		t.Fatalf("header: %q", lines[0])
 	}
-	if want := `alice,Alice,"ops, on call",staff,1,,2027-01-02T03:04:05.000Z`; lines[1] != want {
+	// The hash travels so a re-import keeps the original password working.
+	if want := `alice,Alice,"ops, on call",staff,1,,` + testPasswordHash + `,2027-01-02T03:04:05.000Z`; lines[1] != want {
 		t.Fatalf("row: %q want %q", lines[1], want)
 	}
 	if str(out["filename"]) != "VPN-users.csv" || integer(out["count"]) != 1 {
@@ -160,5 +172,45 @@ func TestUserImportRejectsAFileWithoutANameColumn(t *testing.T) {
 	}
 	if one(a.db, `SELECT 1 FROM AuditLog WHERE Action='user.imported'`) != nil {
 		t.Fatal("audited an import that never started")
+	}
+}
+
+func TestUserImportAcceptsAPasswordHash(t *testing.T) {
+	a, calls := bulkApp(t)
+	token := admin(t, a)
+	body := M{"csv": "name,auth_type,password_hash\nfrank,password," + testPasswordHash + "\n"}
+	status, out, _ := call(t, a, "POST", "/api/v1/hubs/VPN/users/import", body, token)
+	if status != 200 || len(out["created"].([]any)) != 1 {
+		t.Fatalf("import: %d %v", status, out)
+	}
+	payload := M{}
+	for _, c := range *calls {
+		if str(c["method"]) == "CreateUser" {
+			payload = c["params"].(map[string]any)
+		}
+	}
+	if str(payload["HashedKey_bin"]) != testPasswordHash {
+		t.Fatalf("hash not sent: %v", payload)
+	}
+	if _, ok := payload["Auth_Password_str"]; ok {
+		t.Fatalf("plaintext password sent alongside the hash: %v", payload)
+	}
+	// The vault keeps the same hash, so .vpn exports still embed a credential.
+	if got := a.storedCredential(a.serverIDFromContext(context.Background()), "VPN", "frank"); got != testPasswordHash {
+		t.Fatalf("vaulted credential: %q", got)
+	}
+}
+
+func TestUserImportRejectsAMalformedHash(t *testing.T) {
+	a, _ := bulkApp(t)
+	token := admin(t, a)
+	body := M{"csv": "name,auth_type,password_hash\ngina,password,bm90LWEtaGFzaA==\n"}
+	status, out, _ := call(t, a, "POST", "/api/v1/hubs/VPN/users/import", body, token)
+	if status != 200 {
+		t.Fatalf("import: %d", status)
+	}
+	failed, _ := out["failed"].([]any)
+	if len(failed) != 1 || !strings.Contains(str(failed[0].(map[string]any)["error"]), "password_hash") {
+		t.Fatalf("failed: %v", out["failed"])
 	}
 }

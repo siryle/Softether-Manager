@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/csv"
 	"errors"
 	"fmt"
@@ -11,10 +12,13 @@ import (
 	"time"
 )
 
-// userCSVHeader is what export writes and what import reads. The password column
-// is always empty on export -- SoftEther only keeps a hash -- and is required
-// when importing a password-authenticated user.
-var userCSVHeader = []string{"name", "realname", "note", "group", "auth_type", "password", "expires"}
+// userCSVHeader is what export writes and what import reads.
+//
+// SoftEther keeps only a one-way hash of a password, so plaintext can never be
+// exported. password_hash carries that hash (base64, SoftEther's HashedKey_bin)
+// instead: importing it recreates the account with the original password still
+// working. It is a login-capable secret -- treat the file like a key.
+var userCSVHeader = []string{"name", "realname", "note", "group", "auth_type", "password", "password_hash", "expires"}
 
 // The names the panel uses for auth types, so a hand-written CSV can say
 // "password" instead of remembering that 1 means that.
@@ -39,6 +43,7 @@ func recoverAsError(fn func() error) (err error) {
 func (a *App) registerUserBulk() {
 	a.endpoint("GET /hubs/{hub}/users/export", func(_ http.ResponseWriter, r *http.Request, u M) any {
 		hub := r.PathValue("hub")
+		serverID := a.serverIDFromContext(r.Context())
 		out := a.rpc(r.Context(), "EnumUser", M{"HubName_str": hub})
 		list, _ := out["UserList"].([]any)
 
@@ -54,6 +59,17 @@ func (a *App) registerUserBulk() {
 			if boolean(row["IsExpiresFilled_bool"]) {
 				expires = str(row["Expires_dt"])
 			}
+			hash := ""
+			if integer(row["AuthType_u32"]) == 1 {
+				// The vault first; otherwise ask the server once and remember.
+				hash = a.storedCredential(serverID, hub, str(row["Name_str"]))
+				if hash == "" {
+					_ = recoverAsError(func() error {
+						hash = a.obtainCredential(r.Context(), serverID, hub, str(row["Name_str"]))
+						return nil
+					})
+				}
+			}
 			check(w.Write([]string{
 				str(row["Name_str"]),
 				str(row["Realname_utf"]),
@@ -61,6 +77,7 @@ func (a *App) registerUserBulk() {
 				str(row["GroupName_str"]),
 				str(integer(row["AuthType_u32"])),
 				"",
+				hash,
 				expires,
 			}))
 		}
@@ -142,10 +159,17 @@ func (a *App) registerUserBulk() {
 				authType = n
 			}
 
-			password := pick(row, "password")
+			password, passwordHash := pick(row, "password"), pick(row, "password_hash")
 			if authType == 1 && password == "" {
-				failed = append(failed, M{"line": line, "name": name, "error": "a password-authenticated user needs a password"})
-				continue
+				if passwordHash == "" {
+					failed = append(failed, M{"line": line, "name": name, "error": "a password-authenticated user needs password or password_hash"})
+					continue
+				}
+				raw, err := base64.StdEncoding.DecodeString(passwordHash)
+				if err != nil || len(raw) != 20 {
+					failed = append(failed, M{"line": line, "name": name, "error": "password_hash is not a SoftEther password hash"})
+					continue
+				}
 			}
 
 			expires := "1970-01-01T00:00:00.000"
@@ -174,12 +198,22 @@ func (a *App) registerUserBulk() {
 					"NtUsername_utf":     ntUser,
 				}
 				if authType == 1 {
-					payload["Auth_Password_str"] = password
+					if password != "" {
+						payload["Auth_Password_str"] = password
+					} else {
+						// The original password keeps working: SoftEther stores
+						// this same hash for a plaintext one.
+						payload["HashedKey_bin"] = passwordHash
+					}
 				}
 				validateWire(payload)
 				a.rpc(r.Context(), "CreateUser", payload)
 				if authType == 1 {
-					a.saveCredential(serverID, hub, name, hashedPassword(password, name))
+					if password != "" {
+						a.saveCredential(serverID, hub, name, hashedPassword(password, name))
+					} else {
+						a.saveCredential(serverID, hub, name, passwordHash)
+					}
 				}
 				if group != "" {
 					return a.assignUserGroup(r.Context(), hub, name, group)

@@ -96,7 +96,7 @@ export function HubUsers({ hub }: { hub: string }) {
     try {
       const out = await api.exportUsers(hub);
       downloadText(out.filename || `${hub}-users.csv`, out.csv, "text/csv");
-      push("ok", t("{count} users exported.", { count: out.count ?? 0 }));
+      push("ok", t("Exported {count} users, password hashes included — keep the file safe.", { count: out.count ?? 0 }));
     } catch (e) {
       push("err", e instanceof Error ? e.message : String(e));
     }
