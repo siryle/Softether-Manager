@@ -667,25 +667,6 @@
     "audit": "group.deleted"
   },
   {
-    "method": "GET",
-    "path": "/hubs/{hub}/sessions",
-    "rpc": "EnumSession",
-    "params": {
-      "HubName_str": "$hub"
-    },
-    "body": false
-  },
-  {
-    "method": "GET",
-    "path": "/hubs/{hub}/sessions/{name...}",
-    "rpc": "GetSessionStatus",
-    "params": {
-      "HubName_str": "$hub",
-      "Name_str": "$name"
-    },
-    "body": false
-  },
-  {
     "method": "DELETE",
     "path": "/hubs/{hub}/sessions/{name...}",
     "rpc": "DeleteSession",

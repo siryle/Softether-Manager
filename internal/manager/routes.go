@@ -20,6 +20,7 @@ func (a *App) register() {
 	a.registerHistory()
 	a.registerVPN()
 	a.registerQuotas()
+	a.registerBackups()
 	a.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" && r.Method != "HEAD" {
 			fail(405, "Method not allowed.")
@@ -301,6 +302,16 @@ func (a *App) registerCustomRPC() {
 		sort.Strings(names)
 		return M{"HubName_str": r.PathValue("hub"), "usernames": names}
 	})
+	a.endpoint("GET /hubs/{hub}/sessions", func(_ http.ResponseWriter, r *http.Request, _ M) any {
+		hub := r.PathValue("hub")
+		sessions := list(a.rpc(r.Context(), "EnumSession", M{"HubName_str": hub})["SessionList"])
+		return M{"HubName_str": hub, "SessionList": a.enrichSessions(r.Context(), hub, sessions)}
+	})
+	a.endpoint("GET /hubs/{hub}/sessions/{name...}", func(_ http.ResponseWriter, r *http.Request, _ M) any {
+		hub, name := r.PathValue("hub"), r.PathValue("name")
+		status := a.rpc(r.Context(), "GetSessionStatus", M{"HubName_str": hub, "Name_str": name})
+		return a.enrichSessionStatus(r.Context(), hub, name, status)
+	})
 	a.endpoint("GET /hubs/{hub}/users/{name}/sessions", func(_ http.ResponseWriter, r *http.Request, _ M) any {
 		hub, name := r.PathValue("hub"), r.PathValue("name")
 		out := []M{}
@@ -309,7 +320,7 @@ func (a *App) registerCustomRPC() {
 				out = append(out, s)
 			}
 		}
-		return M{"HubName_str": hub, "SessionList": out}
+		return M{"HubName_str": hub, "SessionList": a.enrichSessions(r.Context(), hub, out)}
 	})
 	a.endpoint("GET /users", func(_ http.ResponseWriter, r *http.Request, _ M) any {
 		hubs, users, errors := []string{}, []M{}, []M{}

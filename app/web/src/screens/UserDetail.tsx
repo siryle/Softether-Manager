@@ -91,7 +91,7 @@ function SessionUsageSheet({ hub, row, onClose }: { hub: string; row: Wire; onCl
         <KV
           rows={[
             ["client IP", String(row.client_ip || "—")],
-            ["client host", String(row.client_hostname || "—")],
+            ["client host", String(row.client_hostname && row.client_hostname !== row.client_ip && !/^(\d{1,3}\.){3}\d{1,3}$/.test(row.client_hostname) ? row.client_hostname : "—")],
             ["started", formatDate(String(row.started_date))],
             ["ended", row.ended_date ? formatDate(String(row.ended_date)) : t("still connected")],
             ["duration", formatDuration(duration)],

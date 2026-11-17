@@ -3,11 +3,11 @@
 import { t } from "../lib/i18n";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { CheckRow, ConfirmSheet, Empty, ErrorAlert, Field, KV, LoadingBlock, PageHead, SectionTitle, usePoll } from "../components/bits";
-import { api, useServerApi, ApiError, type Wire } from "../lib/api";
+import { api, useServerApi, ApiError, type BackupInfo, type BackupSettings, type Wire } from "../lib/api";
 import { Link } from "../lib/router";
 import { useToast } from "../lib/toast";
 import { downloadBase64, fileToBase64, formatBytes, formatDate, timeAgo } from "../lib/util";
-import { IconDownload, IconPlus, IconTrash, IconUpload } from "../ui/Icon";
+import { IconDownload, IconPlus, IconRefresh, IconTrash, IconUpload } from "../ui/Icon";
 import { Sheet } from "../ui/Sheet";
 import { OnlinePill, Pill } from "../ui/Status";
 import { OutcomeNote, Switch, SwitchRow, useToggle } from "../ui/Switch";
@@ -1267,21 +1267,108 @@ function KeepSyslogCard() {
 function ConfigCard() {
   const api = useServerApi();
   const [restoring, setRestoring] = useState<File | null>(null);
+  const [backups, setBackups] = useState<BackupInfo[] | null>(null);
+  const [settings, setSettings] = useState<BackupSettings | null>(null);
+  const [loadingBackups, setLoadingBackups] = useState(false);
+  const [backingUp, setBackingUp] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
+
+  // Form states for backup settings
+  const [enabled, setEnabled] = useState(true);
+  const [intervalHours, setIntervalHours] = useState(24);
+  const [backupTime, setBackupTime] = useState("03:00");
+  const [backupDir, setBackupDir] = useState("");
+
+  const [confirmRestore, setConfirmRestore] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
   const { guard } = useToast();
+
+  const loadData = useCallback(async () => {
+    setLoadingBackups(true);
+    try {
+      const [bRes, sRes] = await Promise.all([
+        api.getBackups().catch(() => ({ backups: [] })),
+        api.getBackupSettings().catch(() => null),
+      ]);
+      setBackups(bRes.backups || []);
+      if (sRes) {
+        setSettings(sRes);
+        setEnabled(sRes.enabled);
+        setIntervalHours(sRes.interval_hours || 24);
+        setBackupTime(sRes.backup_time || "03:00");
+        setBackupDir(sRes.configured_dir || "");
+      }
+    } finally {
+      setLoadingBackups(false);
+    }
+  }, [api]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const handleManualBackup = async () => {
+    setBackingUp(true);
+    try {
+      await guard(async () => {
+        await api.createBackup();
+        await loadData();
+      }, t("Backup created successfully."));
+    } finally {
+      setBackingUp(false);
+    }
+  };
+
+  const handleSaveSettings = async () => {
+    setSavingSettings(true);
+    try {
+      await guard(async () => {
+        const res = await api.saveBackupSettings({
+          enabled,
+          interval_hours: intervalHours,
+          backup_time: backupTime,
+          backup_dir: backupDir,
+        });
+        setSettings(res);
+      }, t("Backup settings saved."));
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const handleDownloadBackup = async (filename: string) => {
+    await guard(async () => {
+      const res = await fetch(`/api/v1/server/backups/${encodeURIComponent(filename)}/download`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(t("Failed to download backup file."));
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }, t("Configuration downloaded."));
+  };
 
   return (
     <section id="ss-config">
-      <SectionTitle>{t("Configuration file")}</SectionTitle>
+      <SectionTitle count={backups?.length}>{t("Configuration file")}</SectionTitle>
       <div className="card" style={{ padding: "var(--s4)" }}>
         <div className="lede" style={{ marginBottom: "var(--s3)" }}>
           {t("The server's entire state, as the vpn_server.config it keeps on disk. Download it as a backup; restoring replaces everything and restarts the service.")}
         </div>
-        <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap", marginBottom: "var(--s4)" }}>
+          <button className="btn btn--primary" onClick={handleManualBackup} disabled={backingUp}>
+            <IconPlus size={14} /> {backingUp ? t("Backing up…") : t("Backup now")}
+          </button>
           <button className="btn" onClick={() => void guard(async () => {
             const r = await api.getConfig();
             downloadBase64(r.filename || "vpn_server.config", r.config_base64, "text/plain");
           }, t("Configuration downloaded."))}>
-            <IconDownload size={14} /> {t("Download backup")}
+            <IconDownload size={14} /> {t("Download current")}
           </button>
           <label className="btn">
             <IconUpload size={14} /> {t("Restore from file")}
@@ -1291,7 +1378,154 @@ function ConfigCard() {
             {t("Flush to disk")}
           </button>
         </div>
+
+        {/* Auto backup settings */}
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: "var(--s4)", marginTop: "var(--s4)" }}>
+          <h4 style={{ margin: "0 0 var(--s3) 0", fontSize: "14px", fontWeight: 600 }}>{t("Auto-backup settings")}</h4>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--s3)" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: "var(--s2)", cursor: "pointer", userSelect: "none" }}>
+              <input
+                type="checkbox"
+                checked={enabled}
+                onChange={(e) => setEnabled(e.target.checked)}
+              />
+              <span style={{ fontWeight: 500 }}>{t("Enable automatic backup")}</span>
+            </label>
+
+            {enabled && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--s3)", marginTop: "var(--s1)" }}>
+                <div>
+                  <label className="label" style={{ display: "block", marginBottom: 4, fontSize: "12px", color: "var(--muted)" }}>
+                    {t("Backup schedule")}
+                  </label>
+                  <select
+                    className="select"
+                    style={{ width: "100%" }}
+                    value={intervalHours}
+                    onChange={(e) => setIntervalHours(Number(e.target.value))}
+                  >
+                    <option value={6}>{t("Every 6 hours")}</option>
+                    <option value={12}>{t("Every 12 hours")}</option>
+                    <option value={24}>{t("Every 24 hours (daily)")}</option>
+                  </select>
+                </div>
+
+                {intervalHours >= 24 && (
+                  <div>
+                    <label className="label" style={{ display: "block", marginBottom: 4, fontSize: "12px", color: "var(--muted)" }}>
+                      {t("Time of day")}
+                    </label>
+                    <input
+                      type="time"
+                      className="input"
+                      style={{ width: "100%" }}
+                      value={backupTime}
+                      onChange={(e) => setBackupTime(e.target.value)}
+                    />
+                  </div>
+                )}
+
+                <div style={{ gridColumn: intervalHours >= 24 ? "span 2" : "span 1" }}>
+                  <label className="label" style={{ display: "block", marginBottom: 4, fontSize: "12px", color: "var(--muted)" }}>
+                    {t("Backup directory (mounted)")}
+                  </label>
+                  <input
+                    type="text"
+                    className="input mono"
+                    style={{ width: "100%" }}
+                    placeholder={settings?.backup_dir || "/data/backups"}
+                    value={backupDir}
+                    onChange={(e) => setBackupDir(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div style={{ fontSize: "12px", color: "var(--muted)", lineHeight: 1.5, marginTop: "var(--s1)" }}>
+              ℹ️ {t("Automatic backups retain only the 15 most recent versions. Older versions are deleted automatically.")}
+              {settings?.last_run ? <> · {t("Last run")}: {formatDate(settings.last_run)}</> : null}
+            </div>
+
+            <div>
+              <button
+                className="btn btn--sm btn--primary"
+                onClick={handleSaveSettings}
+                disabled={savingSettings}
+              >
+                {savingSettings ? t("Saving…") : t("Save backup settings")}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Backups List */}
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: "var(--s4)", marginTop: "var(--s4)" }}>
+          <h4 style={{ margin: "0 0 var(--s3) 0", fontSize: "14px", fontWeight: 600 }}>
+            {t("Backup files")} {backups ? `(${backups.length})` : ""}
+          </h4>
+
+          {loadingBackups && !backups ? (
+            <LoadingBlock />
+          ) : !backups || backups.length === 0 ? (
+            <div style={{ color: "var(--muted)", padding: "var(--s2) 0", fontSize: "13px" }}>
+              {t("No backups found.")}
+            </div>
+          ) : (
+            <div className="tscroll">
+              <table className="dtable">
+                <thead>
+                  <tr>
+                    <th>{t("File")}</th>
+                    <th style={{ width: 100 }}>{t("Type")}</th>
+                    <th style={{ width: 110 }}>{t("Size")}</th>
+                    <th>{t("Date")}</th>
+                    <th className="tact" style={{ width: 140 }} aria-label={t("Actions")} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {backups.map((b) => (
+                    <tr key={b.filename}>
+                      <td className="tmono" style={{ fontSize: "12px" }}>{b.filename}</td>
+                      <td>
+                        <Pill kind={b.is_auto ? "idle" : "ok"} label={b.is_auto ? t("Auto") : t("Manual")} />
+                      </td>
+                      <td className="tmono">{formatBytes(b.size)}</td>
+                      <td className="tmono">{formatDate(b.created_at)}</td>
+                      <td className="tact">
+                        <div style={{ display: "inline-flex", gap: "var(--s1)" }}>
+                          <button
+                            className="btn btn--sm"
+                            onClick={() => handleDownloadBackup(b.filename)}
+                            title={t("Download backup")}
+                          >
+                            <IconDownload size={13} />
+                          </button>
+                          <button
+                            className="btn btn--sm btn--warn"
+                            onClick={() => setConfirmRestore(b.filename)}
+                            title={t("Restore this configuration?")}
+                          >
+                            <IconRefresh size={13} /> {t("Restore")}
+                          </button>
+                          <button
+                            className="btn btn--sm btn--danger"
+                            onClick={() => setConfirmDelete(b.filename)}
+                            title={t("Delete backup?")}
+                          >
+                            <IconTrash size={13} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Restore from uploaded file sheet */}
       {restoring && (
         <ConfirmSheet
           title={t("Restore this configuration?")}
@@ -1306,6 +1540,42 @@ function ConfigCard() {
           onConfirm={async () => {
             const b64 = await fileToBase64(restoring);
             await api.setConfig(b64);
+          }}
+        />
+      )}
+
+      {/* Restore from existing backup file sheet */}
+      {confirmRestore && (
+        <ConfirmSheet
+          title={t("Restore this backup?")}
+          verb="Restore & restart"
+          typed="restore"
+          body={
+            <>
+              <b>{confirmRestore}</b> {t("replaces the entire configuration of this VPN server — hubs, users, everything — and the server restarts to load it.")}
+            </>
+          }
+          onClose={() => setConfirmRestore(null)}
+          onConfirm={async () => {
+            await api.restoreBackup(confirmRestore);
+          }}
+        />
+      )}
+
+      {/* Delete backup sheet */}
+      {confirmDelete && (
+        <ConfirmSheet
+          title={t("Delete backup?")}
+          verb="Delete"
+          body={
+            <>
+              <b>{confirmDelete}</b> {t("will be permanently deleted from the backup directory.")}
+            </>
+          }
+          onClose={() => setConfirmDelete(null)}
+          onConfirm={async () => {
+            await api.deleteBackup(confirmDelete);
+            await loadData();
           }}
         />
       )}

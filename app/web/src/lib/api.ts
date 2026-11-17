@@ -48,6 +48,23 @@ export interface ManagedServer {
   updated_date?: string;
 }
 
+export interface BackupInfo {
+  filename: string;
+  size: number;
+  created_at: string;
+  is_auto: boolean;
+}
+
+export interface BackupSettings {
+  enabled: boolean;
+  interval_hours: number;
+  backup_time: string;
+  backup_dir: string;
+  configured_dir: string;
+  retention_count: number;
+  last_run: string;
+}
+
 export class ApiError extends Error {
   status: number;
   seError: string;
@@ -418,6 +435,12 @@ function apiMethods(request: typeof sendRequest) {
     ),
   getConfig: () => request<{ filename: string; config_base64: string }>("GET", "/server/config"),
   setConfig: (config_base64: string) => request("PUT", "/server/config", { config_base64 }),
+  getBackups: () => request<{ backups: BackupInfo[] }>("GET", "/server/backups"),
+  createBackup: () => request<BackupInfo>("POST", "/server/backups"),
+  restoreBackup: (filename: string) => request("POST", `/server/backups/${encodeURIComponent(filename)}/restore`),
+  deleteBackup: (filename: string) => request("DELETE", `/server/backups/${encodeURIComponent(filename)}`),
+  getBackupSettings: () => request<BackupSettings>("GET", "/server/backup-settings"),
+  saveBackupSettings: (body: Partial<BackupSettings>) => request<BackupSettings>("PUT", "/server/backup-settings", body),
   flush: () => request("POST", "/server/flush"),
   reboot: () => request("POST", "/server/reboot"),
   crashServer: () => request("POST", "/server/crash"),

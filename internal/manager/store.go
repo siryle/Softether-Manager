@@ -378,6 +378,7 @@ func (a *App) defaults() M {
 		"se_host": a.cfg.SEHost, "se_port": a.cfg.SEPort, "se_password": "", "se_auth": a.cfg.SEAuth, "se_configured": false,
 		"vpn_template": vpnDefaults, "vpn_account_name_template": "{hub} - {username}", "vpn_filename_template": "{hub}-{username}", "vpn_embed_password_default": true,
 		"domain": "", "https_port": 443, "acme_email": "", "acme_staging": false, "domain_only": false,
+		"backup_enabled": true, "backup_interval_hours": 24, "backup_time": "03:00", "backup_dir": filepath.Join(a.cfg.DataDir, "backups"), "backup_last_run": "",
 	}
 }
 func (a *App) setting(key string) any {

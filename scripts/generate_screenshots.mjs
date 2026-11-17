@@ -377,7 +377,8 @@ const mockSessions = [
   {
     Name_str: "SID-alice-1",
     Username_str: "alice",
-    ClientIP_ip: "192.168.1.50",
+    ClientIP_ip: "123.182.152.119",
+    VirtualIP_ip: "192.168.30.15",
     Hostname_str: "alice-laptop.local",
     Client_str: "SoftEther VPN Client (Ver 4.44, Build 9807)",
     Cipher_str: "AES256-GCM (TLSv1.3)",
@@ -397,7 +398,8 @@ const mockSessions = [
   {
     Name_str: "SID-bob-1",
     Username_str: "bob",
-    ClientIP_ip: "192.168.1.75",
+    ClientIP_ip: "203.0.113.88",
+    VirtualIP_ip: "192.168.30.22",
     Hostname_str: "bob-workstation.local",
     Client_str: "OpenVPN Client (v2.6)",
     Cipher_str: "AES-128-CBC (TLSv1.2)",
@@ -739,6 +741,41 @@ function createMockServer() {
       if (apiPath === "/server/keepalive") return res.end(JSON.stringify({ UseKeepAliveLib_bool: true, KeepAliveHost_str: "keepalive.softether.org", KeepAlivePort_u32: 80, KeepAliveInterval_u32: 50 }));
       if (apiPath === "/server/syslog") return res.end(JSON.stringify({ SaveType_u32: 0, HostName_str: "", Port_u32: 514 }));
       if (apiPath === "/server/config") return res.end(JSON.stringify({ filename: "vpn_server.config", config_base64: "ZGVtbyBjb25maWc=" }));
+      if (apiPath === "/server/backups") {
+        return res.end(JSON.stringify({
+          backups: [
+            {
+              filename: "vpn_server_auto_20261117_030000.config",
+              size: 154820,
+              created_at: "2026-11-17T03:00:00.000Z",
+              is_auto: true,
+            },
+            {
+              filename: "vpn_server_manual_20261116_183000.config",
+              size: 153200,
+              created_at: "2026-11-16T18:30:00.000Z",
+              is_auto: false,
+            },
+            {
+              filename: "vpn_server_auto_20261116_030000.config",
+              size: 152900,
+              created_at: "2026-11-16T03:00:00.000Z",
+              is_auto: true,
+            },
+          ],
+        }));
+      }
+      if (apiPath === "/server/backup-settings") {
+        return res.end(JSON.stringify({
+          enabled: true,
+          interval_hours: 24,
+          backup_time: "03:00",
+          backup_dir: "/data/backups",
+          configured_dir: "",
+          retention_count: 15,
+          last_run: "2026-11-17T03:00:00.000Z",
+        }));
+      }
 
       // Logs
       if (apiPath === "/server/logs") {

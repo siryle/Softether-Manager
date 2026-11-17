@@ -17,6 +17,23 @@ import { Pill } from "../../ui/Status";
  * this is the screen an operator keeps open during an incident, and the one
  * whose kill button has to work the moment it is pressed.
  */
+function isIp(val?: string): boolean {
+  if (!val) return false;
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(val.trim()) || val.includes(":");
+}
+
+function cleanHost(d: Wire): string {
+  if (d.RealHostname_str && !isIp(String(d.RealHostname_str))) {
+    return String(d.RealHostname_str);
+  }
+  const h = String(d.SessionStatus_ClientHostName_str || d.ClientHostname_str || d.Hostname_str || "");
+  const ip = String(d.Client_Ip_Address_ip || d.ClientIP_ip || "");
+  if (!h || h === ip || isIp(h)) {
+    return "—";
+  }
+  return h;
+}
+
 export function HubSessions({ hub }: { hub: string }) {
   const [sessions, setSessions] = useState<Wire[] | null>(null);
   const [query, setQuery] = useState("");
@@ -25,8 +42,31 @@ export function HubSessions({ hub }: { hub: string }) {
   const { guard } = useToast();
 
   const load = useCallback(async () => {
-    const r = await api.sessions(hub).catch(() => null);
-    if (r) setSessions((r.SessionList as Wire[]) ?? []);
+    try {
+      const [r, ipRes] = await Promise.all([
+        api.sessions(hub).catch(() => null),
+        api.ipTable(hub).catch(() => null),
+      ]);
+      const list = (r?.SessionList as Wire[]) ?? [];
+      const ipTable = (ipRes?.IpTable as Wire[]) ?? [];
+      const ipMap = new Map<string, string>();
+      for (const entry of ipTable) {
+        if (entry.SessionName_str && entry.IpAddress_ip) {
+          const prev = ipMap.get(String(entry.SessionName_str));
+          if (!prev) {
+            ipMap.set(String(entry.SessionName_str), String(entry.IpAddress_ip));
+          }
+        }
+      }
+      for (const s of list) {
+        if (!s.VirtualIP_ip && ipMap.has(String(s.Name_str))) {
+          s.VirtualIP_ip = ipMap.get(String(s.Name_str));
+        }
+      }
+      setSessions(list);
+    } catch {
+      setSessions([]);
+    }
   }, [hub]);
   usePoll(load, "live", [hub]);
 
@@ -34,7 +74,7 @@ export function HubSessions({ hub }: { hub: string }) {
   const filtered = sessions?.filter(
     (s) =>
       !q ||
-      [s.Name_str, s.Username_str, s.Hostname_str, s.ClientIP_ip]
+      [s.Name_str, s.Username_str, s.Hostname_str, s.ClientIP_ip, s.VirtualIP_ip, s.RealHostname_str]
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(q)),
   );
@@ -110,7 +150,7 @@ export function SessionsTable({
                   <th>{t("Session")}</th>
                   <th>{t("User")}</th>
                   <th>{t("Kind")}</th>
-                  <th>{t("Source")}</th>
+                  <th>{t("IP / Host")}</th>
                   <th style={{ width: 80 }}>{t("TCP")}</th>
                   <th>{t("Packets")}</th>
                   <th>{t("Transfer")}</th>
@@ -144,8 +184,28 @@ export function SessionsTable({
                         <Pill kind={system ? "idle" : "ok"} label={kind} />
                       </td>
                       <td className="tmono">
-                        {String(s.Hostname_str || s.ClientIP_ip || "—")}
-                        {s.ClientIP_ip && s.Hostname_str ? <span className="tsub">{String(s.ClientIP_ip)}</span> : null}
+                        {s.VirtualIP_ip ? (
+                          <div>
+                            <span className="chip chip--ok" style={{ padding: "0 5px", fontSize: "10px", marginRight: 4 }}>
+                              {t("LAN")}
+                            </span>
+                            <span>{String(s.VirtualIP_ip)}</span>
+                          </div>
+                        ) : null}
+                        {s.ClientIP_ip ? (
+                          <div className={s.VirtualIP_ip ? "tsub" : ""} style={{ marginTop: s.VirtualIP_ip ? 2 : 0 }}>
+                            <span className="chip" style={{ padding: "0 5px", fontSize: "10px", marginRight: 4 }}>
+                              {t("WAN")}
+                            </span>
+                            <span>{String(s.ClientIP_ip)}</span>
+                          </div>
+                        ) : null}
+                        {cleanHost(s) !== "—" ? (
+                          <div className="tsub" style={{ marginTop: 2, color: "var(--muted)" }}>
+                            {cleanHost(s)}
+                          </div>
+                        ) : null}
+                        {!s.VirtualIP_ip && !s.ClientIP_ip && !s.Hostname_str ? "—" : null}
                       </td>
                       <td className="tmono">{s.CurrentNumTcp_u32 != null ? `${s.CurrentNumTcp_u32}/${s.MaxNumTcp_u32}` : "—"}</td>
                       <td className="tmono">{formatCount(Number(s.PacketNum_u64))}</td>
@@ -186,7 +246,8 @@ export function SessionsTable({
                   <Pill kind={system ? "idle" : "ok"} label={kind} />
                 </div>
                 <div className="spec">
-                  {s.ClientIP_ip ? <span className="chip"><i>{t("from")}</i>{String(s.ClientIP_ip)}</span> : null}
+                  {s.VirtualIP_ip ? <span className="chip"><i>{t("LAN")}</i>{String(s.VirtualIP_ip)}</span> : null}
+                  {s.ClientIP_ip ? <span className="chip"><i>{t("WAN")}</i>{String(s.ClientIP_ip)}</span> : null}
                   <span className="chip"><i>{t("data")}</i>{formatBytes(Number(s.PacketSize_u64))}</span>
                   <span className="chip"><i>{t("since")}</i>{timeAgo(s.CreatedTime_dt as string)}</span>
                 </div>
@@ -245,7 +306,8 @@ export function SessionSheet({ hub,
             rows={[
               ["user", String(detail.Username_str || "—")],
               ["client IP", String(detail.Client_Ip_Address_ip || "—")],
-              ["client host", String(detail.SessionStatus_ClientHostName_str || detail.ClientHostname_str || "—")],
+              ["virtual IP", String(detail.VirtualIP_ip || "—")],
+              ["client host", cleanHost(detail)],
               ["protocol", String(detail.UnderlayProtocol_str || "—")],
               ["cipher", String(detail.CipherName_str || "plain")],
               ["UDP accel", detail.IsUsingUdpAcceleration_bool ? "in use" : detail.IsUdpAccelerationEnabled_bool ? "enabled" : "off"],
