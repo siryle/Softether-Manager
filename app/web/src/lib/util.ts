@@ -97,3 +97,14 @@ export function fileToBase64(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
+
+/** GeoIP reports a location and an ISP; private addresses have no ISP, so drop the placeholder instead of printing "—". */
+export function formatIPLocation(location?: unknown, isp?: unknown): string {
+  const clean = (v: unknown) => {
+    const s = String(v ?? "").trim();
+    return /^[-—]+$/.test(s) ? "" : s;
+  };
+  // The ISP comes from GeoIP in English; t() maps the common names to Chinese and
+  // leaves anything unknown untouched.
+  return [clean(location), t(clean(isp))].filter(Boolean).join(" ");
+}

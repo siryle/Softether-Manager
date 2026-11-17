@@ -267,3 +267,21 @@ test("a stale history response cannot replace the newly selected range", async (
   assert.equal(useTrafficUsage(() => next.promise, "list", [24]).hours, 24);
   assert.equal(useTrafficUsage(() => Promise.resolve(null), "list", [720]), null);
 });
+
+test("IP location drops the placeholder ISP", () => {
+  const { formatIPLocation } = load("../src/lib/util.ts", {}, { "./i18n": { t: value => value } });
+  assert.equal(formatIPLocation("局域网/内网", "—"), "局域网/内网");
+  assert.equal(formatIPLocation("局域网/内网", ""), "局域网/内网");
+  assert.equal(formatIPLocation("局域网/内网", undefined), "局域网/内网");
+  assert.equal(formatIPLocation("江苏省 苏州", "China Telecom"), "江苏省 苏州 China Telecom");
+  assert.equal(formatIPLocation("", "—"), "");
+  assert.equal(formatIPLocation(undefined, undefined), "");
+});
+
+test("IP location localizes a known ISP and leaves unknown ones alone", () => {
+  const { formatIPLocation } = load("../src/lib/util.ts", {}, {
+    "./i18n": { t: value => (value === "China Telecom" ? "中国电信" : value) },
+  });
+  assert.equal(formatIPLocation("江苏省 苏州", "China Telecom"), "江苏省 苏州 中国电信");
+  assert.equal(formatIPLocation("Tokyo", "Some Local ISP"), "Tokyo Some Local ISP");
+});

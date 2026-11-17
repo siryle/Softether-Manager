@@ -7,7 +7,7 @@ import { api, type Wire } from "../../lib/api";
 import { navigate, seg } from "../../lib/router";
 import { SESSION_TYPE } from "../../lib/se";
 import { useToast } from "../../lib/toast";
-import { formatBytes, formatCount, formatDate, timeAgo } from "../../lib/util";
+import { formatBytes, formatCount, formatDate, formatIPLocation, timeAgo } from "../../lib/util";
 import { IconClose } from "../../ui/Icon";
 import { Sheet } from "../../ui/Sheet";
 import { Pill } from "../../ui/Status";
@@ -66,47 +66,7 @@ function formatTcpConnections(d: Wire, t: (s: string) => string): string {
 
 function parseClientInfo(d: Wire) {
   const prod = String(d.ClientProductName_str || "").trim();
-  const osName = String(d.ClientOsName_str || "").trim();
-  const osVer = String(d.ClientOsVer_str || "").trim();
-  const host = String(d.ClientHostname_str || d.RealHostname_str || d.Hostname_str || "").trim();
-  const hostLower = host.toLowerCase();
-
   const isDull = (s: string) => !s || /^[-—\s]+$/.test(s) || s.toLowerCase() === "unknown" || s.toLowerCase() === "none";
-
-  // Deduce real operating system
-  let os = osName;
-  if (isDull(os) || os.toLowerCase().includes("l2tp")) {
-    if (hostLower.includes("iphone")) {
-      os = "Apple iOS (iPhone)";
-    } else if (hostLower.includes("ipad")) {
-      os = "Apple iPadOS";
-    } else if (hostLower.includes("macbook") || hostLower.includes("imac") || hostLower.includes("mac")) {
-      os = "Apple macOS";
-    } else if (
-      hostLower.includes("android") ||
-      /^sm-[a-z0-9]+/i.test(host) ||
-      /^[a-z]\d{2}[a-z]?$/i.test(host) ||
-      /^(redmi|xiaomi|oppo|vivo|oneplus|pixel)/i.test(host)
-    ) {
-      os = host ? `Android (${host})` : "Android";
-    } else if (
-      prod.toLowerCase().includes("microsoft") ||
-      osName.toLowerCase().includes("microsoft") ||
-      hostLower.startsWith("desktop-") ||
-      hostLower.startsWith("laptop-")
-    ) {
-      os = "Windows";
-    } else {
-      os = !isDull(osName) ? osName : "—";
-    }
-  }
-
-  if (!isDull(osVer)) {
-    os = `${os} ${osVer}`.trim();
-  }
-
-  // Ensure no trailing hyphens/dashes remain on os
-  os = os.replace(/\s*[-—]+\s*$/, "").trim() || "—";
 
   // Deduce client software
   let app = !isDull(prod) ? prod : "—";
@@ -123,7 +83,7 @@ function parseClientInfo(d: Wire) {
     }
   }
 
-  return { os, app };
+  return { app };
 }
 
 export function HubSessions({ hub }: { hub: string }) {
@@ -242,7 +202,7 @@ export function SessionsTable({
                   <th>{t("User")}</th>
                   <th>{t("Kind")}</th>
                   <th>{t("IP / Host")}</th>
-                  <th style={{ width: 80 }}>{t("TCP")}</th>
+                  <th style={{ width: 80 }}>{t("Connection count")}</th>
                   <th>{t("Packets")}</th>
                   <th>{t("Transfer")}</th>
                   <th>{t("Started")}</th>
@@ -295,7 +255,7 @@ export function SessionsTable({
                             <span>{String(s.ClientIP_ip)}</span>
                             {s.IpLocation_str || s.IpIsp_str ? (
                               <span className="chip chip--ok" style={{ marginLeft: 6, fontSize: "11px", fontWeight: "normal" }}>
-                                {String(s.IpLocation_str || "")} {String(s.IpIsp_str || "")}
+                                {formatIPLocation(s.IpLocation_str, s.IpIsp_str)}
                               </span>
                             ) : null}
                           </div>
@@ -434,7 +394,7 @@ export function SessionSheet({ hub,
                       {detail.IpLocation_str || detail.IpIsp_str ? (
                         <div style={{ marginTop: 2 }}>
                           <span className="chip chip--ok" style={{ fontSize: "10px", padding: "1px 5px", fontWeight: "normal" }}>
-                            {String(detail.IpLocation_str || "")} {String(detail.IpIsp_str || "")}
+                            {formatIPLocation(detail.IpLocation_str, detail.IpIsp_str)}
                           </span>
                         </div>
                       ) : null}
@@ -474,13 +434,13 @@ export function SessionSheet({ hub,
                     <div className="mono" style={{ fontSize: "var(--t-data)" }}>{String(detail.CipherName_str || "plain")}</div>
                   </div>
                   <div>
-                    <div className="micro">{t("TCP connections")}</div>
+                    <div className="micro">{t("Connection count")}</div>
                     <div className="mono" style={{ fontSize: "var(--t-data)" }}>{formatTcpConnections(detail, t)}</div>
                   </div>
                   <div>
                     <div className="micro">{t("UDP / Compress")}</div>
                     <div className="mono" style={{ fontSize: "var(--t-data)" }}>
-                      {(detail.IsUsingUdpAcceleration_bool ? t("in use") : detail.IsUdpAccelerationEnabled_bool ? "enabled" : "off") + " / " + (detail.UseCompress_bool ? t("yes") : "no")}
+                      {(detail.IsUsingUdpAcceleration_bool ? t("in use") : detail.IsUdpAccelerationEnabled_bool ? t("enabled") : t("off")) + " / " + (detail.UseCompress_bool ? t("yes") : t("no"))}
                     </div>
                   </div>
                 </div>
@@ -501,18 +461,12 @@ export function SessionSheet({ hub,
                     </div>
                     <div>
                       <div className="micro">{t("half connection")}</div>
-                      <div className="mono" style={{ fontSize: "var(--t-data)" }}>{detail.HalfConnection_bool ? t("yes") : "no"}</div>
+                      <div className="mono" style={{ fontSize: "var(--t-data)" }}>{detail.HalfConnection_bool ? t("yes") : t("no")}</div>
                     </div>
                     <div>
                       <div className="micro">{t("Client software")}</div>
                       <div className="mono truncate" title={clientInfo.app} style={{ fontSize: "var(--t-data)" }}>
                         {clientInfo.app}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="micro">{t("Client OS")}</div>
-                      <div className="mono truncate" title={clientInfo.os} style={{ fontSize: "var(--t-data)" }}>
-                        {clientInfo.os}
                       </div>
                     </div>
                   </div>

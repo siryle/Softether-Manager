@@ -24,7 +24,7 @@ import { Link, navigate, seg } from "../lib/router";
 import { AUTH_TYPES, isNever, userBytes, SESSION_TYPE } from "../lib/se";
 import { useToast } from "../lib/toast";
 import { useI18n, t } from "../lib/i18n";
-import { formatBytes, formatCount, formatDate, formatDuration, timeAgo } from "../lib/util";
+import { formatBytes, formatCount, formatDate, formatDuration, formatIPLocation, timeAgo } from "../lib/util";
 import { BrandMark, IconDownload, IconTrash } from "../ui/Icon";
 import { Pill } from "../ui/Status";
 import { UserStatePill } from "./hub/HubUsers";
@@ -117,9 +117,9 @@ function SessionUsageSheet({ hub, row, onClose }: { hub: string; row: Wire; onCl
                 <div className="mono" style={{ fontSize: "var(--t-data)" }}>{String(row.client_ip || usage?.session?.client_ip || "—")}</div>
               </div>
               <div>
-                <div className="micro">{t("IP location")}</div>
+                <div className="micro">{t("Location & ISP")}</div>
                 <div className="mono" style={{ fontSize: "var(--t-data)", color: "var(--accent)" }}>
-                  {String(row.ip_location || usage?.session?.ip_location || "")} {String(row.ip_isp || usage?.session?.ip_isp || "") || "—"}
+                  {formatIPLocation(row.ip_location || usage?.session?.ip_location, row.ip_isp || usage?.session?.ip_isp) || "—"}
                 </div>
               </div>
               <div>
@@ -436,7 +436,7 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
                             <span>{String(h.client_ip)}</span>
                             {h.ip_location || h.ip_isp ? (
                               <span className="chip chip--ok" style={{ marginLeft: 6, fontSize: "11px", fontWeight: "normal" }}>
-                                {String(h.ip_location || "")} {String(h.ip_isp || "")}
+                                {formatIPLocation(h.ip_location, h.ip_isp)}
                               </span>
                             ) : null}
                           </div>
