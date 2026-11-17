@@ -2,9 +2,11 @@
 
 **English** | [简体中文](README.md)
 
-A self-hosted web panel that manages the [SoftEther VPN Server](https://www.softether.org/)
-across multiple hosts through its JSON-RPC management API, alongside live monitoring
-of the machine running the panel.
+A modern, self-hosted web management panel for [SoftEther VPN Server](https://www.softether.org/).
+
+> This project is modified and refactored from [DrSaeedHub/Softether-Manager](https://github.com/DrSaeedHub/Softether-Manager), designed specifically to manage servers running [SoftEther VPN](https://www.softether.org/).
+
+Fully supports all 133 official SoftEther JSON-RPC management APIs, featuring a sleek modern UI, multi-server centralized switching, Linux kernel-level host monitoring (`/proc`), automated traffic quota enforcement with true counter zeroing, official **multi-arch Docker images**, and **LAN / remote server management**.
 
 One command installs the panel beside your SoftEther instance. Everything after that —
 users, policies, sessions, access control, SecureNAT, certificates, cascades, the works —
@@ -342,3 +344,38 @@ version against the database at a time. Single-server databases migrate transact
   If left empty, whoever first completes setup can create the administrator account.
 - The panel talks to SoftEther on the loopback interface by default, so the management
   password never crosses a network.
+
+---
+
+## 💡 Project Heritage & Acknowledgments
+
+This project is tailored for managing **[SoftEther VPN](https://www.softether.org/)** servers, and is modified, significantly refactored, and expanded from **[DrSaeedHub/Softether-Manager](https://github.com/DrSaeedHub/Softether-Manager)**.
+
+### 🌟 Projects Credited
+- **Upstream Prototype**: [DrSaeedHub/Softether-Manager](https://github.com/DrSaeedHub/Softether-Manager) — Special thanks to DrSaeedHub for creating the original concept and initial design of SoftEther Manager.
+- **Target VPN Server**: [SoftEther VPN Server](https://www.softether.org/) — Thanks to the SoftEther Project team and University of Tsukuba for creating and maintaining this versatile, high-performance open-source VPN server.
+
+### 🛠️ Architecture Evolution & Key Differences
+
+Based on the actual implementation of this codebase:
+
+| Dimension | Original Prototype (DrSaeedHub) | This Project (Current Implementation) |
+| :--- | :--- | :--- |
+| **Backend Architecture** | Python 3 + FastAPI; requires Python runtime, pip dependencies, and virtual environment | **Rewritten entirely in pure Go** (standard library `net/http` + pure Go SQLite `modernc.org/sqlite`). Zero Python, Node.js, or CGO runtime dependencies. Minimal memory footprint, fast startup, single binary serving both Web API and CLI maintenance |
+| **Server Management** | Manages only a single local SoftEther instance | **Multi-Server Management & Cluster Support**: Topbar search and instant switching between multiple SoftEther VPN server instances. Hubs, users, sessions, historical samples, traffic quotas, and credentials are fully isolated per server; safety checks enforce quota release before modifying/deleting servers |
+| **Traffic Quotas** | Basic limit detection | **Baseline Offset "True Zeroing" Algorithm**: Solves the lack of a native counter-reset API in SoftEther. Resets bring visible transfer counters back to 0 B without breaking cumulative tracking. Enforces byte ceilings (MB/GB/TB) with automatic disconnects and policy restoration upon quota reset/raise; atomic operations with rollback |
+| **Concurrency & Integrity** | No optimistic concurrency control | **Optimistic Concurrency Control**: ACL packet filter and quota modifications require `expected_version` tokens, returning 409 Conflict if changed concurrently to prevent cross-tab/multi-admin overwrite collisions |
+| **Security Hardening** | Basic credential storage | **Defense-in-Depth**: Sensitive VPN credentials and password hashes encrypted with Fernet symmetric cipher in SQLite; scrypt password hashing for panel admins; `HttpOnly` / `SameSite=Lax` cookies (no tokens in `localStorage`); brute-force lockout after 8 consecutive failures |
+| **TLS Verification** | Unpinned TLS connections | **TLS Certificate Pinning**: Records and pins SHA-256 fingerprints of the SoftEther JSON-RPC management interface upon first trust; refuses password transmission if certificates mismatch (MITM protection); visual fingerprint review and trust workflow |
+| **Anti-Reconnaissance** | Standard web endpoints | **Stealth Mode**: Supports custom secret URL paths; optional "Domain-Only Access" returns anonymous 404 responses for any direct IP or unrecognized host header requests |
+| **Automated SSL/TLS** | Manual certificate configuration | **Embedded ACME Client**: Native pure Go ACME client automatically requests and renews Let's Encrypt certificates (auto-renews 30 days prior to expiration via HTTP-01 challenge) without Certbot or cron jobs |
+| **Packaging & Ops** | Source code installation | **Multi-Arch Docker & One-Line Installer**: Official multi-arch Docker image (`ghcr.io/siryle/softether-manager:latest` for amd64/arm64) supporting all LAN topologies; one-line Systemd installer with SHA-256 verified SoftEther 4.44 packaging and failure rollback; built-in `sem` CLI tool |
+| **Frontend & i18n** | Basic SPA | **Next.js 15 Modern SPA**: Full Dark/Light themes, instant real-time Chinese/English toggle without page reload, mobile-responsive layout (<960px switches to native app experience with bottom navigation and sheets), faithful chart rendering with gap preservation |
+
+---
+
+## 📄 License & Attribution
+
+- This project consists of a newly developed pure Go backend and a deeply refactored frontend. All new and modified code is licensed under the [MIT License](https://opensource.org/licenses/MIT).
+- The early architectural prototype originated from [DrSaeedHub/Softether-Manager](https://github.com/DrSaeedHub/Softether-Manager); relevant component designs retain original copyright (Copyright (c) 2024 Seyed Saeed Sadri).
+- This is an independent self-hosted management console and is not affiliated with or endorsed by the [SoftEther Project / SoftEther VPN](https://www.softether.org/) or the University of Tsukuba. SoftEther VPN is a registered trademark of the SoftEther Project / University of Tsukuba.

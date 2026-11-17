@@ -2,7 +2,11 @@
 
 [English](README_EN.md) | **简体中文**
 
-现代化、自托管的 [SoftEther VPN Server](https://www.softether.org/) 网页管理控制台。完整支持 SoftEther 官方全部 133 个 JSON-RPC 管理 API，具备直观优雅的交互界面、宿主机内核级健康监控、全功能流量配额统计，已全面支持 **Docker 容器化部署** 及 **局域网（LAN）设备远程管理**。
+现代化、自托管的 [SoftEther VPN Server](https://www.softether.org/) 网页管理控制台。
+
+> 本项目基于 [DrSaeedHub/Softether-Manager](https://github.com/DrSaeedHub/Softether-Manager) 进行修改与深度重构，专门用于对运行 [SoftEther VPN](https://www.softether.org/) 服务的服务器进行高效、便捷的图形化与多实例集中管理。
+
+完整支持 SoftEther 官方全部 133 个 JSON-RPC 管理 API，具备直观优雅的交互界面、多服务器集群切换、宿主机内核级健康监控、全功能流量配额统计与真实清零，已全面支持 **Docker 容器化部署** 及 **局域网（LAN）/ 远程设备集中管理**。
 
 ![控制面板](docs/screenshots/zh-CN/dashboard.png)
 
@@ -30,16 +34,16 @@
 | **流量配额限制** | 支持针对每个配置及虚拟 HUB 设置流量上限（MB / GB / TB），支持单算上行、单算下行或双向合计；达到限额自动切断会话或将 HUB 下线；调高限额或重置后自动恢复策略。支持真正的**流量清零**统计。 |
 | **用户组管理** | 创建、编辑、删除组，组内成员自动继承组级别安全策略。 |
 | **活跃会话** | 实时会话列表，展示客户端 IP、连接协议、加密算法与累计传输量；支持查看各会话的独立流量曲线；支持强制断开会话，具备连接审计日志。 |
-| **访问控制 (ACL)** | 强大的包过滤器列表（规则优先级、协议、源/目标 IP、端口、用户、模拟网络丢包/抖动/延迟）以及源 IP 连接速率限制。 |
+| **访问控制 (ACL)** | 强大的包过滤器列表（规则优先级、协议、源/目标 IP、端口、用户、模拟网络丢包/抖动/延迟）以及源 IP 连接速率限制；整表更新带版本号（`expected_version`）乐观并发控制，防止多页面相互覆盖。 |
 | **HUB 安全机制** | 信任 CA 证书、CRL 证书吊销列表、RADIUS 委托认证、HUB 管理员密码。 |
 | **SecureNAT** | 开启/关闭虚拟 NAT 与 DHCP 服务，实时查看 NAT 转换表与 DHCP 租约记录。 |
 | **级联连接** | 管理与其他 VPN 服务器的 Hub-to-Hub 级联链路，实时展示连通状态。 |
 | **交换与网络** | 查看 MAC 地址表与 IP 映射表、配置物理网卡本地网桥、管理虚拟三层交换机与路由表项。 |
-| **服务器全局设置** | 监听端口管理、VPN-over-ICMP/DNS、L2TP/IPsec、OpenVPN 与 MS-SSTP 协议集成、VPN Azure 云穿透、动态域名 DDNS、加密算法与证书管理、集群配置、网络保活、Syslog、运行与安全日志浏览、配置备份与恢复。 |
+| **服务器全局设置** | 监听端口管理、VPN-over-ICMP/DNS、L2TP/IPsec、OpenVPN 与 MS-SSTP 协议集成、VPN Azure 云穿透、动态域名 DDNS（支持启闭状态检测与服务联动）、加密算法与证书管理、集群配置、网络保活、Syslog、运行与安全日志浏览、配置备份与恢复。 |
 | **面板自身安全** | 自定义域名、内置 Let's Encrypt 证书全自动申请与续期、HTTPS 端口自定义，支持“仅允许通过该域名访问”的安全防护阻断。 |
 
 ### 📈 真实流量曲线与采样
-SoftEther 本身只保留自开机以来的累计流量计数，没有历史数据。面板内置后台采样调度器，自动将流量增量计算为吞吐曲线图（支持按 Hub、按用户、按会话多维度分析）。
+SoftEther 本身只保留自开机以来的累计流量计数，没有历史数据。面板内置后台采样调度器，自动将流量增量计算为吞吐曲线图（支持按 Hub、按用户、按会话多维度分析），真实记录观测到的流量并保留空白间隙（不进行虚假数据平滑插值），各采样器可在设置中按需独立启闭。
 
 ![用户详情](docs/screenshots/zh-CN/user.png)
 
@@ -282,7 +286,35 @@ python3 scripts/test-install.py
 
 ---
 
-## 📄 开源许可证
+## 💡 项目渊源与致谢
 
-本项目遵循 MIT 开源许可证。
-SoftEther VPN 是 SoftEther Project / 筑波大学的注册商标。
+本项目专为管理 **[SoftEther VPN](https://www.softether.org/)** 服务端而打造，并在开源社区优秀的面板项目 **[DrSaeedHub/Softether-Manager](https://github.com/DrSaeedHub/Softether-Manager)** 基础上进行了修改、深度重构与功能演进。
+
+### 🌟 关联与致敬项目
+- **上游原型项目**：[DrSaeedHub/Softether-Manager](https://github.com/DrSaeedHub/Softether-Manager) — 感谢原作者 DrSaeedHub 打造的 SoftEther Web 管理概念与最初设计原型。
+- **目标 VPN 服务端**：[SoftEther VPN Server](https://www.softether.org/) — 感谢筑波大学 SoftEther Project 团队及开源社区构建的功能强大、多协议、高性能的开源 VPN 服务端。
+
+### 🛠️ 相比原项目的核心重构与演进对比
+
+根据本仓库目前的实际代码实现，主要重构与演进特性如下：
+
+| 维度 | 原项目原型 (DrSaeedHub) | 本项目实际实现 (当前版本) |
+| :--- | :--- | :--- |
+| **后端架构** | Python 3 + FastAPI，依赖 pip/venv 虚拟环境与多项第三方包 | **全栈纯 Go 重构**（Go 标准库 `net/http` + 纯 Go SQLite `modernc.org/sqlite`）。零 Python/Node.js/CGO 运行时依赖，极低系统资源占用，单二进制文件兼具 Web 服务与运维命令行 |
+| **服务器纳管** | 仅支持管理单台本地连接的 SoftEther 实例 | **多服务器集中切换与管理**：顶栏按名称/IP 快速搜索与无缝切换，各服务器的 HUB、用户、会话、历史采样、流量配额及 VPN 凭据完全物理隔离；支持更改/删除服务器前的配额安全解绑校验 |
+| **流量配额机制** | 基础限额检测 | **基准偏移“真实清零”算法**：针对 SoftEther 官方无清零 API 的底层限制，建立基准偏移机制，使“重置流量”真正归零；达到限额自动切断会话或下线 HUB，调高限额或重置后自动恢复；操作具备原子性与自动回滚 |
+| **并发与版本安全** | 缺乏并发写入保护 | **乐观并发控制**：访问控制 ACL 规则更新与流量配额操作引入版本号校验（`expected_version`），发生冲突时返回 409，杜绝多标签页或多管理员并发覆写 |
+| **敏感凭据安全** | 凭据基础存储 | **深度加密防护**：VPN 管理密码与用户哈希均采用 Fernet 对称加密入库；管理员密码使用 scrypt 高强度哈希；会话采用 `HttpOnly`、`SameSite=Lax` Cookie，彻底摒弃 `localStorage` 存 Token 的 XSS 风险；连续 8 次登录失败自动锁定 5 分钟 |
+| **连接安全与防中间人** | 信任默认连接 | **TLS 证书指纹绑定 (Pinning)**：首次连接自动提取并锁定 SoftEther 管理接口 SHA-256 证书指纹，证书变动时坚决拒绝发送密码；控制台支持独立核验与新证书确认流程 |
+| **网络防探测伪装** | 开放常规访问 | **隐蔽与防探测**：支持配置 Secret Web Path；开启“仅限指定域名访问”后，任何通过裸 IP 或非授权 Host 头的扫描嗅探请求一律返回 404 伪装阻断 |
+| **自动化 SSL/TLS** | 依赖外部证书或手动挂载 | **原生内置 ACME 客户端**：纯 Go 原生实现 Let's Encrypt 证书全自动申请与续期（提前 30 天自动轮换，80 端口验证），无需安装 Certbot 或额外定时任务 |
+| **部署与交付** | 源码依赖部署，环境较为繁琐 | **多架构 Docker 镜像与一键安装脚本**：官方发布跨架构 Docker 镜像（`ghcr.io/siryle/softether-manager:latest`，支持 amd64 / arm64），原生支持局域网远程拓扑；提供一键式 Systemd 安装脚本（附带 SHA-256 校验的 SoftEther 4.44 安装能力与安装失败自动回滚机制），内置 `sem` 运维工具 |
+| **前端体验与国际化** | 基础 SPA 交互 | **Next.js 15 现代化 SPA**：支持深色/浅色主题、中英双语无刷新实时切换；自适应移动端布局（屏幕宽 < 960px 自动切换为手机 App 级底栏与抽屉触控体验）；图表真实记录观测流量（不凭空插值） |
+
+---
+
+## 📄 开源许可证与版权声明
+
+- 本项目由全新编写的纯 Go 后端与深度重构的前端组成，新增与修改代码采用 [MIT 许可证](https://opensource.org/licenses/MIT) 开源。
+- 早期原型架构源自 [DrSaeedHub/Softether-Manager](https://github.com/DrSaeedHub/Softether-Manager)，相关组件设计保留原作者版权（Copyright (c) 2024 Seyed Saeed Sadri）。
+- 本项目为独立开源自托管管理面板，与 [SoftEther Project / SoftEther VPN](https://www.softether.org/) 官方及筑波大学无直接附属或商业关系。SoftEther VPN 是 SoftEther Project / 筑波大学的注册商标。
