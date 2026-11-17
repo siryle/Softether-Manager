@@ -155,7 +155,7 @@ export function Switch({
   const onTxt = t(onWord);
   const offTxt = t(offWord);
   const text = busy
-    ? `${t("切换中…")}`
+    ? `${t("Switching…")}`
     : on
       ? onTxt
       : offTxt;

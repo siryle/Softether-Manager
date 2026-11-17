@@ -142,7 +142,7 @@ function ServerForm({ server, onClose, onSaved }: { server: ManagedServer | null
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(null); }
   };
-  return <Sheet side title={t(server ? "Edit server" : "Add server")} subtitle={t("Save a SoftEther management connection")} onClose={onClose} beforeClose={beforeClose} footer={<><button type="button" className="btn" disabled={!!busy} onClick={() => { if (beforeClose()) onClose(); }}>{t("Cancel")}</button><button type="submit" form="server-form" className="btn-primary" disabled={!!busy}>{t(busy === "save" ? "Saving..." : "Save server")}</button></>}>
+  return <Sheet side title={t(server ? "Edit server" : "Add server")} subtitle={t("Save a SoftEther management connection")} onClose={onClose} beforeClose={beforeClose} footer={<><button type="button" className="btn" disabled={!!busy} onClick={() => { if (beforeClose()) onClose(); }}>{t("Cancel")}</button><button type="submit" form="server-form" className="btn-primary" disabled={!!busy}>{t(busy === "save" ? "Saving…" : "Save server")}</button></>}>
     <form id="server-form" ref={form} onSubmit={save} onChange={() => { setTest(null); setTestError(null); }}>
       {error && <ErrorAlert>{error}</ErrorAlert>}
       <fieldset disabled={!!busy} className="server-form-fields">

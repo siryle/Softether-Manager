@@ -199,7 +199,7 @@ export function ConfirmSheet({
       <div style={{ display: "grid", gap: "var(--s3)" }}>
         <div className="lede">{typeof body === "string" ? t(body) : body}</div>
         {typed && (
-          <Field label={<>{t("输入")} <span className="mono">{typed}</span> {t("以确认")}</>}>
+          <Field label={<>{t("Type exactly")} <span className="mono">{typed}</span> {t("to confirm")}</>}>
             <input
               className="input mono"
               value={text}
