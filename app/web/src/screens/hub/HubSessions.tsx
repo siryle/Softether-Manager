@@ -71,9 +71,11 @@ function parseClientInfo(d: Wire) {
   const host = String(d.ClientHostname_str || d.RealHostname_str || d.Hostname_str || "").trim();
   const hostLower = host.toLowerCase();
 
+  const isDull = (s: string) => !s || /^[-—\s]+$/.test(s) || s.toLowerCase() === "unknown" || s.toLowerCase() === "none";
+
   // Deduce real operating system
   let os = osName;
-  if (!os || os === "—" || os.toLowerCase().includes("l2tp")) {
+  if (isDull(os) || os.toLowerCase().includes("l2tp")) {
     if (hostLower.includes("iphone")) {
       os = "Apple iOS (iPhone)";
     } else if (hostLower.includes("ipad")) {
@@ -95,16 +97,19 @@ function parseClientInfo(d: Wire) {
     ) {
       os = "Windows";
     } else {
-      os = osName && osName !== "—" ? osName : "—";
+      os = !isDull(osName) ? osName : "—";
     }
   }
 
-  if (osVer && osVer !== "—") {
+  if (!isDull(osVer)) {
     os = `${os} ${osVer}`.trim();
   }
 
+  // Ensure no trailing hyphens/dashes remain on os
+  os = os.replace(/\s*[-—]+\s*$/, "").trim() || "—";
+
   // Deduce client software
-  let app = prod || "—";
+  let app = !isDull(prod) ? prod : "—";
   if (d.ClientProductVer_u32 != null) {
     const v = Number(d.ClientProductVer_u32);
     if (v > 0 && v < 10000) {

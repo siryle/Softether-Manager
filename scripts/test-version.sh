@@ -14,7 +14,7 @@ git config user.name 'Version Test'
 git config user.email 'version-test@example.invalid'
 git config commit.gpgsign false
 git config tag.gpgsign false
-printf '1.0.13\n' > VERSION
+printf '1.0.0\n' > VERSION
 printf 'initial\n' > changed.txt
 printf 'initial\n' > other.txt
 git add .
@@ -37,12 +37,12 @@ expect_version() {
 printf 'first change\n' >> changed.txt
 git add changed.txt
 git commit --quiet -m first
-expect_version 1.0.14
+expect_version 1.0.1
 git diff --quiet -- VERSION
 git diff --cached --quiet
 
 git commit --quiet --allow-empty -m empty
-expect_version 1.0.14
+expect_version 1.0.1
 
 printf 'retry change\n' >> changed.txt
 git add changed.txt
@@ -52,11 +52,11 @@ if git commit --quiet -m rejected; then
   printf 'FAIL: the commit-msg hook should reject the commit\n' >&2
   exit 1
 fi
-expect_version 1.0.14
-[[ "$(git show :VERSION)" == 1.0.15 ]]
+expect_version 1.0.1
+[[ "$(git show :VERSION)" == 1.0.2 ]]
 rm .githooks/commit-msg
 git commit --quiet -m retry
-expect_version 1.0.15
+expect_version 1.0.2
 
 printf '1.1.0\n' > VERSION
 git add VERSION
@@ -96,22 +96,63 @@ git tag -d v1.1.3 >/dev/null
 [[ "$(bash scripts/version.sh)" == v2.0.0 ]]
 git restore -- VERSION
 
+# Verify decimal rollover rules:
+# 1.0.9 -> 1.1.0
+printf '1.0.9\n' > VERSION
+git add VERSION
+git commit --quiet -m 'set 1.0.9'
+expect_version 1.0.9
+printf 'rollover 1\n' >> changed.txt
+git add changed.txt
+git commit --quiet -m 'test rollover to 1.1.0'
+expect_version 1.1.0
+
+# 1.1.9 -> 1.2.0
+printf '1.1.9\n' > VERSION
+git add VERSION
+git commit --quiet -m 'set 1.1.9'
+expect_version 1.1.9
+printf 'rollover 2\n' >> changed.txt
+git add changed.txt
+git commit --quiet -m 'test rollover to 1.2.0'
+expect_version 1.2.0
+
+# 1.9.9 -> 2.0.0
+printf '1.9.9\n' > VERSION
+git add VERSION
+git commit --quiet -m 'set 1.9.9'
+expect_version 1.9.9
+printf 'rollover 3\n' >> changed.txt
+git add changed.txt
+git commit --quiet -m 'test rollover to 2.0.0'
+expect_version 2.0.0
+
+# 1.0.31 -> 1.1.0 (recovering from legacy >9 patch)
+printf '1.0.31\n' > VERSION
+git add VERSION
+git commit --quiet -m 'set 1.0.31'
+expect_version 1.0.31
+printf 'legacy rollover\n' >> changed.txt
+git add changed.txt
+git commit --quiet -m 'test rollover from 1.0.31 to 1.1.0'
+expect_version 1.1.0
+
 # Verify auxiliary files (docs, screenshots, test files) do not bump version
 printf 'doc update\n' >> README.md
 git add README.md
 git commit --quiet -m 'docs update'
-expect_version 1.1.3
+expect_version 1.1.0
 
 mkdir -p docs/screenshots
 printf 'image data\n' > docs/screenshots/dashboard.png
 git add docs/screenshots/dashboard.png
 git commit --quiet -m 'image update'
-expect_version 1.1.3
+expect_version 1.1.0
 
 printf 'func TestDummy() {}\n' > dummy_test.go
 git add dummy_test.go
 git commit --quiet -m 'test update'
-expect_version 1.1.3
+expect_version 1.1.0
 
 printf 'invalid\n' > VERSION
 git add VERSION

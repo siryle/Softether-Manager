@@ -46,7 +46,27 @@ if [[ "$has_code_changes" == false ]]; then
 fi
 
 IFS=. read -r major minor patch <<< "$staged_version"
-next_version="$major.$minor.$((patch + 1))"
+
+# Decimal rollover rule:
+# Patch rolls over at 9: 1.0.9 -> 1.1.0, 1.1.9 -> 1.2.0
+# Minor rolls over at 9: 1.9.9 -> 2.0.0
+# If patch was already >= 9 (e.g. 1.0.31), it rolls over to next minor (1.1.0).
+if (( patch >= 9 )); then
+  next_patch=0
+  if (( minor >= 9 )); then
+    next_minor=0
+    next_major=$((major + 1))
+  else
+    next_minor=$((minor + 1))
+    next_major=$major
+  fi
+else
+  next_patch=$((patch + 1))
+  next_minor=$minor
+  next_major=$major
+fi
+
+next_version="$next_major.$next_minor.$next_patch"
 printf '%s\n' "$next_version" > VERSION
 git add -- VERSION
 printf 'Version: %s -> %s\n' "$staged_version" "$next_version" >&2
