@@ -494,6 +494,9 @@ function apiMethods(request: typeof sendRequest) {
   // -- users / groups -----------------------------------------------------------------
   users: (hub: string) => request("GET", `${hubPath(hub)}/users`),
   createUser: (hub: string, body: Wire) => request("POST", `${hubPath(hub)}/users`, body),
+  exportUsers: (hub: string) => request<{ filename: string; csv: string; count: number }>("GET", `${hubPath(hub)}/users/export`),
+  importUsers: (hub: string, csv: string) =>
+    request<{ created: string[]; skipped: Wire[]; failed: Wire[] }>("POST", `${hubPath(hub)}/users/import`, { csv }),
   user: (hub: string, name: string) =>
     request("GET", `${hubPath(hub)}/users/${encodeURIComponent(name)}`),
   setUser: (hub: string, name: string, body: Wire) =>

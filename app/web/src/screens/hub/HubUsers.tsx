@@ -20,13 +20,16 @@ import {
   useQuotaIndex,
 } from "../../components/QuotaCard";
 import { UserSheet } from "../../components/UserSheet";
+import { UserImportSheet } from "../../components/UserImportSheet";
 import { VpnFileSheet } from "../../components/VpnFileSheet";
 import { api, type Quota, type Wire } from "../../lib/api";
 import { navigate, seg } from "../../lib/router";
 import { AUTH_TYPES, isNever, userBytes, userSortValue } from "../../lib/se";
 import { formatBytes, formatCount, formatDate, timeAgo } from "../../lib/util";
 import { useI18n, t } from "../../lib/i18n";
-import { IconChevron, IconDownload, IconPlus, IconUsers } from "../../ui/Icon";
+import { downloadText } from "../../lib/util";
+import { useToast } from "../../lib/toast";
+import { IconChevron, IconDownload, IconPlus, IconUpload, IconUsers } from "../../ui/Icon";
 import { Pill } from "../../ui/Status";
 
 /**
@@ -39,9 +42,11 @@ import { Pill } from "../../ui/Status";
  */
 export function HubUsers({ hub }: { hub: string }) {
   const { t } = useI18n();
+  const { push } = useToast();
   const [users, setUsers] = useState<Wire[] | null>(null);
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [vpnFor, setVpnFor] = useState<string | null>(null);
   // Case-folded, because SoftEther matches usernames without case.
   const [online, setOnline] = useState<Set<string>>(new Set());
@@ -86,6 +91,17 @@ export function HubUsers({ hub }: { hub: string }) {
 
   const open = (name: string) => navigate(`/hub/${seg(hub)}/user/${seg(name)}`);
 
+  // One CSV of the hub's users, columns matching what the import expects.
+  const guardExport = async () => {
+    try {
+      const out = await api.exportUsers(hub);
+      downloadText(out.filename || `${hub}-users.csv`, out.csv, "text/csv");
+      push("ok", t("{count} users exported.", { count: out.count ?? 0 }));
+    } catch (e) {
+      push("err", e instanceof Error ? e.message : String(e));
+    }
+  };
+
   return (
     <>
       <SectionTitle
@@ -93,6 +109,15 @@ export function HubUsers({ hub }: { hub: string }) {
         actions={
           <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap" }}>
             <SearchBox value={query} onChange={setQuery} placeholder={t("name, group, note…")} />
+            <button
+              className="btn btn--sm"
+              onClick={() => void guardExport()}
+            >
+              <IconDownload size={14} /> {t("Export users")}
+            </button>
+            <button className="btn btn--sm" onClick={() => setImporting(true)}>
+              <IconUpload size={14} /> {t("Import users")}
+            </button>
             <button className="btn btn--primary btn--sm" onClick={() => setCreating(true)}>
               <IconPlus size={14} /> {t("New user")}
             </button>
@@ -196,6 +221,13 @@ export function HubUsers({ hub }: { hub: string }) {
       )}
 
       {vpnFor && <VpnFileSheet hub={hub} name={vpnFor} onClose={() => setVpnFor(null)} />}
+      {importing && (
+        <UserImportSheet
+          hub={hub}
+          onClose={() => setImporting(false)}
+          onImported={() => void load()}
+        />
+      )}
       {creating && (
         <UserSheet
           hub={hub}

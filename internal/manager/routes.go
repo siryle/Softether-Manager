@@ -22,6 +22,7 @@ func (a *App) register() {
 	a.registerSystem()
 	a.registerRPCRoutes()
 	a.registerCustomRPC()
+	a.registerUserBulk()
 	a.registerDDNS()
 	a.registerHistory()
 	a.registerVPN()
