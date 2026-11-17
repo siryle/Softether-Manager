@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"context"
 	"encoding/base64"
 	"net/http"
 	"sort"
@@ -72,6 +73,24 @@ func (a *App) registerCustomRPC() {
 	})
 	a.endpoint("GET /server/cert", func(_ http.ResponseWriter, r *http.Request, _ M) any {
 		return M{"cert_base64": a.rpc(r.Context(), "GetServerCert", nil)["Cert_bin"]}
+	})
+	a.endpoint("GET /server/connections", func(_ http.ResponseWriter, r *http.Request, _ M) any {
+		raw := a.rpc(r.Context(), "EnumConnection", nil)
+		connections := list(raw["ConnectionList"])
+		return a.enrichConnections(r.Context(), connections)
+	})
+	a.endpoint("GET /server/connections/{name}", func(_ http.ResponseWriter, r *http.Request, _ M) any {
+		name := r.PathValue("name")
+		status := a.rpc(r.Context(), "GetConnectionInfo", M{"Name_str": name})
+		if status == nil {
+			fail(404, "Connection not found.")
+		}
+		ip := cleanIP(str(status["Ip_ip"]))
+		geo := a.lookupIP(r.Context(), ip)
+		status["IpLocation_str"] = geo.Location
+		status["IpIsp_str"] = geo.ISP
+		status["IpFull_str"] = geo.Full
+		return status
 	})
 	a.endpoint("PUT /server/admin-password", func(w http.ResponseWriter, r *http.Request, u M) any {
 		b := readBody(w, r)
@@ -391,4 +410,118 @@ func queryInt(r *http.Request, key string, fallback, low, high int64) int64 {
 		fail(422, "Invalid integer query: "+key)
 	}
 	return max(low, min(high, n))
+}
+
+func (a *App) enrichConnections(ctx context.Context, connections []M) M {
+	if len(connections) == 0 {
+		return M{"NumConnection_u32": 0, "ConnectionList": connections}
+	}
+
+	ips := make([]string, 0, len(connections))
+	for _, c := range connections {
+		if ip := str(c["Ip_ip"]); ip != "" {
+			ips = append(ips, ip)
+		}
+	}
+	geoMap := a.batchLookupIPs(ctx, ips)
+
+	type sessionInfo struct {
+		hub         string
+		username    string
+		sessionName string
+		realname    string
+		note        string
+		group       string
+	}
+	connToSession := make(map[string]sessionInfo)
+	ipToSession := make(map[string]sessionInfo)
+
+	func() {
+		defer func() { _ = recover() }()
+		hubList := list(a.rpc(ctx, "EnumHub", nil)["HubList"])
+		for _, h := range hubList {
+			hubName := str(h["HubName_str"])
+			if hubName == "" {
+				continue
+			}
+
+			userMap := make(map[string]M)
+			func() {
+				defer func() { _ = recover() }()
+				uRes := a.rpc(ctx, "EnumUser", M{"HubName_str": hubName})
+				for _, u := range list(uRes["UserList"]) {
+					uname := strings.ToLower(strings.TrimSpace(str(u["Name_str"])))
+					if uname != "" {
+						userMap[uname] = u
+					}
+				}
+			}()
+
+			sessList := list(a.rpc(ctx, "EnumSession", M{"HubName_str": hubName})["SessionList"])
+			for _, s := range sessList {
+				sessName := str(s["Name_str"])
+				userName := str(s["Username_str"])
+				clientIP := cleanIP(str(s["ClientIP_ip"]))
+				if sessName == "" || userName == "" {
+					continue
+				}
+
+				info := sessionInfo{
+					hub:         hubName,
+					username:    userName,
+					sessionName: sessName,
+				}
+				if u, ok := userMap[strings.ToLower(strings.TrimSpace(userName))]; ok {
+					info.realname = str(u["Realname_utf"])
+					info.note = str(u["Note_utf"])
+					info.group = str(u["GroupName_str"])
+				}
+
+				if clientIP != "" {
+					ipToSession[clientIP] = info
+				}
+
+				if len(sessList) <= 50 {
+					func() {
+						defer func() { _ = recover() }()
+						st := a.rpc(ctx, "GetSessionStatus", M{"HubName_str": hubName, "Name_str": sessName})
+						connName := strings.TrimSpace(str(st["ConnectionName_str"]))
+						if connName != "" {
+							connToSession[connName] = info
+						}
+					}()
+				}
+			}
+		}
+	}()
+
+	for _, c := range connections {
+		connName := strings.TrimSpace(str(c["Name_str"]))
+		ip := cleanIP(str(c["Ip_ip"]))
+
+		if geo, ok := geoMap[ip]; ok {
+			c["IpLocation_str"] = geo.Location
+			c["IpIsp_str"] = geo.ISP
+			c["IpFull_str"] = geo.Full
+		}
+
+		var matched sessionInfo
+		var ok bool
+		if connName != "" {
+			matched, ok = connToSession[connName]
+		}
+		if !ok && ip != "" {
+			matched, ok = ipToSession[ip]
+		}
+		if ok {
+			c["Username_str"] = matched.username
+			c["Realname_utf"] = matched.realname
+			c["Note_utf"] = matched.note
+			c["GroupName_str"] = matched.group
+			c["HubName_str"] = matched.hub
+			c["SessionName_str"] = matched.sessionName
+		}
+	}
+
+	return M{"NumConnection_u32": len(connections), "ConnectionList": connections}
 }

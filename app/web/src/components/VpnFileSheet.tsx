@@ -64,14 +64,22 @@ export function VpnFileSheet({
       .ddns()
       .then((r) => setDdnsFqdn(String(r.CurrentFqdn_str || "")))
       .catch(() => {});
-    void api
-      .vpnTemplate()
-      .then((r) => {
-        setEmbed(Boolean(r.embed_password_default));
-        setTemplates({
-          account: String(r.account_name_template || "{hub} - {username}"),
-          file: String(r.filename_template || "{hub}-{username}"),
-        });
+    void Promise.all([
+      api.vpnTemplate().catch(() => null),
+      api.connection().catch(() => null),
+    ])
+      .then(([r, conn]) => {
+        const pubHost = String(r?.vpn_public_host || conn?.public_host || "").trim();
+        const pubPort = Number(r?.vpn_public_port || conn?.public_port || 0);
+        if (pubHost) setHost(pubHost);
+        if (pubPort > 0 && pubPort <= 65535) setPort(pubPort);
+        if (r) {
+          setEmbed(Boolean(r.embed_password_default));
+          setTemplates({
+            account: String(r.account_name_template || "{hub} - {username}"),
+            file: String(r.filename_template || "{hub}-{username}"),
+          });
+        }
       })
       .catch(() => setTemplates({ account: "{hub} - {username}", file: "{hub}-{username}" }));
     void api

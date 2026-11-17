@@ -426,6 +426,26 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 		}
 	}
 
+	userMap := make(map[string]M)
+	func() {
+		defer func() { _ = recover() }()
+		out := a.rpc(ctx, "EnumUser", M{"HubName_str": hub})
+		for _, u := range list(out["UserList"]) {
+			uName := strings.ToLower(strings.TrimSpace(str(u["Name_str"])))
+			if uName != "" {
+				userMap[uName] = u
+			}
+		}
+	}()
+
+	ips := make([]string, 0, len(sessions))
+	for _, s := range sessions {
+		if cIP := str(s["ClientIP_ip"]); cIP != "" {
+			ips = append(ips, cIP)
+		}
+	}
+	geoMap := a.batchLookupIPs(ctx, ips)
+
 	for _, s := range sessions {
 		sessName := str(s["Name_str"])
 		clientIP := strings.TrimSpace(str(s["ClientIP_ip"]))
@@ -458,6 +478,17 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 		s["RealHostname_str"] = realHost
 		if isIP(host) || host == clientIP || strings.EqualFold(host, remoteHost) {
 			s["Hostname_str"] = realHost
+		}
+
+		if geo, ok := geoMap[cleanIP(clientIP)]; ok {
+			s["IpLocation_str"] = geo.Location
+			s["IpIsp_str"] = geo.ISP
+			s["IpFull_str"] = geo.Full
+		}
+		uName := strings.ToLower(strings.TrimSpace(str(s["Username_str"])))
+		if u, ok := userMap[uName]; ok {
+			s["Realname_utf"] = str(u["Realname_utf"])
+			s["Note_utf"] = str(u["Note_utf"])
 		}
 	}
 	return sessions
@@ -559,6 +590,21 @@ func (a *App) enrichSessionStatus(ctx context.Context, hub, name string, status 
 		}
 	}()
 	status["ActiveNatTcp_u32"] = activeNatTcp
+
+	geo := a.lookupIP(ctx, clientIP)
+	status["IpLocation_str"] = geo.Location
+	status["IpIsp_str"] = geo.ISP
+	status["IpFull_str"] = geo.Full
+
+	func() {
+		defer func() { _ = recover() }()
+		uName := str(status["Username_str"])
+		if uName != "" {
+			u := a.rpc(ctx, "GetUser", M{"HubName_str": hub, "Name_str": uName})
+			status["Realname_utf"] = str(u["Realname_utf"])
+			status["Note_utf"] = str(u["Note_utf"])
+		}
+	}()
 
 	return status
 }

@@ -51,9 +51,10 @@ export function Connections() {
             <table className="dtable">
               <thead>
                 <tr>
-                  <th>{t("Name")}</th>
+                  <th>{t("CID / Name")}</th>
+                  <th>{t("User")}</th>
+                  <th>{t("Source & Location")}</th>
                   <th>{t("Type")}</th>
-                  <th>{t("Source")}</th>
                   <th>{t("Connected")}</th>
                   <th className="tact" style={{ width: 130 }} aria-label={t("Actions")} />
                 </tr>
@@ -61,12 +62,29 @@ export function Connections() {
               <tbody>
                 {connections.map((c) => (
                   <tr key={String(c.Name_str)} className="clickable" onClick={() => setOpen(String(c.Name_str))}>
-                    <td className="tmono">{String(c.Name_str)}</td>
-                    <td><Pill kind="idle" label={CONNECTION_TYPES[Number(c.Type_u32)] ?? t("type {n}", { n: String(c.Type_u32) })} /></td>
-                    <td className="tmono">
-                      {String(c.Hostname_str || c.Ip_ip)}:{String(c.Port_u32)}
-                      {c.Hostname_str ? <span className="tsub">{String(c.Ip_ip)}</span> : null}
+                    <td className="tmono bold">{String(c.Name_str)}</td>
+                    <td>
+                      {c.Username_str ? (
+                        <div>
+                          <span className="mono bold">{String(c.Username_str)}</span>
+                          {c.Realname_utf ? <span style={{ marginLeft: 6, color: "var(--fg)" }}>({String(c.Realname_utf)})</span> : null}
+                          {c.Note_utf ? <div className="tsub truncate" style={{ maxWidth: 200, color: "var(--muted)" }}>{String(c.Note_utf)}</div> : null}
+                        </div>
+                      ) : (
+                        <span className="tsub">—</span>
+                      )}
                     </td>
+                    <td className="tmono">
+                      <div>{String(c.Ip_ip)}:{String(c.Port_u32)}</div>
+                      {c.IpLocation_str || c.IpIsp_str ? (
+                        <div className="tsub" style={{ marginTop: 2, color: "var(--accent)" }}>
+                          {String(c.IpLocation_str || "")} {String(c.IpIsp_str || "")}
+                        </div>
+                      ) : c.Hostname_str && c.Hostname_str !== c.Ip_ip ? (
+                        <div className="tsub">{String(c.Hostname_str)}</div>
+                      ) : null}
+                    </td>
+                    <td><Pill kind="idle" label={CONNECTION_TYPES[Number(c.Type_u32)] ?? t("type {n}", { n: String(c.Type_u32) })} /></td>
                     <td className="tmono">{timeAgo(c.ConnectedTime_dt as string)}</td>
                     <td className="tact">
                       <button
@@ -113,6 +131,7 @@ export function Connections() {
 function ConnectionSheet({ name, onClose }: { name: string; onClose: () => void }) {
   const [detail, setDetail] = useState<Wire | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { t } = useI18n();
 
   usePoll(
     async () => {
@@ -126,20 +145,31 @@ function ConnectionSheet({ name, onClose }: { name: string; onClose: () => void 
     [name],
   );
 
+  const rows: [string, React.ReactNode][] = [];
+  if (detail) {
+    if (detail.Username_str) {
+      rows.push(["user", String(detail.Username_str)]);
+    }
+    if (detail.Realname_utf) {
+      rows.push(["full name", String(detail.Realname_utf)]);
+    }
+    if (detail.Note_utf) {
+      rows.push(["note", String(detail.Note_utf)]);
+    }
+    rows.push(["source", `${detail.Hostname_str || detail.Ip_ip}:${detail.Port_u32}`]);
+    if (detail.IpLocation_str || detail.IpIsp_str) {
+      rows.push(["location", `${detail.IpLocation_str ?? ""} ${detail.IpIsp_str ?? ""}`.trim()]);
+    }
+    rows.push(["connected", formatDate(detail.ConnectedTime_dt as string)]);
+    rows.push(["client", `${detail.ClientStr_str ?? "—"} ${detail.ClientVer_u32 ?? ""}`]);
+    rows.push(["server", `${detail.ServerStr_str ?? "—"} ${detail.ServerVer_u32 ?? ""}`]);
+  }
+
   return (
     <Sheet title={t("Connection")} subtitle={name} onClose={onClose}>
       {error && <div className="alert alert--err">{error}</div>}
       {!detail && !error && <LoadingBlock />}
-      {detail && (
-        <KV
-          rows={[
-            ["source", `${detail.Hostname_str || detail.Ip_ip}:${detail.Port_u32}`],
-            ["connected", formatDate(detail.ConnectedTime_dt as string)],
-            ["client", `${detail.ClientStr_str ?? "—"} ${detail.ClientVer_u32 ?? ""}`],
-            ["server", `${detail.ServerStr_str ?? "—"} ${detail.ServerVer_u32 ?? ""}`],
-          ]}
-        />
-      )}
+      {detail && <KV rows={rows} />}
     </Sheet>
   );
 }

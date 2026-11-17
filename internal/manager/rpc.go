@@ -130,6 +130,8 @@ func (a *App) connection(ctx ...context.Context) M {
 	row := a.serverRow(a.serverIDFromContext(c))
 	out := publicServer(row)
 	out["server_id"] = row["ServerID"]
+	out["public_host"] = a.setting("vpn_public_host")
+	out["public_port"] = a.setting("vpn_public_port")
 	return out
 }
 

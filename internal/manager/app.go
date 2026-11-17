@@ -163,6 +163,7 @@ func New(cfg Config) (app *App, err error) {
 		db.Close()
 		return nil, err
 	}
+	app.initGeoIP()
 	app.migrateCredentials()
 	// An intentionally empty management password is still a configured connection.
 	if boolean(app.setting("se_configured")) {

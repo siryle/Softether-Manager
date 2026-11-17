@@ -141,14 +141,43 @@ function ConnectionCard() {
   const { t } = useI18n();
   const [info, setInfo] = useState<Wire | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [publicHost, setPublicHost] = useState("");
+  const [publicPort, setPublicPort] = useState("443");
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const { guard, push } = useToast();
+
   useEffect(() => {
     void api
       .connection()
-      .then(setInfo)
+      .then((data) => {
+        setInfo(data);
+        setPublicHost(String(data.public_host || ""));
+        setPublicPort(String(data.public_port || 443));
+      })
       .catch((e) => {
         setError(e instanceof Error ? e.message : String(e));
       });
   }, []);
+
+  const savePublic = async () => {
+    const p = Number(publicPort);
+    if (!Number.isInteger(p) || p < 1 || p > 65535) {
+      push("err", t("The port must be a number between 1 and 65535."));
+      return;
+    }
+    setSaving(true);
+    await guard(async () => {
+      const out = await api.saveConnection({
+        public_host: publicHost.trim(),
+        public_port: p,
+      });
+      setInfo(out);
+      setDirty(false);
+    }, t("Server public connection info saved."));
+    setSaving(false);
+  };
+
   return (
     <section id="s-connection">
       <SectionTitle>{t("VPN server")}</SectionTitle>
@@ -160,19 +189,76 @@ function ConnectionCard() {
         ) : !info ? (
           <LoadingBlock />
         ) : (
-          <KV
-            rows={[
-              [t("management address"), `${info.host}:${info.port}`],
-              [t("state"), info.configured ? t("connected") : t("not connected")],
-            ]}
-          />
+          <>
+            <KV
+              rows={[
+                [t("management address"), `${info.host}:${info.port}`],
+                [t("state"), info.configured ? t("connected") : t("not connected")],
+              ]}
+            />
+            <div style={{ marginTop: "var(--s3)", marginBottom: "var(--s3)" }}>
+              <Link to="/connect" className="btn btn--sm">
+                {t("Edit connection")}
+              </Link>
+            </div>
+
+            <div className="section__t" style={{ margin: "var(--s4) 0 var(--s2)" }}>
+              {t("Server public information")}
+            </div>
+            <p className="hint" style={{ marginTop: 0, marginBottom: "var(--s2)" }}>
+              {t("Used as the default server address and port when downloading client .vpn configuration files and requesting SSL certificates.")}
+            </p>
+
+            <div className="row2">
+              <Field label={t("Public domain / host")} hint={t("Public hostname or IP (e.g. vpn.example.com).")}>
+                <input
+                  className="input mono"
+                  value={publicHost}
+                  onChange={(e) => {
+                    setPublicHost(e.target.value);
+                    setDirty(true);
+                  }}
+                  placeholder="vpn.example.com"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                />
+              </Field>
+              <Field label={t("Public port")} hint={t("Open port for VPN clients; default 443.")}>
+                <input
+                  className="input mono"
+                  type="number"
+                  min={1}
+                  max={65535}
+                  value={publicPort}
+                  onChange={(e) => {
+                    setPublicPort(e.target.value);
+                    setDirty(true);
+                  }}
+                  inputMode="numeric"
+                />
+              </Field>
+            </div>
+
+            {dirty && (
+              <div style={{ display: "flex", gap: "var(--s2)", marginTop: "var(--s2)" }}>
+                <button className="btn btn--primary" onClick={() => void savePublic()} disabled={saving}>
+                  {saving && <span className="spin" />} {t("Save server info")}
+                </button>
+                <button
+                  className="btn"
+                  onClick={() => {
+                    setPublicHost(String(info.public_host || ""));
+                    setPublicPort(String(info.public_port || 443));
+                    setDirty(false);
+                  }}
+                >
+                  {t("Discard")}
+                </button>
+              </div>
+            )}
+          </>
         )}
-        <div style={{ marginTop: "var(--s3)" }}>
-          <Link to="/connect" className="btn">
-            {t("Edit connection")}
-          </Link>
-        </div>
-        <p className="hint" style={{ marginTop: "var(--s2)" }}>
+        <p className="hint" style={{ marginTop: "var(--s3)" }}>
           {t("The SoftEther administrator password itself is changed under Server settings → Encryption; changing it there keeps this connection in step automatically.")}
         </p>
       </div>
@@ -233,10 +319,15 @@ function PanelCard() {
 /* ── the panel's own domain and certificate ─────────────────────────────── */
 
 const domainForm = (s: DomainStatus | null) => ({
-  domain: s?.domain ?? "",
+  domain: s?.domain ?? (s?.vpn_public_host ?? ""),
   https_port: String(s?.https_port ?? 443),
   acme_email: s?.acme_email ?? "",
   acme_staging: Boolean(s?.acme_staging),
+  acme_challenge_type: (s?.acme_challenge_type as "dns-01" | "http-01") || "dns-01",
+  cf_dns_token: s?.cf_dns_token ?? "",
+  cert_key_type: (s?.cert_key_type as "rsa2048" | "ecdsa") || "rsa2048",
+  cert_auto_push: s?.cert_auto_push !== false,
+  cert_renew_hook: s?.cert_renew_hook ?? "",
 });
 
 /** Label, verdict, explanation: one line per thing that can be wrong. */
@@ -266,6 +357,7 @@ function DomainCard() {
   const [saving, setSaving] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [acting, setActing] = useState<"" | "issue" | "check">("");
+  const [pushing, setPushing] = useState(false);
   const [showEvents, setShowEvents] = useState(false);
   const { guard, push } = useToast();
 
@@ -309,6 +401,10 @@ function DomainCard() {
       push("err", t("The HTTPS port must be a number between 1 and 65535."));
       return;
     }
+    if (form.acme_challenge_type === "dns-01" && !form.cf_dns_token.trim()) {
+      push("err", t("Cloudflare DNS API Token is required when using DNS-01 verification."));
+      return;
+    }
     setSaving(true);
     await guard(async () => {
       const s = await api.saveDomain({
@@ -316,12 +412,26 @@ function DomainCard() {
         https_port: port,
         acme_email: form.acme_email.trim(),
         acme_staging: form.acme_staging,
+        acme_challenge_type: form.acme_challenge_type,
+        cf_dns_token: form.cf_dns_token.trim(),
+        cert_key_type: form.cert_key_type,
+        cert_auto_push: form.cert_auto_push,
+        cert_renew_hook: form.cert_renew_hook.trim(),
       });
       setDirty(false);
       setState(s);
       setForm(domainForm(s));
-    }, form.domain.trim() ? t("Domain saved — the panel is obtaining a certificate for it.") : t("Domain removed."));
+    }, form.domain.trim() || state?.vpn_public_host ? t("Domain saved — obtaining certificate.") : t("Domain removed."));
     setSaving(false);
+  };
+
+  const pushCert = async () => {
+    setPushing(true);
+    await guard(async () => {
+      const res = await api.pushDomainCert();
+      push("ok", res.message || t("Certificate pushed to SoftEther VPN server."));
+    }, t("Pushing certificate to SoftEther VPN server…"));
+    setPushing(false);
   };
 
   const issue = async () => {
@@ -392,12 +502,27 @@ function DomainCard() {
       </SectionTitle>
       <div className="card settings-card">
         <p className="lede" style={{ marginBottom: "var(--s3)" }}>
-          {t("Point a DNS record at this server — an A record, plus AAAA for IPv6 — open port 80 and the HTTPS port in the firewall, and enter the name. The panel asks Let's Encrypt for a certificate, serves HTTPS on the port below, keeps port 80 for the validation and a redirect, and renews the certificate a month before it expires. The plain-HTTP address keeps working.")}
+          {t("Configure your domain and SSL certificate. Supports Cloudflare DNS verification (no open port 80 required) to issue RSA 2048 certificates saved to ssl/ and automatically pushed to SoftEther VPN.")}
         </p>
 
         <div className="row2">
-          <Field label={t("Domain")} hint={t("A public hostname that resolves to this server, e.g. panel.example.com. Empty means no domain.")}>
-            <input className="input mono" value={form.domain} onChange={(e) => set({ domain: e.target.value })} placeholder="panel.example.com" autoCapitalize="none" spellCheck={false} inputMode="url" />
+          <Field
+            label={t("Domain")}
+            hint={
+              s?.vpn_public_host
+                ? t("Leave empty to use server public domain ({host}).", { host: s.vpn_public_host })
+                : t("A public hostname that resolves to this server, e.g. panel.example.com. Empty means no domain.")
+            }
+          >
+            <input
+              className="input mono"
+              value={form.domain}
+              onChange={(e) => set({ domain: e.target.value })}
+              placeholder={s?.vpn_public_host || "panel.example.com"}
+              autoCapitalize="none"
+              spellCheck={false}
+              inputMode="url"
+            />
           </Field>
           <Field
             label={t("HTTPS port")}
@@ -411,6 +536,74 @@ function DomainCard() {
             <input className="input mono" type="number" min={1} max={65535} value={form.https_port} onChange={(e) => set({ https_port: e.target.value })} inputMode="numeric" />
           </Field>
         </div>
+
+        <div className="row2">
+          <Field
+            label={t("Verification method")}
+            hint={t("DNS-01 uses Cloudflare DNS API without requiring open port 80.")}
+          >
+            <select
+              className="input"
+              value={form.acme_challenge_type}
+              onChange={(e) => set({ acme_challenge_type: e.target.value as "dns-01" | "http-01" })}
+            >
+              <option value="dns-01">{t("Cloudflare DNS (DNS-01) - Recommended")}</option>
+              <option value="http-01">{t("HTTP-01 (Requires public Port 80)")}</option>
+            </select>
+          </Field>
+          <Field
+            label={t("Certificate Key Type")}
+            hint={t("SoftEther VPN requires RSA 2048 for full compatibility.")}
+          >
+            <select
+              className="input"
+              value={form.cert_key_type}
+              onChange={(e) => set({ cert_key_type: e.target.value as "rsa2048" | "ecdsa" })}
+            >
+              <option value="rsa2048">{t("RSA 2048 (SoftEther compatible / Default)")}</option>
+              <option value="ecdsa">{t("ECDSA P-256")}</option>
+            </select>
+          </Field>
+        </div>
+
+        {form.acme_challenge_type === "dns-01" && (
+          <Field
+            label={t("Cloudflare API Token")}
+            hint={t("API token with Zone:Read and DNS:Edit permissions for the domain on Cloudflare.")}
+          >
+            <input
+              className="input mono"
+              type="password"
+              value={form.cf_dns_token}
+              onChange={(e) => set({ cf_dns_token: e.target.value })}
+              placeholder={t("Cloudflare DNS API Token")}
+              autoCapitalize="none"
+              spellCheck={false}
+            />
+          </Field>
+        )}
+
+        <CheckRow
+          checked={form.cert_auto_push}
+          onChange={(v) => set({ cert_auto_push: v })}
+          label={t("Auto push certificate to SoftEther VPN server")}
+          hint={t("When the certificate is issued or renewed, automatically update the VPN server certificate via RPC.")}
+        />
+
+        <Field
+          label={t("Custom renewal hook (optional)")}
+          hint={t("Optional script path executed when certificate is renewed (e.g. ssl/hook.sh).")}
+        >
+          <input
+            className="input mono"
+            value={form.cert_renew_hook}
+            onChange={(e) => set({ cert_renew_hook: e.target.value })}
+            placeholder="ssl/hook.sh"
+            autoCapitalize="none"
+            spellCheck={false}
+          />
+        </Field>
+
         <Field label={t("Contact email (optional)")} hint={t("Let's Encrypt writes to it if a certificate is about to expire unrenewed. Nothing else is done with it.")}>
           <input className="input mono" value={form.acme_email} onChange={(e) => set({ acme_email: e.target.value })} placeholder="ops@example.com" autoCapitalize="none" spellCheck={false} inputMode="email" />
         </Field>
@@ -421,9 +614,9 @@ function DomainCard() {
           hint={t("Issues a certificate browsers do not trust, without counting against the real rate limits — for checking DNS and firewall before asking for the real thing. Switch it off afterwards and a trusted certificate is obtained in its place.")}
         />
         <p className="hint" style={{ marginTop: 0 }}>
-          {t("Setting a domain accepts the")}{" "}
-          <a className="linkish" href="https://letsencrypt.org/repository/" target="_blank" rel="noreferrer">{t("Let's Encrypt subscriber agreement")}</a>
-          {t(" on your behalf. Only http-01 validation is used, so the name must resolve straight to this server: no wildcards, no names behind a CDN.")}
+          {form.acme_challenge_type === "dns-01"
+            ? t("Using Cloudflare DNS-01 challenge. Automatically creates and cleans up _acme-challenge TXT records.")
+            : t("Only http-01 validation is used, so the name must resolve straight to this server: no wildcards, no names behind a CDN.")}
         </p>
         {dirty && (
           <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap" }}>
@@ -544,6 +737,21 @@ function DomainCard() {
                 )}
               </StatRow>
 
+              <StatRow label={t("SSL storage")} pill={<Pill kind="ok" label="ssl/" />}>
+                {s.ssl_dir ? (
+                  <>
+                    {t("Saved to ")}<span className="mono">{s.ssl_dir}</span>
+                    {s.ssl_files && (
+                      <span className="tsub" style={{ marginLeft: 8 }}>
+                        ({s.ssl_files.pem ? `${s.domain}.pem, ` : ""}{s.ssl_files.key ? `${s.domain}.key, ${s.domain}.pem.key` : ""})
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  t("Saves <domain>.pem, <domain>.key, <domain>.pem.key into ssl/")
+                )}
+              </StatRow>
+
               <StatRow
                 label={t("Renewal")}
                 error={certOk && s.renewal.due && Boolean(s.renewal.last_error)}
@@ -611,6 +819,13 @@ function DomainCard() {
               </button>
               <button className="btn" onClick={() => void check()} disabled={acting !== ""}>
                 {acting === "check" ? <span className="spin" /> : <IconRefresh size={14} />} {t("Re-check")}
+              </button>
+              <button
+                className="btn"
+                onClick={() => void pushCert()}
+                disabled={busy || pushing || dirty || !certOk}
+              >
+                {pushing && <span className="spin" />} {t("Push to VPN server")}
               </button>
               <button className="btn btn--ghost" onClick={() => setRemoving(true)} disabled={busy}>{t("Remove domain…")}</button>
             </div>

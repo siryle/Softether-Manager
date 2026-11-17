@@ -2,6 +2,8 @@ package manager
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode"
@@ -85,6 +87,9 @@ func (a *App) registerSystem() {
 		if v, ok := body["domain"]; ok && v != nil {
 			domain = normalizeDomain(str(v))
 		}
+		if domain == "" && str(a.setting("vpn_public_host")) != "" {
+			domain = normalizeDomain(str(a.setting("vpn_public_host")))
+		}
 		if v, ok := body["https_port"]; ok && v != nil {
 			port := integer(v)
 			if port < 1 || port > 65535 || port == 80 || port == int64(a.cfg.BindPort) {
@@ -97,7 +102,7 @@ func (a *App) registerSystem() {
 				fail(422, "Invalid email address.")
 			}
 		}
-		for _, key := range []string{"domain_only", "acme_staging"} {
+		for _, key := range []string{"domain_only", "acme_staging", "cert_auto_push"} {
 			if v, ok := body[key]; ok && v != nil {
 				if _, valid := v.(bool); !valid {
 					fail(422, key+" must be a boolean.")
@@ -121,9 +126,9 @@ func (a *App) registerSystem() {
 			a.tls.state = M{}
 			a.tls.mu.Unlock()
 		}
-		for _, key := range []string{"https_port", "acme_email", "acme_staging", "domain_only"} {
+		for _, key := range []string{"https_port", "acme_email", "acme_staging", "domain_only", "acme_challenge_type", "cf_dns_token", "cert_key_type", "cert_auto_push", "cert_renew_hook"} {
 			if v, ok := body[key]; ok && v != nil {
-				if key == "acme_email" {
+				if key == "acme_email" || key == "cf_dns_token" || key == "cert_renew_hook" {
 					v = strings.TrimSpace(str(v))
 				}
 				if domain == "" && key == "domain_only" && boolean(v) {
@@ -148,8 +153,15 @@ func (a *App) registerSystem() {
 		return a.tls.status(r)
 	})
 	a.endpoint("POST /system/domain/issue", func(_ http.ResponseWriter, r *http.Request, u M) any {
+		domain := str(a.setting("domain"))
+		if domain == "" {
+			domain = str(a.setting("vpn_public_host"))
+		}
+		if domain == "" {
+			fail(422, "Set a domain or server public host first.")
+		}
 		if str(a.setting("domain")) == "" {
-			fail(422, "Set a domain first.")
+			a.set("domain", domain)
 		}
 		func() {
 			a.tls.mu.Lock()
@@ -159,10 +171,37 @@ func (a *App) registerSystem() {
 			}
 			a.tls.requested = true
 		}()
-		a.audit(u, "domain.certificate_requested", "panel", str(a.setting("domain")), "")
+		a.audit(u, "domain.certificate_requested", "panel", domain, "")
 		out := a.tls.status(r)
 		out["busy"], out["phase"] = true, "issuing"
 		return out
+	})
+	a.endpoint("POST /system/domain/push-cert", func(_ http.ResponseWriter, r *http.Request, u M) any {
+		domain := a.tls.effectiveDomain()
+		if domain == "" {
+			fail(422, "Set a domain or server public host first.")
+		}
+		sslDir := filepath.Join(a.cfg.Root, "ssl")
+		pemBytes, err := os.ReadFile(filepath.Join(sslDir, domain+".pem"))
+		if err != nil {
+			pemBytes, err = os.ReadFile(filepath.Join(a.tls.certDir(domain), "bundle.pem"))
+			if err != nil {
+				fail(404, "No certificate file found for domain "+domain+". Please issue certificate first.")
+			}
+		}
+		keyBytes, err := os.ReadFile(filepath.Join(sslDir, domain+".key"))
+		if err != nil {
+			keyBytes, err = os.ReadFile(filepath.Join(a.tls.certDir(domain), "privkey.pem"))
+			if err != nil {
+				keyBytes = pemBytes
+			}
+		}
+		err = a.tls.pushCertToServer(r.Context(), domain, pemBytes, keyBytes)
+		if err != nil {
+			fail(500, err.Error())
+		}
+		a.audit(u, "domain.certificate_pushed", "server", domain, "SetServerCert")
+		return M{"ok": true, "message": "Certificate pushed to SoftEther VPN Server successfully."}
 	})
 	a.endpoint("POST /system/domain/check", func(_ http.ResponseWriter, r *http.Request, _ M) any {
 		domain := str(a.setting("domain"))

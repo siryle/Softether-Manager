@@ -117,6 +117,18 @@ function SessionUsageSheet({ hub, row, onClose }: { hub: string; row: Wire; onCl
                 <div className="mono" style={{ fontSize: "var(--t-data)" }}>{String(row.client_ip || usage?.session?.client_ip || "—")}</div>
               </div>
               <div>
+                <div className="micro">{t("IP location")}</div>
+                <div className="mono" style={{ fontSize: "var(--t-data)", color: "var(--accent)" }}>
+                  {String(row.ip_location || usage?.session?.ip_location || "")} {String(row.ip_isp || usage?.session?.ip_isp || "") || "—"}
+                </div>
+              </div>
+              <div>
+                <div className="micro">{t("client host")}</div>
+                <div className="mono" style={{ fontSize: "var(--t-data)" }}>
+                  {cleanClientHost(row.client_hostname || usage?.session?.client_hostname, row.client_ip || usage?.session?.client_ip)}
+                </div>
+              </div>
+              <div>
                 <div className="micro">{t("virtual IP")}</div>
                 <div className="mono" style={{ fontSize: "var(--t-data)", color: "var(--ok)" }}>
                   {(row.virtual_ip || usage?.session?.virtual_ip) ? (
@@ -125,12 +137,6 @@ function SessionUsageSheet({ hub, row, onClose }: { hub: string; row: Wire; onCl
                       {filterIpv4(row.virtual_ip || usage?.session?.virtual_ip)}
                     </span>
                   ) : "—"}
-                </div>
-              </div>
-              <div>
-                <div className="micro">{t("client host")}</div>
-                <div className="mono" style={{ fontSize: "var(--t-data)" }}>
-                  {cleanClientHost(row.client_hostname || usage?.session?.client_hostname, row.client_ip || usage?.session?.client_ip)}
                 </div>
               </div>
               <div>
@@ -422,20 +428,17 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
                       <td className="tmono">{h.ended_date ? formatDate(String(h.ended_date)) : <Pill kind="ok" label="connected" />}</td>
                       <td className="tmono">{formatDuration(duration)}</td>
                       <td className="tmono">
-                        {v4 ? (
-                          <div>
-                            <span className="chip chip--ok" style={{ padding: "0 5px", fontSize: "10px", marginRight: 4 }}>
-                              {t("LAN")}
-                            </span>
-                            <span>{v4}</span>
-                          </div>
-                        ) : null}
                         {h.client_ip ? (
-                          <div className={v4 ? "tsub" : ""} style={{ marginTop: v4 ? 2 : 0 }}>
+                          <div>
                             <span className="chip" style={{ padding: "0 5px", fontSize: "10px", marginRight: 4 }}>
                               {t("WAN")}
                             </span>
                             <span>{String(h.client_ip)}</span>
+                            {h.ip_location || h.ip_isp ? (
+                              <span className="chip chip--ok" style={{ marginLeft: 6, fontSize: "11px", fontWeight: "normal" }}>
+                                {String(h.ip_location || "")} {String(h.ip_isp || "")}
+                              </span>
+                            ) : null}
                           </div>
                         ) : null}
                         {host !== "—" ? (
@@ -443,7 +446,7 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
                             {host}
                           </div>
                         ) : null}
-                        {!v4 && !h.client_ip && host === "—" ? "—" : null}
+                        {!h.client_ip && host === "—" ? "—" : null}
                       </td>
                       <td className="tmono" title={`↓ ${formatBytes(Number(h.download_bytes))} · ↑ ${formatBytes(Number(h.upload_bytes))}`}>
                         {formatBytes(Number(h.bytes_total))}

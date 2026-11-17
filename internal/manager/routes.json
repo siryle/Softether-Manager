@@ -181,22 +181,6 @@
     "audit": "cert.regenerated"
   },
   {
-    "method": "GET",
-    "path": "/server/connections",
-    "rpc": "EnumConnection",
-    "params": {},
-    "body": false
-  },
-  {
-    "method": "GET",
-    "path": "/server/connections/{name}",
-    "rpc": "GetConnectionInfo",
-    "params": {
-      "Name_str": "$name"
-    },
-    "body": false
-  },
-  {
     "method": "DELETE",
     "path": "/server/connections/{name}",
     "rpc": "DisconnectConnection",

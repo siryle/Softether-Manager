@@ -266,7 +266,16 @@ func (a *App) templateState() M {
 	if str(opts["ProxyPassword"]) != "" {
 		proxy = "{scrambled}"
 	}
-	return M{"options": opts, "defaults": vpnDefaults, "account_name_template": a.setting("vpn_account_name_template"), "filename_template": a.setting("vpn_filename_template"), "embed_password_default": a.setting("vpn_embed_password_default"), "template": vpnDocument(M{"host": "{host}", "port": "{port}", "hub": "{hub}", "username": "{username}", "account": "{account_name}", "auth_type": "{auth_type}", "hashed": "{hashed_password}", "plain": "{plain_password}", "proxy_password": proxy}, opts)}
+	return M{
+		"options":                 opts,
+		"defaults":                vpnDefaults,
+		"account_name_template":   a.setting("vpn_account_name_template"),
+		"filename_template":       a.setting("vpn_filename_template"),
+		"embed_password_default":  a.setting("vpn_embed_password_default"),
+		"vpn_public_host":         a.setting("vpn_public_host"),
+		"vpn_public_port":         a.setting("vpn_public_port"),
+		"template":                vpnDocument(M{"host": "{host}", "port": "{port}", "hub": "{hub}", "username": "{username}", "account": "{account_name}", "auth_type": "{auth_type}", "hashed": "{hashed_password}", "plain": "{plain_password}", "proxy_password": proxy}, opts),
+	}
 }
 func (a *App) registerVPN() {
 	a.endpoint("GET /system/vpn-template", func(_ http.ResponseWriter, _ *http.Request, _ M) any { return a.templateState() })
@@ -293,6 +302,30 @@ func (a *App) registerVPN() {
 				fail(422, "embed_password_default must be a boolean.")
 			}
 			a.set("vpn_embed_password_default", on)
+		}
+		if v, ok := b["vpn_public_host"]; ok && v != nil {
+			host := strings.TrimSpace(str(v))
+			a.set("vpn_public_host", host)
+			if str(a.setting("domain")) == "" && host != "" {
+				a.set("domain", host)
+			}
+		} else if v, ok := b["public_host"]; ok && v != nil {
+			host := strings.TrimSpace(str(v))
+			a.set("vpn_public_host", host)
+			if str(a.setting("domain")) == "" && host != "" {
+				a.set("domain", host)
+			}
+		}
+		if v, ok := b["vpn_public_port"]; ok && v != nil {
+			port := integer(v)
+			if port >= 1 && port <= 65535 {
+				a.set("vpn_public_port", port)
+			}
+		} else if v, ok := b["public_port"]; ok && v != nil {
+			port := integer(v)
+			if port >= 1 && port <= 65535 {
+				a.set("vpn_public_port", port)
+			}
 		}
 		a.audit(u, "settings.vpn_template_updated", "panel", "", "")
 		return a.templateState()

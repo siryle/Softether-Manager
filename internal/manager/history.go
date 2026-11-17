@@ -74,7 +74,21 @@ func (a *App) registerHistory() {
 			}
 			statement += " ORDER BY VpnSessionSampleID DESC LIMIT ?"
 			args = append(args, queryInt(r, "limit", 100, 1, 500))
-			return query(a.db, statement, args...)
+			rows := query(a.db, statement, args...)
+			ips := make([]string, 0, len(rows))
+			for _, row := range rows {
+				if ip := str(row["client_ip"]); ip != "" {
+					ips = append(ips, ip)
+				}
+			}
+			geoMap := a.batchLookupIPs(r.Context(), ips)
+			for _, row := range rows {
+				geo := geoMap[cleanIP(str(row["client_ip"]))]
+				row["ip_location"] = geo.Location
+				row["ip_isp"] = geo.ISP
+				row["ip_full"] = geo.Full
+			}
+			return rows
 		})
 	}
 	a.endpoint("GET /hubs/{hub}/session-history/{session_id}/usage", func(_ http.ResponseWriter, r *http.Request, _ M) any {
@@ -83,6 +97,10 @@ func (a *App) registerHistory() {
 		if session == nil {
 			fail(404, "No such session in this hub's history.")
 		}
+		geo := a.lookupIP(r.Context(), str(session["client_ip"]))
+		session["ip_location"] = geo.Location
+		session["ip_isp"] = geo.ISP
+		session["ip_full"] = geo.Full
 		rows := query(a.db, `SELECT DownloadBytes,UploadBytes,TotalBytes,SampledDate FROM VpnSessionTrafficSample WHERE VpnSessionSampleID=? ORDER BY SampledDate`, session["id"])
 		end := time.Now()
 		if s := str(session["ended_date"]); s != "" {

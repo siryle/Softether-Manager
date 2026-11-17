@@ -6,9 +6,11 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -18,6 +20,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -103,6 +106,74 @@ func normalizeDomain(value string) string {
 	}
 	return ascii
 }
+func (m *tlsManager) effectiveDomain() string {
+	d := str(m.app.setting("domain"))
+	if d == "" {
+		d = str(m.app.setting("vpn_public_host"))
+	}
+	return d
+}
+
+func fileExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && !fi.IsDir()
+}
+
+func (m *tlsManager) pushCertToServer(ctx context.Context, domain string, chain, keyPEM []byte) error {
+	var pushErr error
+	func() {
+		defer func() {
+			if p := recover(); p != nil {
+				pushErr = fmt.Errorf("RPC SetServerCert failed: %v", p)
+			}
+		}()
+		certB64 := base64.StdEncoding.EncodeToString(chain)
+		keyB64 := base64.StdEncoding.EncodeToString(keyPEM)
+		m.app.rpc(ctx, "SetServerCert", M{
+			"Cert_bin": certB64,
+			"Key_bin":  keyB64,
+		})
+	}()
+
+	hookCmd := strings.TrimSpace(str(m.app.setting("cert_renew_hook")))
+	if hookCmd == "" {
+		candidate := filepath.Join(m.app.cfg.Root, "ssl", "hook.sh")
+		if fi, err := os.Stat(candidate); err == nil && !fi.IsDir() {
+			hookCmd = candidate
+		}
+	}
+	if hookCmd != "" {
+		sslDir := filepath.Join(m.app.cfg.Root, "ssl")
+		cmd := exec.CommandContext(ctx, "/bin/sh", "-c", hookCmd)
+		cmd.Env = append(os.Environ(),
+			"CERT_DOMAIN="+domain,
+			"CERT_PEM="+filepath.Join(sslDir, domain+".pem"),
+			"CERT_KEY="+filepath.Join(sslDir, domain+".key"),
+			"CERT_BUNDLE="+filepath.Join(sslDir, domain+".pem.key"),
+		)
+		_ = cmd.Run()
+	}
+
+	return pushErr
+}
+
+func saveToSSLDir(rootDir, dataDir, domain string, chain, keyPEM []byte) error {
+	dirs := []string{filepath.Join(rootDir, "ssl")}
+	if dataDir != rootDir && dataDir != "" {
+		dirs = append(dirs, filepath.Join(dataDir, "ssl"))
+	}
+	combined := append(append([]byte{}, chain...), keyPEM...)
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			continue
+		}
+		_ = atomicWrite(filepath.Join(dir, domain+".pem"), chain, 0644)
+		_ = atomicWrite(filepath.Join(dir, domain+".key"), keyPEM, 0600)
+		_ = atomicWrite(filepath.Join(dir, domain+".pem.key"), combined, 0600)
+	}
+	return nil
+}
+
 func (m *tlsManager) certDir(domain string) string {
 	return filepath.Join(m.app.cfg.DataDir, "tls", "certs", domain)
 }
@@ -116,7 +187,15 @@ func (m *tlsManager) certificate(domain string) (M, *tls.Certificate) {
 	var cert tls.Certificate
 	bundle, err := os.ReadFile(filepath.Join(dir, "bundle.pem"))
 	if os.IsNotExist(err) {
-		cert, err = tls.LoadX509KeyPair(filepath.Join(dir, "fullchain.pem"), filepath.Join(dir, "privkey.pem"))
+		sslDir := filepath.Join(m.app.cfg.Root, "ssl")
+		if b, e := os.ReadFile(filepath.Join(sslDir, domain+".pem")); e == nil {
+			if k, ke := os.ReadFile(filepath.Join(sslDir, domain+".key")); ke == nil {
+				cert, err = tls.X509KeyPair(b, k)
+			}
+		}
+		if err != nil || len(cert.Certificate) == 0 {
+			cert, err = tls.LoadX509KeyPair(filepath.Join(dir, "fullchain.pem"), filepath.Join(dir, "privkey.pem"))
+		}
 		if b, e := os.ReadFile(filepath.Join(dir, "meta.json")); e == nil {
 			_ = json.Unmarshal(b, &meta)
 		}
@@ -176,7 +255,7 @@ func (m *tlsManager) close() {
 }
 func (m *tlsManager) apply() {
 	a := m.app
-	domain := str(a.setting("domain"))
+	domain := m.effectiveDomain()
 	port := int(integer(a.setting("https_port")))
 	certInfo, cert := m.certificate(domain)
 	m.mu.Lock()
@@ -325,7 +404,7 @@ func logTLS(err error) {
 func (m *tlsManager) start(ctx context.Context) {
 	m.app.worker(ctx, time.Millisecond, func() time.Duration { return 30 * time.Second }, func(ctx context.Context) {
 		m.apply()
-		domain := str(m.app.setting("domain"))
+		domain := m.effectiveDomain()
 		if domain == "" {
 			return
 		}
@@ -389,16 +468,34 @@ func (m *tlsManager) issue(ctx context.Context, domain string) {
 	}()
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
-	dns := m.checkDNS(ctx, domain)
-	if str(dns["error"]) != "" {
-		check(fmt.Errorf("DNS: %s", dns["error"]))
+
+	challengeType := str(m.app.setting("acme_challenge_type"))
+	cfToken := strings.TrimSpace(str(m.app.setting("cf_dns_token")))
+	if challengeType == "" {
+		if cfToken != "" {
+			challengeType = "dns-01"
+		} else {
+			challengeType = "http-01"
+		}
 	}
-	m.mu.Lock()
-	httpReady := m.http != nil
-	m.mu.Unlock()
-	if !httpReady {
-		check(fmt.Errorf("port 80 is unavailable for certificate validation"))
+
+	if challengeType == "http-01" {
+		dns := m.checkDNS(ctx, domain)
+		if str(dns["error"]) != "" {
+			check(fmt.Errorf("DNS: %s", dns["error"]))
+		}
+		m.mu.Lock()
+		httpReady := m.http != nil
+		m.mu.Unlock()
+		if !httpReady {
+			check(fmt.Errorf("port 80 is unavailable for certificate validation"))
+		}
+	} else if challengeType == "dns-01" {
+		if cfToken == "" {
+			check(fmt.Errorf("Cloudflare DNS Token is required for DNS-01 validation"))
+		}
 	}
+
 	staging := boolean(m.app.setting("acme_staging"))
 	base := filepath.Join(m.app.cfg.DataDir, "tls")
 	accountFile := "account.key"
@@ -422,32 +519,93 @@ func (m *tlsManager) issue(ctx context.Context, domain string) {
 		if auth.Status == acme.StatusValid {
 			continue
 		}
-		var challenge *acme.Challenge
-		for _, c := range auth.Challenges {
-			if c.Type == "http-01" {
-				challenge = c
-				break
+
+		if challengeType == "dns-01" {
+			var challenge *acme.Challenge
+			for _, c := range auth.Challenges {
+				if c.Type == "dns-01" {
+					challenge = c
+					break
+				}
 			}
+			if challenge == nil {
+				check(fmt.Errorf("ACME server offered no DNS-01 challenge"))
+			}
+			recordVal, err := client.DNS01ChallengeRecord(challenge.Token)
+			check(err)
+
+			m.mu.Lock()
+			m.step = "locating Cloudflare DNS zone"
+			m.mu.Unlock()
+			zoneID, err := cfFindZone(ctx, cfToken, domain)
+			check(err)
+
+			m.mu.Lock()
+			m.step = "creating Cloudflare DNS TXT record"
+			m.mu.Unlock()
+			recordID, err := cfCreateTXT(ctx, cfToken, zoneID, "_acme-challenge."+domain, recordVal)
+			check(err)
+			defer cfDeleteTXT(context.Background(), cfToken, zoneID, recordID)
+
+			m.mu.Lock()
+			m.step = "waiting for DNS propagation and validation"
+			m.mu.Unlock()
+			select {
+			case <-time.After(10 * time.Second):
+			case <-ctx.Done():
+				check(ctx.Err())
+			}
+
+			_, err = client.Accept(ctx, challenge)
+			check(err)
+			_, err = client.WaitAuthorization(ctx, uri)
+			check(err)
+		} else {
+			var challenge *acme.Challenge
+			for _, c := range auth.Challenges {
+				if c.Type == "http-01" {
+					challenge = c
+					break
+				}
+			}
+			if challenge == nil {
+				check(fmt.Errorf("ACME server offered no HTTP-01 challenge"))
+			}
+			response, err := client.HTTP01ChallengeResponse(challenge.Token)
+			check(err)
+			m.mu.Lock()
+			m.tokens[challenge.Token] = response
+			m.step = "waiting for Let's Encrypt to validate the domain over port 80"
+			m.mu.Unlock()
+			defer func(token string) { m.mu.Lock(); delete(m.tokens, token); m.mu.Unlock() }(challenge.Token)
+			_, err = client.Accept(ctx, challenge)
+			check(err)
+			_, err = client.WaitAuthorization(ctx, uri)
+			check(err)
 		}
-		if challenge == nil {
-			check(fmt.Errorf("ACME server offered no HTTP-01 challenge"))
-		}
-		response, err := client.HTTP01ChallengeResponse(challenge.Token)
-		check(err)
-		m.mu.Lock()
-		m.tokens[challenge.Token] = response
-		m.step = "waiting for Let's Encrypt to validate the domain over port 80"
-		m.mu.Unlock()
-		defer func(token string) { m.mu.Lock(); delete(m.tokens, token); m.mu.Unlock() }(challenge.Token)
-		_, err = client.Accept(ctx, challenge)
-		check(err)
-		_, err = client.WaitAuthorization(ctx, uri)
-		check(err)
 	}
 	order, err = client.WaitOrder(ctx, order.URI)
 	check(err)
-	certKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	check(err)
+
+	keyType := str(m.app.setting("cert_key_type"))
+	var certKey crypto.Signer
+	var keyPEM []byte
+	if keyType == "ecdsa" {
+		ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		check(err)
+		certKey = ecKey
+		der, err := x509.MarshalPKCS8PrivateKey(ecKey)
+		check(err)
+		keyPEM = pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
+	} else {
+		// RSA 2048 by default as requested
+		rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+		check(err)
+		certKey = rsaKey
+		der := x509.MarshalPKCS1PrivateKey(rsaKey)
+		keyPEM = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: der})
+	}
+
 	csr, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{Subject: pkix.Name{CommonName: domain}, DNSNames: []string{domain}}, certKey)
 	check(err)
 	der, _, err := client.CreateOrderCert(ctx, order.FinalizeURL, csr, true)
@@ -456,9 +614,12 @@ func (m *tlsManager) issue(ctx context.Context, domain string) {
 	for _, cert := range der {
 		chain = append(chain, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert})...)
 	}
-	keyDER, err := x509.MarshalPKCS8PrivateKey(certKey)
-	check(err)
-	check(saveCertificate(m.certDir(domain), chain, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), M{"domain": domain, "staging": staging, "issued_at": now(), "directory": directory}))
+	check(saveCertificate(m.certDir(domain), chain, keyPEM, M{"domain": domain, "staging": staging, "issued_at": now(), "directory": directory}))
+	_ = saveToSSLDir(m.app.cfg.Root, m.app.cfg.DataDir, domain, chain, keyPEM)
+
+	if boolean(m.app.setting("cert_auto_push")) {
+		_ = m.pushCertToServer(ctx, domain, chain, keyPEM)
+	}
 }
 
 func saveCertificate(dir string, chain, key []byte, meta M) error {
@@ -501,7 +662,7 @@ func loadOrCreateKey(path string) (crypto.Signer, error) {
 }
 func (m *tlsManager) status(r *http.Request) M {
 	a := m.app
-	domain := str(a.setting("domain"))
+	domain := m.effectiveDomain()
 	cert, _ := m.certificate(domain)
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -521,5 +682,42 @@ func (m *tlsManager) status(r *http.Request) M {
 			url += path + "/"
 		}
 	}
-	return M{"configured": domain != "", "domain": domain, "https_port": a.setting("https_port"), "acme_email": a.setting("acme_email"), "acme_staging": a.setting("acme_staging"), "domain_only": a.setting("domain_only"), "config_error": "", "phase": m.phase, "busy": m.busy, "step": m.step, "dns": clone(m.dns), "http": M{"port": 80, "listening": m.http != nil, "error": m.httpError, "redirecting": m.http != nil && m.https != nil}, "https": M{"port": a.setting("https_port"), "listening": m.https != nil, "error": m.httpsError, "since": m.httpsSince}, "certificate": cert, "renewal": renewal, "url": url, "origin": origin, "events": append([]M{}, m.events...), "request_host": hostName(r.Host), "via_domain": domain != "" && hostName(r.Host) == domain, "via_loopback": loopback(r), "bind_port": a.cfg.BindPort, "web_path": a.setting("web_path")}
+	sslDir := filepath.Join(a.cfg.Root, "ssl")
+	sslPemExists := domain != "" && fileExists(filepath.Join(sslDir, domain+".pem"))
+	sslKeyExists := domain != "" && fileExists(filepath.Join(sslDir, domain+".key"))
+
+	return M{
+		"configured":          domain != "",
+		"domain":              domain,
+		"https_port":          a.setting("https_port"),
+		"acme_email":          a.setting("acme_email"),
+		"acme_staging":        a.setting("acme_staging"),
+		"acme_challenge_type": a.setting("acme_challenge_type"),
+		"cf_dns_token":        a.setting("cf_dns_token"),
+		"cert_key_type":       a.setting("cert_key_type"),
+		"cert_auto_push":      a.setting("cert_auto_push"),
+		"cert_renew_hook":     a.setting("cert_renew_hook"),
+		"vpn_public_host":     a.setting("vpn_public_host"),
+		"vpn_public_port":     a.setting("vpn_public_port"),
+		"ssl_dir":             sslDir,
+		"ssl_files":           M{"pem": sslPemExists, "key": sslKeyExists},
+		"domain_only":         a.setting("domain_only"),
+		"config_error":        "",
+		"phase":               m.phase,
+		"busy":                m.busy,
+		"step":                m.step,
+		"dns":                 clone(m.dns),
+		"http":                M{"port": 80, "listening": m.http != nil, "error": m.httpError, "redirecting": m.http != nil && m.https != nil},
+		"https":               M{"port": a.setting("https_port"), "listening": m.https != nil, "error": m.httpsError, "since": m.httpsSince},
+		"certificate":         cert,
+		"renewal":             renewal,
+		"url":                 url,
+		"origin":              origin,
+		"events":              append([]M{}, m.events...),
+		"request_host":        hostName(r.Host),
+		"via_domain":          domain != "" && hostName(r.Host) == domain,
+		"via_loopback":        loopback(r),
+		"bind_port":           a.cfg.BindPort,
+		"web_path":            a.setting("web_path"),
+	}
 }

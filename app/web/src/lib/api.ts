@@ -277,6 +277,15 @@ export interface DomainStatus {
   bind_port: number;
   web_path: string;
   changed?: string[];
+  acme_challenge_type?: "dns-01" | "http-01";
+  cf_dns_token?: string;
+  cert_key_type?: "rsa2048" | "ecdsa";
+  cert_auto_push?: boolean;
+  cert_renew_hook?: string;
+  vpn_public_host?: string;
+  vpn_public_port?: number;
+  ssl_dir?: string;
+  ssl_files?: { pem: boolean; key: boolean };
 }
 
 export interface DomainIn {
@@ -285,6 +294,11 @@ export interface DomainIn {
   acme_email?: string;
   acme_staging?: boolean;
   domain_only?: boolean;
+  acme_challenge_type?: "dns-01" | "http-01";
+  cf_dns_token?: string;
+  cert_key_type?: "rsa2048" | "ecdsa";
+  cert_auto_push?: boolean;
+  cert_renew_hook?: string;
 }
 
 const hubPath = (hub: string) => `/hubs/${encodeURIComponent(hub)}`;
@@ -333,11 +347,12 @@ function apiMethods(request: typeof sendRequest) {
   removeDomain: () => request<DomainStatus>("DELETE", "/system/domain"),
   issueCertificate: () => request<DomainStatus>("POST", "/system/domain/issue"),
   checkDomain: () => request<DomainStatus>("POST", "/system/domain/check"),
+  pushDomainCert: () => request<{ ok: boolean; message: string }>("POST", "/system/domain/push-cert"),
   audit: (beforeId = 0) =>
     request<Wire[]>("GET", `/system/audit?limit=100${beforeId ? `&before_id=${beforeId}` : ""}`),
 
   // -- the connection to SoftEther ----------------------------------------------
-  connection: () => request<{ host: string; port: number; configured: boolean; name?: string; server_id?: number }>("GET", "/server/connection"),
+  connection: () => request<{ host: string; port: number; configured: boolean; name?: string; server_id?: number; public_host?: string; public_port?: number }>("GET", "/server/connection"),
   saveConnection: (body: Wire) => request("PUT", "/server/connection", body),
   testConnection: (body: Wire) => request("POST", "/server/connection/test", body),
   probe: () => request<Probe>("POST", "/server/probe"),

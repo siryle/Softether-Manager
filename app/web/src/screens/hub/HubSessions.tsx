@@ -258,15 +258,19 @@ export function SessionsTable({
                       <td className="tmono">{String(s.Name_str)}</td>
                       <td>
                         {s.Username_str && userLink && !system ? (
-                          <button
-                            className="linkish mono"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              userLink(String(s.Username_str));
-                            }}
-                          >
-                            {String(s.Username_str)}
-                          </button>
+                          <div>
+                            <button
+                              className="linkish mono bold"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                userLink(String(s.Username_str));
+                              }}
+                            >
+                              {String(s.Username_str)}
+                            </button>
+                            {s.Realname_utf ? <span style={{ marginLeft: 6, fontSize: "12px", color: "var(--fg)" }}>({String(s.Realname_utf)})</span> : null}
+                            {s.Note_utf ? <div className="tsub truncate" style={{ maxWidth: 160, color: "var(--muted)" }}>{String(s.Note_utf)}</div> : null}
+                          </div>
                         ) : (
                           <span className="tmono">{String(s.Username_str || "—")}</span>
                         )}
@@ -289,6 +293,11 @@ export function SessionsTable({
                               {t("WAN")}
                             </span>
                             <span>{String(s.ClientIP_ip)}</span>
+                            {s.IpLocation_str || s.IpIsp_str ? (
+                              <span className="chip chip--ok" style={{ marginLeft: 6, fontSize: "11px", fontWeight: "normal" }}>
+                                {String(s.IpLocation_str || "")} {String(s.IpIsp_str || "")}
+                              </span>
+                            ) : null}
                           </div>
                         ) : null}
                         {cleanHost(s) !== "—" ? (
@@ -334,11 +343,19 @@ export function SessionsTable({
               <div className="row__main">
                 <div className="row__name">
                   <span className="mono truncate">{String(s.Username_str || s.Name_str)}</span>
+                  {s.Realname_utf ? <span style={{ fontSize: "12px", color: "var(--muted)" }}>({String(s.Realname_utf)})</span> : null}
                   <Pill kind={system ? "idle" : "ok"} label={kind} />
                 </div>
+                {s.Note_utf ? <div className="tsub truncate" style={{ fontSize: "12px", color: "var(--muted)", marginBottom: 4 }}>{String(s.Note_utf)}</div> : null}
                 <div className="spec">
                   {s.VirtualIP_ip ? <span className="chip"><i>{t("LAN")}</i>{String(s.VirtualIP_ip)}</span> : null}
-                  {s.ClientIP_ip ? <span className="chip"><i>{t("WAN")}</i>{String(s.ClientIP_ip)}</span> : null}
+                  {s.ClientIP_ip ? (
+                    <span className="chip">
+                      <i>{t("WAN")}</i>
+                      {String(s.ClientIP_ip)}
+                      {s.IpLocation_str ? ` · ${String(s.IpLocation_str)}` : ""}
+                    </span>
+                  ) : null}
                   <span className="chip"><i>{t("data")}</i>{formatBytes(Number(s.PacketSize_u64))}</span>
                   <span className="chip"><i>{t("since")}</i>{timeAgo(s.CreatedTime_dt as string)}</span>
                 </div>
@@ -404,11 +421,24 @@ export function SessionSheet({ hub,
                 <div className="session-grid-4">
                   <div>
                     <div className="micro">{t("user")}</div>
-                    <div className="mono" style={{ fontSize: "var(--t-data)", fontWeight: 600 }}>{String(detail.Username_str || "—")}</div>
+                    <div className="mono" style={{ fontSize: "var(--t-data)", fontWeight: 600 }}>
+                      {String(detail.Username_str || "—")}
+                      {detail.Realname_utf ? <span style={{ marginLeft: 6, fontWeight: "normal", color: "var(--fg)" }}>({String(detail.Realname_utf)})</span> : null}
+                    </div>
+                    {detail.Note_utf ? <div className="tsub truncate" style={{ fontSize: "11px", color: "var(--muted)", marginTop: 2 }}>{String(detail.Note_utf)}</div> : null}
                   </div>
                   <div>
                     <div className="micro">{t("client IP")}</div>
-                    <div className="mono" style={{ fontSize: "var(--t-data)" }}>{String(detail.Client_Ip_Address_ip || "—")}</div>
+                    <div className="mono" style={{ fontSize: "var(--t-data)" }}>
+                      {String(detail.Client_Ip_Address_ip || "—")}
+                      {detail.IpLocation_str || detail.IpIsp_str ? (
+                        <div style={{ marginTop: 2 }}>
+                          <span className="chip chip--ok" style={{ fontSize: "10px", padding: "1px 5px", fontWeight: "normal" }}>
+                            {String(detail.IpLocation_str || "")} {String(detail.IpIsp_str || "")}
+                          </span>
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                   <div>
                     <div className="micro">{t("virtual IP")}</div>

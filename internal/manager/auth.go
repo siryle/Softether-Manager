@@ -99,6 +99,23 @@ func (a *App) registerConnection() {
 		}
 		a.handle(pattern, false, func(w http.ResponseWriter, r *http.Request, user M) any {
 			body := readBody(w, r)
+			if action == "save" && body["host"] == nil {
+				if v, ok := body["public_host"]; ok && v != nil {
+					h := strings.TrimSpace(str(v))
+					a.set("vpn_public_host", h)
+					if str(a.setting("domain")) == "" && h != "" {
+						a.set("domain", h)
+					}
+				}
+				if v, ok := body["public_port"]; ok && v != nil {
+					p := integer(v)
+					if p >= 1 && p <= 65535 {
+						a.set("vpn_public_port", p)
+					}
+				}
+				a.audit(user, "connection.updated", "server", "", "public_info")
+				return a.connection(r.Context())
+			}
 			host, port, auth := connectionInput(body)
 			row := a.serverRow(a.serverIDFromContext(r.Context()))
 			password, err := a.decrypt(str(row["EncryptedPassword"]))
@@ -117,6 +134,19 @@ func (a *App) registerConnection() {
 			if !boolean(body["skip_test"]) {
 				out := a.testConnection(r.Context(), host, port, password, auth)
 				auth = str(out["auth"])
+			}
+			if v, ok := body["public_host"]; ok && v != nil {
+				h := strings.TrimSpace(str(v))
+				a.set("vpn_public_host", h)
+				if str(a.setting("domain")) == "" && h != "" {
+					a.set("domain", h)
+				}
+			}
+			if v, ok := body["public_port"]; ok && v != nil {
+				p := integer(v)
+				if p >= 1 && p <= 65535 {
+					a.set("vpn_public_port", p)
+				}
 			}
 			a.saveConnection(host, port, pwd, auth, r.Context())
 			a.audit(user, "connection.updated", "server", "", host)
