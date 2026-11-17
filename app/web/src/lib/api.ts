@@ -390,7 +390,7 @@ function apiMethods(request: typeof sendRequest) {
   openvpn: () => request("GET", "/server/openvpn"),
   setOpenvpn: (body: Wire) => request("PUT", "/server/openvpn", body),
   openvpnSample: () =>
-    request<{ filename: string; zip_base64: string }>("POST", "/server/openvpn/sample-config"),
+    request<{ filename: string; config: string }>("POST", "/server/openvpn/sample-config"),
   azure: () => request("GET", "/server/azure"),
   setAzure: (enabled: boolean) => request("PUT", "/server/azure", { IsEnabled_bool: enabled }),
   ddns: () => request("GET", "/server/ddns"),

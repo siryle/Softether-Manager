@@ -1509,7 +1509,7 @@ const zhCN: Record<string, string> = {
   "full": "完整",
 
   // --- buttons still on screen ---
-  "Sample client config": "示例客户端配置",
+  "OpenVPN client template (.ovpn)": "OpenVPN 客户端配置模板（.ovpn）",
   "Install certificate": "安装证书",
   "New bridge": "新建网桥",
   "Create bridge": "创建网桥",
@@ -1618,7 +1618,7 @@ const zhCN: Record<string, string> = {
   "Replace certificate (optional)": "更换证书（可选）",
   "replaces the entire configuration of this VPN server — hubs, users, everything — and the server restarts to load it.": "会替换这台 VPN 服务器的全部配置——HUB、用户，所有东西——然后重启来加载。",
   "Revoked certificates": "已吊销的证书",
-  "Sample client config downloaded.": "示例客户端配置已下载。",
+  "OpenVPN client template downloaded.": "OpenVPN 客户端配置模板（.ovpn）已下载。",
   "Save IPsec": "保存 IPsec",
   "Save message": "保存消息",
   "Save RADIUS settings": "保存 RADIUS 设置",

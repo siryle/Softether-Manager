@@ -1,9 +1,14 @@
 package manager
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
+	"io"
 	"net/http"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -140,20 +145,20 @@ func (a *App) registerCustomRPC() {
 		}
 		return M{"path": path, "offset": offset, "text": strings.ToValidUTF8(string(raw), "�"), "bytes": len(raw)}
 	})
-	for _, path := range []string{"/server/config", "/server/openvpn/sample-config"} {
-		method := "GET"
-		if strings.Contains(path, "sample-config") {
-			method = "POST"
+	a.endpoint("GET /server/config", func(_ http.ResponseWriter, r *http.Request, _ M) any {
+		out := a.rpc(r.Context(), "GetConfig", nil)
+		return M{"filename": withDefault(out, "FileName_str", "vpn_server.config"), "config_base64": withDefault(out, "FileData_bin", "")}
+	})
+	a.endpoint("POST /server/openvpn/sample-config", func(_ http.ResponseWriter, r *http.Request, _ M) any {
+		out := a.rpc(r.Context(), "MakeOpenVpnConfigFile", nil)
+		raw, err := base64.StdEncoding.DecodeString(str(out["Buffer_bin"]))
+		check(err)
+		name, config, err := openvpnTemplate(raw)
+		if err != nil {
+			fail(502, "SoftEther returned no OpenVPN template: "+err.Error())
 		}
-		a.endpoint(method+" "+path, func(_ http.ResponseWriter, r *http.Request, _ M) any {
-			if method == "POST" {
-				out := a.rpc(r.Context(), "MakeOpenVpnConfigFile", nil)
-				return M{"filename": withDefault(out, "FileName_str", "openvpn_config.zip"), "zip_base64": withDefault(out, "Buffer_bin", "")}
-			}
-			out := a.rpc(r.Context(), "GetConfig", nil)
-			return M{"filename": withDefault(out, "FileName_str", "vpn_server.config"), "config_base64": withDefault(out, "FileData_bin", "")}
-		})
-	}
+		return M{"filename": name, "config": config}
+	})
 	a.endpoint("GET /server/default-hub-admin-options", func(_ http.ResponseWriter, r *http.Request, _ M) any {
 		return a.rpc(r.Context(), "GetDefaultHubAdminOptions", M{"HubName_str": r.URL.Query().Get("hub")})
 	})
@@ -524,4 +529,44 @@ func (a *App) enrichConnections(ctx context.Context, connections []M) M {
 	}
 
 	return M{"NumConnection_u32": len(connections), "ConnectionList": connections}
+}
+
+// SoftEther hands the sample OpenVPN configuration out as a zip holding two
+// .ovpn files -- a tun (L3) remote-access client and a tap (L2) site-to-site
+// bridge -- plus a readme. The panel serves the remote-access one as a
+// plain-text template; the CA is already inlined by SoftEther.
+func openvpnTemplate(buf []byte) (string, string, error) {
+	zr, err := zip.NewReader(bytes.NewReader(buf), int64(len(buf)))
+	if err != nil {
+		return "", "", err
+	}
+	score := func(name string) int {
+		lower := strings.ToLower(name)
+		if strings.Contains(lower, "remote_access") || strings.Contains(lower, "_l3") {
+			return 2
+		}
+		return 1
+	}
+	var chosen *zip.File
+	for _, f := range zr.File {
+		if f.FileInfo().IsDir() || !strings.EqualFold(path.Ext(f.Name), ".ovpn") {
+			continue
+		}
+		if chosen == nil || score(f.Name) > score(chosen.Name) {
+			chosen = f
+		}
+	}
+	if chosen == nil {
+		return "", "", errors.New("the archive carries no .ovpn file")
+	}
+	rc, err := chosen.Open()
+	if err != nil {
+		return "", "", err
+	}
+	defer rc.Close()
+	data, err := io.ReadAll(io.LimitReader(rc, 1<<20))
+	if err != nil {
+		return "", "", err
+	}
+	return path.Base(chosen.Name), strings.ToValidUTF8(string(data), ""), nil
 }

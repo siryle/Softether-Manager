@@ -6,7 +6,7 @@ import { CheckRow, ConfirmSheet, Empty, ErrorAlert, Field, KV, LoadingBlock, Pag
 import { api, useServerApi, ApiError, type BackupInfo, type BackupSettings, type DomainStatus, type Wire } from "../lib/api";
 import { Link } from "../lib/router";
 import { useToast } from "../lib/toast";
-import { downloadBase64, fileToBase64, formatBytes, formatDate, timeAgo } from "../lib/util";
+import { downloadBase64, downloadText, fileToBase64, formatBytes, formatDate, timeAgo } from "../lib/util";
 import { IconDownload, IconPlus, IconRefresh, IconTrash, IconUpload } from "../ui/Icon";
 import { Sheet } from "../ui/Sheet";
 import { OnlinePill, Pill } from "../ui/Status";
@@ -531,11 +531,11 @@ function ProtocolsCard() {
                     {t("Save")}
                   </button>
                 )}
-                <button className="btn" onClick={() => void guard(async () => {
+                <button className="btn" disabled={!openvpn.EnableOpenVPN_bool} onClick={() => void guard(async () => {
                   const r = await api.openvpnSample();
-                  downloadBase64(r.filename, r.zip_base64, "application/zip");
-                }, t("Sample client config downloaded."))}>
-                  <IconDownload size={14} /> {t("Sample client config")}
+                  downloadText(r.filename || "openvpn-client.ovpn", r.config, "application/x-openvpn-profile");
+                }, t("OpenVPN client template downloaded."))}>
+                  <IconDownload size={14} /> {t("OpenVPN client template (.ovpn)")}
                 </button>
               </div>
             </>
