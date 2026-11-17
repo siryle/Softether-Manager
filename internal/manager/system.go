@@ -193,7 +193,7 @@ func (a *App) registerSystem() {
 		if err != nil {
 			keyBytes, err = os.ReadFile(filepath.Join(a.tls.certDir(domain), "privkey.pem"))
 			if err != nil {
-				keyBytes = pemBytes
+				fail(404, "No private key found for domain "+domain+"; pushing the certificate without its key would break the SoftEther listener.")
 			}
 		}
 		err = a.tls.pushCertToServer(r.Context(), domain, pemBytes, keyBytes)

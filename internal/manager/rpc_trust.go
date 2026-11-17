@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
+	"encoding/pem"
 	"fmt"
 	"net"
 	"net/http"
@@ -18,6 +19,16 @@ const rpcTrustTimeout = 10 * time.Second
 func certFingerprint(raw []byte) string {
 	hash := sha256.Sum256(raw)
 	return hex.EncodeToString(hash[:])
+}
+
+// fingerprintOfPEM predicts the pin the panel will observe for the leaf of a PEM chain.
+func fingerprintOfPEM(chain []byte) string {
+	for block, rest := pem.Decode(chain); block != nil; block, rest = pem.Decode(rest) {
+		if block.Type == "CERTIFICATE" {
+			return certFingerprint(block.Bytes)
+		}
+	}
+	return ""
 }
 
 func (a *App) newRPCClient(host string, port int, password, auth string) *RPCClient {

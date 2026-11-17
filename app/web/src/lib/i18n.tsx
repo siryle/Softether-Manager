@@ -1176,6 +1176,7 @@ const zhCN: Record<string, string> = {
   "client IP": "公网 IP",
   "virtual IP": "内网 IP",
   "IP / Host": "IP / 主机",
+  "IP location": "地点",
   "LAN": "内网",
   "WAN": "公网",
   "client host": "客户端主机",

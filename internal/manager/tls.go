@@ -120,6 +120,11 @@ func fileExists(p string) bool {
 }
 
 func (m *tlsManager) pushCertToServer(ctx context.Context, domain string, chain, keyPEM []byte) error {
+	// SoftEther keeps serving whatever pair it is given, so a broken pair takes the
+	// management listener down for every client. Check before touching the server.
+	if _, err := tls.X509KeyPair(chain, keyPEM); err != nil {
+		return fmt.Errorf("refusing to push the certificate for %s: %v", domain, err)
+	}
 	var pushErr error
 	func() {
 		defer func() {
@@ -134,6 +139,9 @@ func (m *tlsManager) pushCertToServer(ctx context.Context, domain string, chain,
 			"Key_bin":  keyB64,
 		})
 	}()
+	if pushErr == nil {
+		m.repinServerCertificate(ctx, chain)
+	}
 
 	hookCmd := strings.TrimSpace(str(m.app.setting("cert_renew_hook")))
 	if hookCmd == "" {
@@ -155,6 +163,26 @@ func (m *tlsManager) pushCertToServer(ctx context.Context, domain string, chain,
 	}
 
 	return pushErr
+}
+
+// repinServerCertificate moves the panel's certificate pin to the certificate it
+// just installed. Without this, SetServerCert would make the next RPC handshake
+// look like a MITM and the panel would lock itself out of its own server.
+func (m *tlsManager) repinServerCertificate(ctx context.Context, chain []byte) {
+	fingerprint := fingerprintOfPEM(chain)
+	serverID := m.app.serverIDFromContext(ctx)
+	if fingerprint == "" || serverID == 0 {
+		return
+	}
+	row := one(m.app.db, `SELECT Host,Port FROM Server WHERE ServerID=?`, serverID)
+	if row == nil {
+		return
+	}
+	// UPDATE only: a server with no pin keeps first-use trust on its next connection.
+	_, _ = m.app.db.Exec(`UPDATE RPCTrust SET Fingerprint=? WHERE Host=? AND Port=?`, fingerprint, row["Host"], row["Port"])
+	m.app.connectionMu.Lock()
+	m.app.invalidateClientLocked(serverID)
+	m.app.connectionMu.Unlock()
 }
 
 func saveToSSLDir(rootDir, dataDir, domain string, chain, keyPEM []byte) error {
