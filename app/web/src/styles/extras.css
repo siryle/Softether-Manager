@@ -928,10 +928,28 @@
   display: grid;
   gap: var(--s4);
   align-items: start;
+  min-width: 0;
 }
 @media (min-width: 1100px) {
+  /* Cards differ a lot in height, and a two-column grid leaves a hole under the
+     shorter one -- half the page ends up blank. Columns balance the two sides
+     instead, so the right edge is filled whatever the card sizes are. */
   .setgrid {
-    grid-template-columns: 1fr 1fr;
+    display: block;
+    columns: 2;
+    column-gap: var(--s4);
+  }
+  .setgrid > * {
+    break-inside: avoid;
+    margin-bottom: var(--s4);
+  }
+  .setgrid > *:last-child {
+    margin-bottom: 0;
+  }
+  /* A single card should use the width, not sit in one column. */
+  .setgrid > *:only-child {
+    column-span: all;
+    margin-bottom: 0;
   }
 }
 

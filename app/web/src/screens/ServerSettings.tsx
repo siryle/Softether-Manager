@@ -571,35 +571,41 @@ function EncryptionCard() {
   return (
     <section id="ss-encryption">
       <SectionTitle>{t("Encryption & certificate")}</SectionTitle>
-      <div className="setgrid">
+      <div style={{ display: "grid", gap: "var(--s4)", minWidth: 0 }}>
         <div className="card" style={{ padding: "var(--s4)" }}>
-          <div className="section__t" style={{ marginBottom: "var(--s3)" }}>{t("Cipher")}</div>
-          <Field label="TLS cipher for VPN sessions" hint="As SoftEther names them, e.g. AES128-SHA. What the server accepts depends on its build.">
-            <input className="input mono" value={cipher ?? ""} onChange={(e) => { setCipher(e.target.value); setCipherDirty(true); }} spellCheck={false} />
-          </Field>
-          {cipherDirty && (
-            <button className="btn btn--primary" onClick={() => void guard(async () => {
-              await api.setCipher(cipher ?? "");
-              setCipherDirty(false);
-            }, "Cipher saved.")}>
-              {t("Save cipher")}
-            </button>
-          )}
-          <div className="section__t" style={{ margin: "var(--s4) 0 var(--s3)" }}>{t("Administrator password")}</div>
-          <Field label="New password" hint="Changes the VPN server's own admin password; the panel updates its stored copy in the same motion.">
-            <div style={{ display: "flex", gap: "var(--s2)" }}>
-              <input className="input" type="password" value={adminPw} onChange={(e) => setAdminPw(e.target.value)} autoComplete="off" />
-              <button className="btn" disabled={!adminPw} onClick={() => void guard(async () => {
-                await api.setAdminPassword(adminPw);
-                setAdminPw("");
-              }, "Administrator password changed.")}>
-                {t("Change")}
-              </button>
+          <div className="row2">
+            <div>
+              <div className="section__t" style={{ marginBottom: "var(--s3)" }}>{t("Cipher")}</div>
+              <Field label="TLS cipher for VPN sessions" hint="As SoftEther names them, e.g. AES128-SHA. What the server accepts depends on its build.">
+                <input className="input mono" value={cipher ?? ""} onChange={(e) => { setCipher(e.target.value); setCipherDirty(true); }} spellCheck={false} />
+              </Field>
+              {cipherDirty && (
+                <button className="btn btn--primary" onClick={() => void guard(async () => {
+                  await api.setCipher(cipher ?? "");
+                  setCipherDirty(false);
+                }, "Cipher saved.")}>
+                  {t("Save cipher")}
+                </button>
+              )}
             </div>
-          </Field>
+            <div>
+              <div className="section__t" style={{ marginBottom: "var(--s3)" }}>{t("Administrator password")}</div>
+              <Field label="New password" hint="Changes the VPN server's own admin password; the panel updates its stored copy in the same motion.">
+                <div style={{ display: "flex", gap: "var(--s2)" }}>
+                  <input className="input" type="password" value={adminPw} onChange={(e) => setAdminPw(e.target.value)} autoComplete="off" />
+                  <button className="btn" disabled={!adminPw} onClick={() => void guard(async () => {
+                    await api.setAdminPassword(adminPw);
+                    setAdminPw("");
+                  }, "Administrator password changed.")}>
+                    {t("Change")}
+                  </button>
+                </div>
+              </Field>
+            </div>
+          </div>
         </div>
 
-        <div className="card" style={{ padding: "var(--s4)", gridColumn: "1 / -1" }}>
+        <div className="card" style={{ padding: "var(--s4)" }}>
           <div className="section__t" style={{ marginBottom: "var(--s2)" }}>{t("Server certificate")}</div>
           <IssueCertificateSection />
           <div className="section__t" style={{ margin: "var(--s4) 0 var(--s3)" }}>{t("Install a certificate you already have")}</div>
