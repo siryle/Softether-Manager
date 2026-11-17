@@ -103,31 +103,88 @@ function SessionUsageSheet({ hub, row, onClose }: { hub: string; row: Wire; onCl
       wide
       footer={<button className="btn" onClick={onClose}>{t("Close")}</button>}
     >
-      <div style={{ display: "grid", gap: "var(--s3)" }}>
-        <KV
-          rows={[
-            ["client IP", String(row.client_ip || usage?.session?.client_ip || "—")],
-            ["virtual IP", filterIpv4(row.virtual_ip || usage?.session?.virtual_ip) || "—"],
-            ["client host", cleanClientHost(row.client_hostname || usage?.session?.client_hostname, row.client_ip || usage?.session?.client_ip)],
-            ["started", formatDate(String(row.started_date))],
-            ["ended", row.ended_date ? formatDate(String(row.ended_date)) : t("still connected")],
-            ["duration", formatDuration(duration)],
-            ["downloaded", formatBytes(Number(row.download_bytes))],
-            ["uploaded", formatBytes(Number(row.upload_bytes))],
-          ]}
-        />
+      <div className="session-panel">
+        <div className="session-grid-2">
+          {/* Left Card: Network & Host */}
+          <div className="session-card">
+            <div className="session-card__head">
+              <span className="session-card__dot" style={{ background: "var(--accent-strong, #3b82f6)" }} />
+              {t("Network & Host")}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "var(--s3)" }}>
+              <div>
+                <div className="micro">{t("client IP")}</div>
+                <div className="mono" style={{ fontSize: "var(--t-data)" }}>{String(row.client_ip || usage?.session?.client_ip || "—")}</div>
+              </div>
+              <div>
+                <div className="micro">{t("virtual IP")}</div>
+                <div className="mono" style={{ fontSize: "var(--t-data)", color: "var(--ok)" }}>
+                  {(row.virtual_ip || usage?.session?.virtual_ip) ? (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      <span className="chip chip--ok" style={{ padding: "0 5px", fontSize: "10px" }}>{t("LAN")}</span>
+                      {filterIpv4(row.virtual_ip || usage?.session?.virtual_ip)}
+                    </span>
+                  ) : "—"}
+                </div>
+              </div>
+              <div>
+                <div className="micro">{t("client host")}</div>
+                <div className="mono" style={{ fontSize: "var(--t-data)" }}>
+                  {cleanClientHost(row.client_hostname || usage?.session?.client_hostname, row.client_ip || usage?.session?.client_ip)}
+                </div>
+              </div>
+              <div>
+                <div className="micro">{t("duration")}</div>
+                <div className="mono" style={{ fontSize: "var(--t-data)" }}>{formatDuration(duration)}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Card: Time & Traffic */}
+          <div className="session-card">
+            <div className="session-card__head">
+              <span className="session-card__dot" style={{ background: "var(--ok, #10b981)" }} />
+              {t("Time & Traffic")}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "var(--s3)" }}>
+              <div>
+                <div className="micro">{t("started")}</div>
+                <div className="mono" style={{ fontSize: "var(--t-data)" }}>{formatDate(String(row.started_date))}</div>
+              </div>
+              <div>
+                <div className="micro">{t("ended")}</div>
+                <div className="mono" style={{ fontSize: "var(--t-data)" }}>{row.ended_date ? formatDate(String(row.ended_date)) : t("still connected")}</div>
+              </div>
+              <div>
+                <div className="micro" style={{ color: "var(--ok)" }}>{t("downloaded")}</div>
+                <div className="mono" style={{ fontSize: "var(--t-data)", fontWeight: 700, color: "var(--ok)" }}>
+                  {formatBytes(Number(row.download_bytes))}
+                </div>
+              </div>
+              <div>
+                <div className="micro" style={{ color: "var(--accent-strong, #3b82f6)" }}>{t("uploaded")}</div>
+                <div className="mono" style={{ fontSize: "var(--t-data)", fontWeight: 700, color: "var(--accent-strong, #3b82f6)" }}>
+                  {formatBytes(Number(row.upload_bytes))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {error && <div className="alert alert--err">{error}</div>}
         {!usage && !error ? (
           <LoadingBlock label="loading this session's traffic" />
         ) : usage ? (
-          usage.split_available ? (
-            <TrafficChart
-              usage={usage}
-              emptyLabel="This session was shorter than one sampling interval, so there is no curve to draw — the totals above are what it moved."
-            />
-          ) : (
-            <CombinedSessionChart usage={usage} />
-          )
+          <div className="session-card" style={{ padding: "var(--s4)" }}>
+            {usage.split_available ? (
+              <TrafficChart
+                usage={usage}
+                emptyLabel="This session was shorter than one sampling interval, so there is no curve to draw — the totals above are what it moved."
+              />
+            ) : (
+              <CombinedSessionChart usage={usage} />
+            )}
+          </div>
         ) : null}
       </div>
     </Sheet>

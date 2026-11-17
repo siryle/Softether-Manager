@@ -1106,3 +1106,59 @@
 .qcell .pill {
   justify-self: start;
 }
+
+/* ── session detail cards (Option 2 layout) ───────────────────────────────── */
+.session-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+.session-card {
+  background: var(--glass-lo, #0d1017);
+  border: 1px solid var(--glass-line);
+  border-radius: var(--r-ctl, 12px);
+  padding: var(--s4);
+}
+.session-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--t-micro);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  margin-bottom: var(--s3);
+}
+.session-card__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.session-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s3) var(--s4);
+}
+@media (min-width: 640px) {
+  .session-grid-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.session-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--s4);
+}
+@media (min-width: 640px) {
+  .session-grid-2 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.session-stat-card {
+  background: var(--glass, #11141c);
+  border: 1px solid var(--glass-line);
+  border-radius: var(--r-ctl, 8px);
+  padding: var(--s3);
+}
