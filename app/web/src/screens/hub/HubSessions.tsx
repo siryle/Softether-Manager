@@ -22,13 +22,28 @@ function isIp(val?: string): boolean {
   return /^(\d{1,3}\.){3}\d{1,3}$/.test(val.trim()) || val.includes(":");
 }
 
+function filterIpv4(ipStr?: any): string {
+  if (!ipStr) return "";
+  const parts = String(ipStr).split(/[\s,]+/);
+  const v4 = parts.filter((p) => /^(\d{1,3}\.){3}\d{1,3}$/.test(p.trim()));
+  return v4.join(", ");
+}
+
 function cleanHost(d: Wire): string {
-  if (d.RealHostname_str && !isIp(String(d.RealHostname_str))) {
-    return String(d.RealHostname_str);
+  const serverName = String(d.ServerName_str || d.RemoteHostname_str || "").trim().toLowerCase();
+  const clientReported = String(d.ClientHostname_str || "").trim();
+  if (clientReported && !isIp(clientReported) && (!serverName || clientReported.toLowerCase() !== serverName)) {
+    return clientReported;
   }
-  const h = String(d.SessionStatus_ClientHostName_str || d.ClientHostname_str || d.Hostname_str || "");
-  const ip = String(d.Client_Ip_Address_ip || d.ClientIP_ip || "");
-  if (!h || h === ip || isIp(h)) {
+  if (d.RealHostname_str) {
+    const s = String(d.RealHostname_str).trim();
+    if (s && !isIp(s) && (!serverName || s.toLowerCase() !== serverName)) {
+      return s;
+    }
+  }
+  const h = String(d.SessionStatus_ClientHostName_str || d.Hostname_str || "").trim();
+  const ip = String(d.Client_Ip_Address_ip || d.ClientIP_ip || "").trim();
+  if (!h || h === ip || isIp(h) || (serverName && h.toLowerCase() === serverName)) {
     return "—";
   }
   return h;
@@ -51,17 +66,16 @@ export function HubSessions({ hub }: { hub: string }) {
       const ipTable = (ipRes?.IpTable as Wire[]) ?? [];
       const ipMap = new Map<string, string>();
       for (const entry of ipTable) {
-        if (entry.SessionName_str && entry.IpAddress_ip) {
+        const ip = String(entry.IpAddress_ip || "").trim();
+        if (entry.SessionName_str && /^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) {
           const prev = ipMap.get(String(entry.SessionName_str));
           if (!prev) {
-            ipMap.set(String(entry.SessionName_str), String(entry.IpAddress_ip));
+            ipMap.set(String(entry.SessionName_str), ip);
           }
         }
       }
       for (const s of list) {
-        if (!s.VirtualIP_ip && ipMap.has(String(s.Name_str))) {
-          s.VirtualIP_ip = ipMap.get(String(s.Name_str));
-        }
+        s.VirtualIP_ip = filterIpv4(s.VirtualIP_ip) || ipMap.get(String(s.Name_str)) || "";
       }
       setSessions(list);
     } catch {
@@ -306,7 +320,7 @@ export function SessionSheet({ hub,
             rows={[
               ["user", String(detail.Username_str || "—")],
               ["client IP", String(detail.Client_Ip_Address_ip || "—")],
-              ["virtual IP", String(detail.VirtualIP_ip || "—")],
+              ["virtual IP", filterIpv4(detail.VirtualIP_ip) || "—"],
               ["client host", cleanHost(detail)],
               ["protocol", String(detail.UnderlayProtocol_str || "—")],
               ["cipher", String(detail.CipherName_str || "plain")],

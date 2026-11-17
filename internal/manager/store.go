@@ -242,6 +242,7 @@ func initSchema(db *sql.DB) error {
 		{"VpnSessionSample", "ServerID", fmt.Sprintf("INTEGER NOT NULL DEFAULT %d", defaultID)},
 		{"VpnSessionSample", "DownloadBytes", `INTEGER NOT NULL DEFAULT 0`},
 		{"VpnSessionSample", "UploadBytes", `INTEGER NOT NULL DEFAULT 0`},
+		{"VpnSessionSample", "VirtualIP", `TEXT NOT NULL DEFAULT ''`},
 		{"VpnSessionTrafficSample", "TotalBytes", `INTEGER NOT NULL DEFAULT 0`},
 		{"VpnUserCredential", "ServerID", fmt.Sprintf("INTEGER NOT NULL DEFAULT %d", defaultID)},
 		{"TrafficQuota", "ServerID", fmt.Sprintf("INTEGER NOT NULL DEFAULT %d", defaultID)},

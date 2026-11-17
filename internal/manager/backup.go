@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -337,7 +338,12 @@ func isIP(s string) bool {
 	return net.ParseIP(strings.TrimSpace(s)) != nil
 }
 
-// enrichSessions supplements session entries with Virtual IP and clean hostname.
+func isIPv4(s string) bool {
+	ip := net.ParseIP(strings.TrimSpace(s))
+	return ip != nil && ip.To4() != nil
+}
+
+// enrichSessions supplements session entries with Virtual IP (IPv4 only) and clean client hostname.
 func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M {
 	if len(sessions) == 0 {
 		return sessions
@@ -357,11 +363,11 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 	}()
 
 	sessionIPs := make(map[string][]string)
-	sessionRemoteHosts := make(map[string]string)
 	for _, entry := range ipTable {
 		sessName := str(entry["SessionName_str"])
-		ip := str(entry["IpAddress_ip"])
-		if sessName != "" && ip != "" {
+		ip := strings.TrimSpace(str(entry["IpAddress_ip"]))
+		// Exclude IPv6 addresses; only keep IPv4
+		if sessName != "" && ip != "" && isIPv4(ip) {
 			found := false
 			for _, existing := range sessionIPs[sessName] {
 				if existing == ip {
@@ -373,25 +379,58 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 				sessionIPs[sessName] = append(sessionIPs[sessName], ip)
 			}
 		}
-		rHost := str(entry["RemoteHostname_str"])
-		if rHost != "" && !isIP(rHost) && sessionRemoteHosts[sessName] == "" {
-			sessionRemoteHosts[sessName] = rHost
-		}
 	}
 
 	ipToDhcpHost := make(map[string]string)
 	for _, entry := range dhcpTable {
-		ip := str(entry["IpAddress_ip"])
-		h := str(entry["Hostname_str"])
+		ip := strings.TrimSpace(str(entry["IpAddress_ip"]))
+		h := strings.TrimSpace(str(entry["Hostname_str"]))
 		if ip != "" && h != "" && !isIP(h) {
 			ipToDhcpHost[ip] = h
 		}
 	}
 
+	type sessStatusRes struct {
+		name       string
+		clientHost string
+	}
+	sessClientHosts := make(map[string]string)
+	if len(sessions) > 0 && len(sessions) <= 50 {
+		ch := make(chan sessStatusRes, len(sessions))
+		sem := make(chan struct{}, 8)
+		var wg sync.WaitGroup
+		for _, s := range sessions {
+			sessName := str(s["Name_str"])
+			if sessName == "" {
+				continue
+			}
+			wg.Add(1)
+			go func(sn string) {
+				defer wg.Done()
+				defer func() { _ = recover() }()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+				st := a.rpc(ctx, "GetSessionStatus", M{"HubName_str": hub, "Name_str": sn})
+				cH := strings.TrimSpace(str(st["ClientHostname_str"]))
+				sN := strings.TrimSpace(str(st["ServerName_str"]))
+				cIP := strings.TrimSpace(str(st["Client_Ip_Address_ip"]))
+				if cH != "" && !isIP(cH) && cH != cIP && !strings.EqualFold(cH, sN) {
+					ch <- sessStatusRes{name: sn, clientHost: cH}
+				}
+			}(sessName)
+		}
+		wg.Wait()
+		close(ch)
+		for res := range ch {
+			sessClientHosts[res.name] = res.clientHost
+		}
+	}
+
 	for _, s := range sessions {
 		sessName := str(s["Name_str"])
-		clientIP := str(s["ClientIP_ip"])
-		host := str(s["Hostname_str"])
+		clientIP := strings.TrimSpace(str(s["ClientIP_ip"]))
+		host := strings.TrimSpace(str(s["Hostname_str"]))
+		remoteHost := strings.TrimSpace(str(s["RemoteHostname_str"])) // SoftEther server's hostname
 
 		if ips, ok := sessionIPs[sessName]; ok && len(ips) > 0 {
 			s["VirtualIP_ip"] = strings.Join(ips, ", ")
@@ -400,39 +439,39 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 		}
 
 		var realHost string
-		if sessionRemoteHosts[sessName] != "" {
-			realHost = sessionRemoteHosts[sessName]
+		if cH, ok := sessClientHosts[sessName]; ok && cH != "" {
+			realHost = cH
+			s["ClientHostname_str"] = cH
 		} else if ips, ok := sessionIPs[sessName]; ok {
 			for _, ip := range ips {
-				if dhcpH := ipToDhcpHost[ip]; dhcpH != "" {
+				if dhcpH := ipToDhcpHost[ip]; dhcpH != "" && !strings.EqualFold(dhcpH, remoteHost) {
 					realHost = dhcpH
 					break
 				}
 			}
 		}
 
-		if host != "" && host != clientIP && !isIP(host) {
+		if realHost == "" && host != "" && host != clientIP && !isIP(host) && !strings.EqualFold(host, remoteHost) {
 			realHost = host
 		}
 
 		s["RealHostname_str"] = realHost
-		if isIP(host) || host == clientIP {
+		if isIP(host) || host == clientIP || strings.EqualFold(host, remoteHost) {
 			s["Hostname_str"] = realHost
 		}
 	}
 	return sessions
 }
 
-// enrichSessionStatus supplements single session status with Virtual IP and clean hostname.
+// enrichSessionStatus supplements single session status with Virtual IP (IPv4 only) and clean client hostname.
 func (a *App) enrichSessionStatus(ctx context.Context, hub, name string, status M) M {
 	if status == nil {
 		return status
 	}
-	clientIP := str(status["Client_Ip_Address_ip"])
-	clientHost := str(status["SessionStatus_ClientHostName_str"])
-	if clientHost == "" {
-		clientHost = str(status["ClientHostname_str"])
-	}
+	clientIP := strings.TrimSpace(str(status["Client_Ip_Address_ip"]))
+	serverName := strings.TrimSpace(str(status["ServerName_str"]))
+	clientReportedHost := strings.TrimSpace(str(status["ClientHostname_str"]))
+	serverResolvedHost := strings.TrimSpace(str(status["SessionStatus_ClientHostName_str"]))
 
 	var ipTable []M
 	func() {
@@ -449,11 +488,11 @@ func (a *App) enrichSessionStatus(ctx context.Context, hub, name string, status 
 	}()
 
 	var virtualIPs []string
-	var remoteHost string
 	for _, entry := range ipTable {
 		if str(entry["SessionName_str"]) == name {
-			ip := str(entry["IpAddress_ip"])
-			if ip != "" {
+			ip := strings.TrimSpace(str(entry["IpAddress_ip"]))
+			// Exclude IPv6 addresses; only keep IPv4
+			if ip != "" && isIPv4(ip) {
 				found := false
 				for _, ex := range virtualIPs {
 					if ex == ip {
@@ -465,19 +504,15 @@ func (a *App) enrichSessionStatus(ctx context.Context, hub, name string, status 
 					virtualIPs = append(virtualIPs, ip)
 				}
 			}
-			rH := str(entry["RemoteHostname_str"])
-			if rH != "" && !isIP(rH) && remoteHost == "" {
-				remoteHost = rH
-			}
 		}
 	}
 
 	var dhcpHost string
 	for _, ip := range virtualIPs {
 		for _, entry := range dhcpTable {
-			if str(entry["IpAddress_ip"]) == ip {
-				h := str(entry["Hostname_str"])
-				if h != "" && !isIP(h) {
+			if strings.TrimSpace(str(entry["IpAddress_ip"])) == ip {
+				h := strings.TrimSpace(str(entry["Hostname_str"]))
+				if h != "" && !isIP(h) && !strings.EqualFold(h, serverName) {
 					dhcpHost = h
 					break
 				}
@@ -495,18 +530,19 @@ func (a *App) enrichSessionStatus(ctx context.Context, hub, name string, status 
 	}
 
 	var realHost string
-	if remoteHost != "" {
-		realHost = remoteHost
+	// Priority 1: ClientHostname_str ("客户端主机名 (报告的)") reported by client
+	if clientReportedHost != "" && !isIP(clientReportedHost) && clientReportedHost != clientIP && !strings.EqualFold(clientReportedHost, serverName) {
+		realHost = clientReportedHost
 	} else if dhcpHost != "" {
+		// Priority 2: DHCP assigned machine hostname
 		realHost = dhcpHost
-	} else if clientHost != "" && clientHost != clientIP && !isIP(clientHost) {
-		realHost = clientHost
+	} else if serverResolvedHost != "" && serverResolvedHost != clientIP && !isIP(serverResolvedHost) && !strings.EqualFold(serverResolvedHost, serverName) {
+		// Priority 3: DNS PTR resolved hostname (if not matching server name or client IP)
+		realHost = serverResolvedHost
 	}
 
 	status["RealHostname_str"] = realHost
-	if isIP(clientHost) || clientHost == clientIP {
-		status["SessionStatus_ClientHostName_str"] = realHost
-		status["ClientHostname_str"] = realHost
-	}
+	status["ClientHostname_str"] = realHost
+	status["SessionStatus_ClientHostName_str"] = realHost
 	return status
 }

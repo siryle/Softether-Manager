@@ -59,6 +59,22 @@ function CombinedSessionChart({ usage }: { usage: Wire }) {
   );
 }
 
+function filterIpv4(ipStr?: any): string {
+  if (!ipStr) return "";
+  const parts = String(ipStr).split(/[\s,]+/);
+  const v4 = parts.filter((p) => /^(\d{1,3}\.){3}\d{1,3}$/.test(p.trim()));
+  return v4.join(", ");
+}
+
+function cleanClientHost(host?: any, ip?: any): string {
+  const h = String(host || "").trim();
+  const cIp = String(ip || "").trim();
+  if (!h || h === "—" || h === cIp || /^(\d{1,3}\.){3}\d{1,3}$/.test(h) || h.includes(":")) {
+    return "—";
+  }
+  return h;
+}
+
 /**
  * One recorded session, charted. The series behind it is the sampler's
  * per-session snapshots, so the resolution is the sampling interval -- a
@@ -90,8 +106,9 @@ function SessionUsageSheet({ hub, row, onClose }: { hub: string; row: Wire; onCl
       <div style={{ display: "grid", gap: "var(--s3)" }}>
         <KV
           rows={[
-            ["client IP", String(row.client_ip || "—")],
-            ["client host", String(row.client_hostname && row.client_hostname !== row.client_ip && !/^(\d{1,3}\.){3}\d{1,3}$/.test(row.client_hostname) ? row.client_hostname : "—")],
+            ["client IP", String(row.client_ip || usage?.session?.client_ip || "—")],
+            ["virtual IP", filterIpv4(row.virtual_ip || usage?.session?.virtual_ip) || "—"],
+            ["client host", cleanClientHost(row.client_hostname || usage?.session?.client_hostname, row.client_ip || usage?.session?.client_ip)],
             ["started", formatDate(String(row.started_date))],
             ["ended", row.ended_date ? formatDate(String(row.ended_date)) : t("still connected")],
             ["duration", formatDuration(duration)],
@@ -331,8 +348,7 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
                   <th>{t("Started")}</th>
                   <th>{t("Ended")}</th>
                   <th>{t("Duration")}</th>
-                  <th>{t("Client IP")}</th>
-                  <th>{t("Host")}</th>
+                  <th>{t("IP / Host")}</th>
                   <th>{t("Transferred")}</th>
                 </tr>
               </thead>
@@ -341,13 +357,37 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
                   const started = new Date(String(h.started_date)).getTime();
                   const endedAt = h.ended_date ? new Date(String(h.ended_date)).getTime() : null;
                   const duration = endedAt ? (endedAt - started) / 1000 : (Date.now() - started) / 1000;
+                  const v4 = filterIpv4(h.virtual_ip);
+                  const host = cleanClientHost(h.client_hostname, h.client_ip);
                   return (
                     <tr key={String(h.id)} className="clickable" onClick={() => setOpenHistory(h)}>
                       <td className="tmono">{formatDate(String(h.started_date))}</td>
                       <td className="tmono">{h.ended_date ? formatDate(String(h.ended_date)) : <Pill kind="ok" label="connected" />}</td>
                       <td className="tmono">{formatDuration(duration)}</td>
-                      <td className="tmono">{String(h.client_ip || "—")}</td>
-                      <td className="tmono truncate" style={{ maxWidth: 160 }}>{String(h.client_hostname || "—")}</td>
+                      <td className="tmono">
+                        {v4 ? (
+                          <div>
+                            <span className="chip chip--ok" style={{ padding: "0 5px", fontSize: "10px", marginRight: 4 }}>
+                              {t("LAN")}
+                            </span>
+                            <span>{v4}</span>
+                          </div>
+                        ) : null}
+                        {h.client_ip ? (
+                          <div className={v4 ? "tsub" : ""} style={{ marginTop: v4 ? 2 : 0 }}>
+                            <span className="chip" style={{ padding: "0 5px", fontSize: "10px", marginRight: 4 }}>
+                              {t("WAN")}
+                            </span>
+                            <span>{String(h.client_ip)}</span>
+                          </div>
+                        ) : null}
+                        {host !== "—" ? (
+                          <div className="tsub" style={{ marginTop: 2, color: "var(--muted)" }}>
+                            {host}
+                          </div>
+                        ) : null}
+                        {!v4 && !h.client_ip && host === "—" ? "—" : null}
+                      </td>
                       <td className="tmono" title={`↓ ${formatBytes(Number(h.download_bytes))} · ↑ ${formatBytes(Number(h.upload_bytes))}`}>
                         {formatBytes(Number(h.bytes_total))}
                       </td>

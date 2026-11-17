@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS "VpnSessionSample" (
         "UserName"         TEXT NOT NULL,
         "SessionKey"       TEXT NOT NULL,
         "ClientIP"         TEXT NOT NULL DEFAULT '',
+        "VirtualIP"        TEXT NOT NULL DEFAULT '',
         "ClientHostname"   TEXT NOT NULL DEFAULT '',
         "StartedDate"      TEXT NOT NULL,
         "EndedDate"        TEXT,

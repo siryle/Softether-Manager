@@ -6,6 +6,7 @@ import (
 	"golang.org/x/text/cases"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -61,7 +62,7 @@ func (a *App) registerHistory() {
 		}
 		a.endpoint("GET "+path, func(_ http.ResponseWriter, r *http.Request, _ M) any {
 			serverID := a.serverIDFromContext(r.Context())
-			statement := `SELECT VpnSessionSampleID id,HubName hub,UserName username,ClientIP client_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,LastSeenDate last_seen_date,BytesTotal bytes_total,PacketsTotal packets_total,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE ServerID=? AND HubName=?`
+			statement := `SELECT VpnSessionSampleID id,HubName hub,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,LastSeenDate last_seen_date,BytesTotal bytes_total,PacketsTotal packets_total,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE ServerID=? AND HubName=?`
 			args := []any{serverID, r.PathValue("hub")}
 			if userOnly {
 				statement += " AND UserName=? COLLATE NOCASE"
@@ -78,7 +79,7 @@ func (a *App) registerHistory() {
 	}
 	a.endpoint("GET /hubs/{hub}/session-history/{session_id}/usage", func(_ http.ResponseWriter, r *http.Request, _ M) any {
 		serverID := a.serverIDFromContext(r.Context())
-		session := one(a.db, `SELECT VpnSessionSampleID id,UserName username,ClientIP client_ip,StartedDate started_date,EndedDate ended_date,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE ServerID=? AND VpnSessionSampleID=? AND HubName=?`, serverID, r.PathValue("session_id"), r.PathValue("hub"))
+		session := one(a.db, `SELECT VpnSessionSampleID id,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE ServerID=? AND VpnSessionSampleID=? AND HubName=?`, serverID, r.PathValue("session_id"), r.PathValue("hub"))
 		if session == nil {
 			fail(404, "No such session in this hub's history.")
 		}
@@ -238,12 +239,73 @@ func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string)
 	seen := map[string]bool{}
 	stamp := now()
 	series := boolean(a.setting("session_traffic_enabled"))
+
+	var ipTable []M
+	func() {
+		defer func() { _ = recover() }()
+		out := a.rpc(ctx, "EnumIpTable", M{"HubName_str": hub})
+		ipTable = list(out["IpTable"])
+	}()
+
+	var dhcpTable []M
+	func() {
+		defer func() { _ = recover() }()
+		out := a.rpc(ctx, "EnumDHCP", M{"HubName_str": hub})
+		dhcpTable = list(out["DhcpTable"])
+	}()
+
+	sessionIPs := make(map[string][]string)
+	for _, entry := range ipTable {
+		sessName := str(entry["SessionName_str"])
+		ip := strings.TrimSpace(str(entry["IpAddress_ip"]))
+		if sessName != "" && ip != "" && isIPv4(ip) {
+			found := false
+			for _, existing := range sessionIPs[sessName] {
+				if existing == ip {
+					found = true
+					break
+				}
+			}
+			if !found {
+				sessionIPs[sessName] = append(sessionIPs[sessName], ip)
+			}
+		}
+	}
+
+	ipToDhcpHost := make(map[string]string)
+	for _, entry := range dhcpTable {
+		ip := strings.TrimSpace(str(entry["IpAddress_ip"]))
+		h := strings.TrimSpace(str(entry["Hostname_str"]))
+		if ip != "" && h != "" && !isIP(h) {
+			ipToDhcpHost[ip] = h
+		}
+	}
+
 	for _, s := range live {
 		key := str(s["UniqueId_bin"])
 		if key == "" {
 			continue
 		}
 		seen[key] = true
+		sessName := str(s["Name_str"])
+		clientIP := strings.TrimSpace(str(s["ClientIP_ip"]))
+		remoteHost := strings.TrimSpace(str(s["RemoteHostname_str"]))
+
+		var virtualIP string
+		if ips, ok := sessionIPs[sessName]; ok && len(ips) > 0 {
+			virtualIP = strings.Join(ips, ", ")
+		}
+
+		var clientHost string
+		if ips, ok := sessionIPs[sessName]; ok {
+			for _, ip := range ips {
+				if dhcpH := ipToDhcpHost[ip]; dhcpH != "" && !strings.EqualFold(dhcpH, remoteHost) {
+					clientHost = dhcpH
+					break
+				}
+			}
+		}
+
 		var down, up int64
 		sampled := false
 		if series {
@@ -256,13 +318,25 @@ func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string)
 				status := a.rpc(ctx, "GetSessionStatus", M{"HubName_str": hub, "Name_str": s["Name_str"]})
 				down, up = bytesFor(status, "")
 				sampled = true
+				cH := strings.TrimSpace(str(status["ClientHostname_str"]))
+				sN := strings.TrimSpace(str(status["ServerName_str"]))
+				if cH != "" && !isIP(cH) && cH != clientIP && !strings.EqualFold(cH, sN) {
+					clientHost = cH
+				}
 			}()
 		}
+		if clientHost == "" {
+			h := strings.TrimSpace(str(s["Hostname_str"]))
+			if h != "" && h != clientIP && !isIP(h) && !strings.EqualFold(h, remoteHost) {
+				clientHost = h
+			}
+		}
+
 		started := str(s["CreatedTime_dt"])
 		if started == "" {
 			started = stamp
 		}
-		execute(a.db, `INSERT INTO VpnSessionSample(ServerID,HubName,UserName,SessionKey,ClientIP,ClientHostname,StartedDate,LastSeenDate,BytesTotal,PacketsTotal,DownloadBytes,UploadBytes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(ServerID,HubName,SessionKey) DO UPDATE SET LastSeenDate=excluded.LastSeenDate,BytesTotal=excluded.BytesTotal,PacketsTotal=excluded.PacketsTotal,DownloadBytes=CASE WHEN ? THEN excluded.DownloadBytes ELSE VpnSessionSample.DownloadBytes END,UploadBytes=CASE WHEN ? THEN excluded.UploadBytes ELSE VpnSessionSample.UploadBytes END`, serverID, hub, str(s["Username_str"]), key, str(s["ClientIP_ip"]), str(s["Hostname_str"]), started, stamp, integer(s["PacketSize_u64"]), integer(s["PacketNum_u64"]), down, up, sampled, sampled)
+		execute(a.db, `INSERT INTO VpnSessionSample(ServerID,HubName,UserName,SessionKey,ClientIP,VirtualIP,ClientHostname,StartedDate,LastSeenDate,BytesTotal,PacketsTotal,DownloadBytes,UploadBytes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(ServerID,HubName,SessionKey) DO UPDATE SET LastSeenDate=excluded.LastSeenDate,BytesTotal=excluded.BytesTotal,PacketsTotal=excluded.PacketsTotal,VirtualIP=CASE WHEN excluded.VirtualIP != '' THEN excluded.VirtualIP ELSE VpnSessionSample.VirtualIP END,ClientHostname=CASE WHEN excluded.ClientHostname != '' THEN excluded.ClientHostname ELSE VpnSessionSample.ClientHostname END,DownloadBytes=CASE WHEN ? THEN excluded.DownloadBytes ELSE VpnSessionSample.DownloadBytes END,UploadBytes=CASE WHEN ? THEN excluded.UploadBytes ELSE VpnSessionSample.UploadBytes END`, serverID, hub, str(s["Username_str"]), key, clientIP, virtualIP, clientHost, started, stamp, integer(s["PacketSize_u64"]), integer(s["PacketNum_u64"]), down, up, sampled, sampled)
 		if sampled {
 			row := one(a.db, `SELECT VpnSessionSampleID FROM VpnSessionSample WHERE ServerID=? AND HubName=? AND SessionKey=?`, serverID, hub, key)
 			if row != nil {

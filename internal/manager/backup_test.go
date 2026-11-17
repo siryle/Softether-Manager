@@ -139,16 +139,18 @@ func TestEnrichSessions(t *testing.T) {
 
 	rawSessions := []M{
 		{
-			"Name_str":     "SID-user1-1",
-			"Username_str": "user1",
-			"ClientIP_ip":  "123.182.152.119",
-			"Hostname_str": "123.182.152.119", // Hostname equals public IP!
+			"Name_str":           "SID-user1-1",
+			"Username_str":       "user1",
+			"ClientIP_ip":        "123.182.152.119",
+			"Hostname_str":       "123.182.152.119", // Hostname equals public IP!
+			"RemoteHostname_str": "S20M",           // SoftEther server name!
 		},
 		{
-			"Name_str":     "SID-user2-2",
-			"Username_str": "user2",
-			"ClientIP_ip":  "203.0.113.5",
-			"Hostname_str": "client.example.com", // Real PTR hostname
+			"Name_str":           "SID-user2-2",
+			"Username_str":       "user2",
+			"ClientIP_ip":        "203.0.113.5",
+			"Hostname_str":       "client.example.com", // Real PTR hostname
+			"RemoteHostname_str": "S20M",
 		},
 	}
 
@@ -162,6 +164,26 @@ func TestEnrichSessions(t *testing.T) {
 	// user2's real hostname should be preserved
 	if enriched[1]["Hostname_str"] != "client.example.com" {
 		t.Fatalf("expected user2 hostname preserved, got %v", enriched[1]["Hostname_str"])
+	}
+
+	// Test enrichSessionStatus: ServerName_str must not become the client host!
+	status := a.enrichSessionStatus(context.Background(), "DEFAULT", "SID-user1-1", M{
+		"Client_Ip_Address_ip":             "123.182.152.119",
+		"ServerName_str":                   "S20M",
+		"SessionStatus_ClientHostName_str": "123.182.152.119",
+		"ClientHostname_str":               "I4P228986", // Reported client host
+	})
+
+	if status["ClientHostname_str"] != "I4P228986" {
+		t.Fatalf("expected client reported hostname 'I4P228986', got %v", status["ClientHostname_str"])
+	}
+
+	// Ensure IPv4 check helper
+	if !isIPv4("192.168.6.189") {
+		t.Fatalf("expected 192.168.6.189 to be IPv4")
+	}
+	if isIPv4("fe80::90bd:bfd3:605a:6c95") {
+		t.Fatalf("expected fe80::... not to be IPv4")
 	}
 }
 
