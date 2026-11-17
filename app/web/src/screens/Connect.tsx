@@ -23,9 +23,11 @@ export function Connect() {
   const [port, setPort] = useState(5555);
   const [password, setPassword] = useState("");
   const [configured, setConfigured] = useState(false);
+  const [publicHost, setPublicHost] = useState("");
+  const [publicPort, setPublicPort] = useState("443");
   const [testResult, setTestResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"test" | "save" | null>(null);
+  const [busy, setBusy] = useState<"test" | "save" | "public" | null>(null);
 
   useEffect(() => {
     void api
@@ -34,6 +36,8 @@ export function Connect() {
         setHost(c.host);
         setPort(c.port);
         setConfigured(c.configured);
+        setPublicHost(String(c.public_host || ""));
+        setPublicPort(String(c.public_port || 443));
       })
       .catch(() => {});
   }, []);
@@ -52,6 +56,26 @@ export function Connect() {
     }
   };
 
+  // The public address is what clients dial and what certificates are issued
+  // for, so it can be saved on its own without re-testing the connection.
+  const savePublic = async () => {
+    const p = Number(publicPort);
+    if (!Number.isInteger(p) || p < 1 || p > 65535) {
+      setError(t("The port must be a number between 1 and 65535."));
+      return;
+    }
+    setBusy("public");
+    setError(null);
+    try {
+      await api.saveConnection({ public_host: publicHost.trim(), public_port: p });
+      push("ok", t("Server public connection info saved."));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const save = async () => {
     setBusy("save");
     setError(null);
@@ -60,6 +84,8 @@ export function Connect() {
         host,
         port,
         password: password || (configured ? null : ""),
+        public_host: publicHost.trim(),
+        public_port: Number(publicPort) || 443,
       });
       push("ok", t("Connected."));
       await refreshServers();
@@ -101,7 +127,24 @@ export function Connect() {
           <input className="input" type="password" value={password}
             onChange={(e) => setPassword(e.target.value)} autoComplete="off" />
         </Field>
-        <div style={{ display: "flex", gap: "var(--s2)", marginTop: "var(--s2)" }}>
+        <div className="section__t" style={{ margin: "var(--s4) 0 var(--s2)" }}>{t("Server public information")}</div>
+        <p className="hint" style={{ marginTop: 0, marginBottom: "var(--s2)" }}>
+          {t("Used as the default server address and port when downloading client .vpn configuration files and requesting SSL certificates.")}
+        </p>
+        <div className="row2">
+          <Field label={t("Public domain / host")} hint={t("Public hostname or IP (e.g. vpn.example.com).")}>
+            <input className="input mono" value={publicHost} onChange={(e) => setPublicHost(e.target.value)}
+              autoCapitalize="none" spellCheck={false} inputMode="url" placeholder="vpn.example.com" />
+          </Field>
+          <Field label={t("Public port")} hint={t("Open port for VPN clients; default 443.")}>
+            <input className="input mono" type="number" min={1} max={65535} value={publicPort}
+              onChange={(e) => setPublicPort(e.target.value)} inputMode="numeric" />
+          </Field>
+        </div>
+        <button className="btn btn--sm" onClick={savePublic} disabled={busy !== null}>
+          {busy === "public" && <span className="spin" />} {t("Save server info")}
+        </button>
+        <div style={{ display: "flex", gap: "var(--s2)", marginTop: "var(--s4)" }}>
           <button className="btn" onClick={test} disabled={busy !== null}>
             {busy === "test" && <span className="spin" />} {t("Test connection")}
           </button>
