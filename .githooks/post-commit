@@ -11,3 +11,10 @@ if [[ "$(cat VERSION)" == "$committed_version" &&
       "$(git show :VERSION)" == "$previous_version" ]]; then
   git add -- VERSION
 fi
+
+# Automatically generate a release tag if this commit changed the VERSION
+if [[ -n "$committed_version" && "$committed_version" != "$previous_version" ]]; then
+  tag="v$committed_version"
+  git tag -f -a "$tag" -m "Release $tag"
+  printf 'Auto-tagged: %s\n' "$tag" >&2
+fi

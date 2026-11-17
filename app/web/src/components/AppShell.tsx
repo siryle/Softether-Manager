@@ -52,6 +52,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const [resources, setResources] = useState<Wire | null>(null);
   const [version, setVersion] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem("sem_sidebar_collapsed") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleCollapsed = () => {
+    setCollapsed(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem("sem_sidebar_collapsed", String(next));
+      } catch {}
+      return next;
+    });
+  };
+
   const searchRef = useRef<HTMLInputElement>(null);
   useEffect(() => { void api.systemInfo().then(info => setVersion(String(info.version))).catch(() => {}); }, []);
   useEffect(() => {
@@ -92,8 +111,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const navLink = (to: string, label: string, icon: React.ReactNode, count?: React.ReactNode) => {
     const target = to.slice(1);
     const on = target === "" ? active === "" || active === "connect" : target === "hubs" ? active === "hubs" || active === "hub" : active === target;
-    return <Link to={to} className={`side__item${on ? " on" : ""}`} aria-current={on ? "page" : undefined}>
-      <span className="side__item-left">{icon}<span>{t(label)}</span></span>
+    return <Link to={to} className={`side__item${on ? " on" : ""}`} aria-current={on ? "page" : undefined} title={collapsed ? t(label) : undefined}>
+      <span className="side__item-left">{icon}<span className="side__item-label">{t(label)}</span></span>
       {count !== undefined && <span className="side__count">{count}</span>}
     </Link>;
   };
@@ -171,29 +190,53 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* ── App Layout Body ─────────────────────────────────────────── */}
       <div className="shell__body">
         {/* Sidebar: Core network, server management and panel navigation */}
-        <aside className="side">
-          <div className="side__section">
-            <div className="side__gtitle">{t("Core Network")}</div>
-            <nav className="side__nav">
-              {navLink("/", "Console overview", <IconPanels size={18} />)}
-              {navLink("/hubs", "Virtual Hubs", <IconHub size={18} />, hubs?.length ?? "—")}
-              {navLink("/users", "Users", <IconUsers size={18} />, hubs ? totalUsers : "—")}
-              {navLink("/connections", "Active sessions", <IconPulse size={18} />, hubs ? totalSessions : "—")}
-            </nav>
+        <aside className={`side${collapsed ? " side--collapsed" : ""}`}>
+          <div className="side__body">
+            <div className="side__section">
+              <div className="side__gtitle">{t("Core Network")}</div>
+              <nav className="side__nav">
+                {navLink("/", "Console overview", <IconPanels size={18} />)}
+                {navLink("/hubs", "Virtual Hubs", <IconHub size={18} />, hubs?.length ?? "—")}
+                {navLink("/users", "Users", <IconUsers size={18} />, hubs ? totalUsers : "—")}
+                {navLink("/connections", "Active sessions", <IconPulse size={18} />, hubs ? totalSessions : "—")}
+              </nav>
+            </div>
+            <div className="side__section">
+              <div className="side__gtitle">{t("Server management")}</div>
+              <nav className="side__nav">
+                {navLink("/servers", "Server list", <IconNode size={18} />, servers?.length ?? "—")}
+                {navLink("/server-settings", "Current server configuration", <IconSettings size={18} />)}
+                {navLink("/logs", "Logs", <IconLogs size={18} />)}
+              </nav>
+            </div>
+            <div className="side__section">
+              <div className="side__gtitle">{t("Panel navigation")}</div>
+              <nav className="side__nav">
+                {navLink("/settings", "Panel settings", <IconSettings size={18} />)}
+              </nav>
+            </div>
           </div>
-          <div className="side__section">
-            <div className="side__gtitle">{t("Server management")}</div>
-            <nav className="side__nav">
-              {navLink("/servers", "Server list", <IconNode size={18} />, servers?.length ?? "—")}
-              {navLink("/server-settings", "Current server configuration", <IconSettings size={18} />)}
-              {navLink("/logs", "Logs", <IconLogs size={18} />)}
-            </nav>
-          </div>
-          <div className="side__section">
-            <div className="side__gtitle">{t("Panel navigation")}</div>
-            <nav className="side__nav">
-              {navLink("/settings", "Panel settings", <IconSettings size={18} />)}
-            </nav>
+
+          <div className="side__footer">
+            <button
+              type="button"
+              className="side__toggle"
+              onClick={toggleCollapsed}
+              title={collapsed ? t("Expand sidebar") : t("Collapse sidebar")}
+              aria-label={collapsed ? t("Expand sidebar") : t("Collapse sidebar")}
+              aria-expanded={!collapsed}
+            >
+              <span className="side__toggle-icon">
+                <IconChevron
+                  size={14}
+                  style={{
+                    transform: collapsed ? "rotate(0deg)" : "rotate(180deg)",
+                    transition: "transform var(--d-fast) ease",
+                  }}
+                />
+              </span>
+              {!collapsed && <span className="side__toggle-label">{t("Collapse sidebar")}</span>}
+            </button>
           </div>
         </aside>
 

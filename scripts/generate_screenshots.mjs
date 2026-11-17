@@ -441,7 +441,7 @@ function createMockServer() {
       if (apiPath === "/auth/state") return res.end(JSON.stringify({ setup_required: false }));
       if (apiPath === "/system/info") {
         return res.end(JSON.stringify({
-          version: "1.0.24",
+          version: "1.0.26",
           commit: "66d0c5b",
           arch: "linux-amd64",
           go: "go1.27.3",
@@ -836,6 +836,11 @@ async function run() {
       console.log(`\n=== Capturing screenshots for language: ${lang} ===`);
       const page = await browser.newPage();
 
+      // Ensure new documents in this page context have the correct language pre-configured
+      await page.evaluateOnNewDocument((l) => {
+        localStorage.setItem("sem_lang", l);
+      }, lang);
+
       for (const target of targets) {
         if (target.isMobile) {
           await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
@@ -855,8 +860,8 @@ async function run() {
           document.documentElement.style.colorScheme = t;
         }, lang, target.theme);
 
-        // Reload hash to ensure language & theme applied
-        await page.goto(`${BASE_URL}${target.hash}`, { waitUntil: "networkidle0" });
+        // Reload page to ensure language & theme are completely initialized by React
+        await page.reload({ waitUntil: "networkidle0" });
 
         // Wait a bit for charts, transitions and animations
         await new Promise((r) => setTimeout(r, 600));

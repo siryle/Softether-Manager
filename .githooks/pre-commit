@@ -18,6 +18,33 @@ if [[ "$(cat VERSION)" != "$staged_version" ]]; then
   exit 1
 fi
 
+is_auxiliary_file() {
+  local f="$1"
+  case "$f" in
+    VERSION|LICENSE*|COPYING*) return 0 ;;
+    README*|*.md) return 0 ;;
+    docs/*|*.png|*.jpg|*.jpeg|*.svg|*.ico|*.gif|*.webp) return 0 ;;
+    *_test.go|*.test.*|*.spec.*) return 0 ;;
+    scripts/test*|scripts/generate_screenshots.*) return 0 ;;
+    .github/*|.githooks/*|.gitignore|.gitattributes) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+has_code_changes=false
+while IFS= read -r file; do
+  [[ -z "$file" ]] && continue
+  if ! is_auxiliary_file "$file"; then
+    has_code_changes=true
+    break
+  fi
+done < <(git diff --cached --name-only)
+
+if [[ "$has_code_changes" == false ]]; then
+  # Only auxiliary files (docs, screenshots, test files, configs) staged; skip auto-bump
+  exit 0
+fi
+
 IFS=. read -r major minor patch <<< "$staged_version"
 next_version="$major.$minor.$((patch + 1))"
 printf '%s\n' "$next_version" > VERSION

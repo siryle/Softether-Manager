@@ -89,11 +89,29 @@ expect_version 1.1.3
 [[ "$(bash scripts/version.sh)" == v1.1.3 ]]
 [[ "$(GITHUB_REF=refs/tags/v3.2.1 bash scripts/version.sh)" == v3.2.1 ]]
 [[ "$(GITHUB_REF=refs/tags/v3.2.1-rc.1 bash scripts/version.sh)" == v3.2.1-rc.1 ]]
-git tag v1.1.3
+git rev-parse -q --verify "refs/tags/v1.1.3" >/dev/null
 printf '2.0.0\n' > VERSION
 [[ "$(bash scripts/version.sh)" == v1.1.3 ]]
 git tag -d v1.1.3 >/dev/null
 [[ "$(bash scripts/version.sh)" == v2.0.0 ]]
+git restore -- VERSION
+
+# Verify auxiliary files (docs, screenshots, test files) do not bump version
+printf 'doc update\n' >> README.md
+git add README.md
+git commit --quiet -m 'docs update'
+expect_version 1.1.3
+
+mkdir -p docs/screenshots
+printf 'image data\n' > docs/screenshots/dashboard.png
+git add docs/screenshots/dashboard.png
+git commit --quiet -m 'image update'
+expect_version 1.1.3
+
+printf 'func TestDummy() {}\n' > dummy_test.go
+git add dummy_test.go
+git commit --quiet -m 'test update'
+expect_version 1.1.3
 
 printf 'invalid\n' > VERSION
 git add VERSION

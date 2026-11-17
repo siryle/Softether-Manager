@@ -124,6 +124,8 @@ const zhCN: Record<string, string> = {
   "Switch to dark": "切换为深色",
   "Expand the sidebar": "展开侧边栏",
   "Collapse the sidebar": "折叠侧边栏",
+  "Collapse sidebar": "收起侧栏",
+  "Expand sidebar": "展开侧栏",
   "Check for updates": "检查更新",
   "An update is running": "正在更新中",
 
