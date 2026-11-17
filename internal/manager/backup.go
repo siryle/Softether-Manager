@@ -544,5 +544,21 @@ func (a *App) enrichSessionStatus(ctx context.Context, hub, name string, status 
 	status["RealHostname_str"] = realHost
 	status["ClientHostname_str"] = realHost
 	status["SessionStatus_ClientHostName_str"] = realHost
+
+	var activeNatTcp int
+	func() {
+		defer func() { _ = recover() }()
+		out := a.rpc(ctx, "EnumNAT", M{"HubName_str": hub})
+		natTable := list(out["NatTable"])
+		for _, ex := range virtualIPs {
+			for _, entry := range natTable {
+				if str(entry["SrcIp_ip"]) == ex && integer(entry["Protocol_u32"]) == 0 {
+					activeNatTcp++
+				}
+			}
+		}
+	}()
+	status["ActiveNatTcp_u32"] = activeNatTcp
+
 	return status
 }

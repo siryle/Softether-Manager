@@ -49,6 +49,78 @@ function cleanHost(d: Wire): string {
   return h;
 }
 
+function formatTcpConnections(d: Wire, t: (s: string) => string): string {
+  const proto = String(d.UnderlayProtocol_str || d.Name_str || "");
+  const isUdp = proto.includes("L2TP") || proto.includes("UDP") || proto.includes("IPsec");
+  if (isUdp) {
+    if (d.ActiveNatTcp_u32 != null && Number(d.ActiveNatTcp_u32) > 0) {
+      return `UDP (${d.ActiveNatTcp_u32} ${t("active sessions")})`;
+    }
+    return t("UDP tunnel");
+  }
+  const num = d.NumTcpConnections_u32 ?? d.CurrentNumTcp_u32 ?? 0;
+  const max = d.MaxTcpConnections_u32 ?? d.MaxNumTcp_u32 ?? 0;
+  if (num === 0 && max === 0) return "—";
+  return `${num} / ${max}`;
+}
+
+function parseClientInfo(d: Wire) {
+  const prod = String(d.ClientProductName_str || "").trim();
+  const osName = String(d.ClientOsName_str || "").trim();
+  const osVer = String(d.ClientOsVer_str || "").trim();
+  const host = String(d.ClientHostname_str || d.RealHostname_str || d.Hostname_str || "").trim();
+  const hostLower = host.toLowerCase();
+
+  // Deduce real operating system
+  let os = osName;
+  if (!os || os === "—" || os.toLowerCase().includes("l2tp")) {
+    if (hostLower.includes("iphone")) {
+      os = "Apple iOS (iPhone)";
+    } else if (hostLower.includes("ipad")) {
+      os = "Apple iPadOS";
+    } else if (hostLower.includes("macbook") || hostLower.includes("imac") || hostLower.includes("mac")) {
+      os = "Apple macOS";
+    } else if (
+      hostLower.includes("android") ||
+      /^sm-[a-z0-9]+/i.test(host) ||
+      /^[a-z]\d{2}[a-z]?$/i.test(host) ||
+      /^(redmi|xiaomi|oppo|vivo|oneplus|pixel)/i.test(host)
+    ) {
+      os = host ? `Android (${host})` : "Android";
+    } else if (
+      prod.toLowerCase().includes("microsoft") ||
+      osName.toLowerCase().includes("microsoft") ||
+      hostLower.startsWith("desktop-") ||
+      hostLower.startsWith("laptop-")
+    ) {
+      os = "Windows";
+    } else {
+      os = osName && osName !== "—" ? osName : "—";
+    }
+  }
+
+  if (osVer && osVer !== "—") {
+    os = `${os} ${osVer}`.trim();
+  }
+
+  // Deduce client software
+  let app = prod || "—";
+  if (d.ClientProductVer_u32 != null) {
+    const v = Number(d.ClientProductVer_u32);
+    if (v > 0 && v < 10000) {
+      app += ` v${(v / 100).toFixed(2)}`;
+    }
+  }
+  if (d.ClientProductBuild_u32 != null) {
+    const b = Number(d.ClientProductBuild_u32);
+    if (b > 0 && b < 100000) {
+      app += ` (Build ${b})`;
+    }
+  }
+
+  return { os, app };
+}
+
 export function HubSessions({ hub }: { hub: string }) {
   const [sessions, setSessions] = useState<Wire[] | null>(null);
   const [query, setQuery] = useState("");
@@ -221,7 +293,7 @@ export function SessionsTable({
                         ) : null}
                         {!s.VirtualIP_ip && !s.ClientIP_ip && !s.Hostname_str ? "—" : null}
                       </td>
-                      <td className="tmono">{s.CurrentNumTcp_u32 != null ? `${s.CurrentNumTcp_u32}/${s.MaxNumTcp_u32}` : "—"}</td>
+                      <td className="tmono">{formatTcpConnections(s, t)}</td>
                       <td className="tmono">{formatCount(Number(s.PacketNum_u64))}</td>
                       <td className="tmono">{formatBytes(Number(s.PacketSize_u64))}</td>
                       <td className="tmono">{timeAgo(s.CreatedTime_dt as string)}</td>
@@ -310,127 +382,136 @@ export function SessionSheet({ hub,
     };
   }, [hub, name]);
 
-  return (
-    <Sheet title={t("Session")} subtitle={name} onClose={onClose} wide>
-      {error && <div className="alert alert--err">{error}</div>}
-      {!detail && !error && <LoadingBlock />}
-      {detail && (
-        <div className="session-panel">
-          {/* Group 1: Network & Address */}
-          <div className="session-card">
-            <div className="session-card__head">
-              <span className="session-card__dot" style={{ background: "var(--accent-strong, #3b82f6)" }} />
-              {t("Network & Address")}
-            </div>
-            <div className="session-grid-4">
-              <div>
-                <div className="micro">{t("user")}</div>
-                <div className="mono" style={{ fontSize: "var(--t-data)", fontWeight: 600 }}>{String(detail.Username_str || "—")}</div>
-              </div>
-              <div>
-                <div className="micro">{t("client IP")}</div>
-                <div className="mono" style={{ fontSize: "var(--t-data)" }}>{String(detail.Client_Ip_Address_ip || "—")}</div>
-              </div>
-              <div>
-                <div className="micro">{t("virtual IP")}</div>
-                <div className="mono" style={{ fontSize: "var(--t-data)", color: "var(--ok)" }}>
-                  {detail.VirtualIP_ip ? (
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                      <span className="chip chip--ok" style={{ padding: "0 5px", fontSize: "10px" }}>{t("LAN")}</span>
-                      {filterIpv4(detail.VirtualIP_ip)}
-                    </span>
-                  ) : "—"}
+    return (
+      <Sheet title={t("Session")} subtitle={name} onClose={onClose} wide>
+        {error && <div className="alert alert--err">{error}</div>}
+        {!detail && !error && <LoadingBlock />}
+        {detail && (() => {
+          const clientInfo = parseClientInfo(detail);
+          return (
+            <div className="session-panel">
+              {/* Group 1: Network & Address */}
+              <div className="session-card">
+                <div className="session-card__head">
+                  <span className="session-card__dot" style={{ background: "var(--accent-strong, #3b82f6)" }} />
+                  {t("Network & Address")}
+                </div>
+                <div className="session-grid-4">
+                  <div>
+                    <div className="micro">{t("user")}</div>
+                    <div className="mono" style={{ fontSize: "var(--t-data)", fontWeight: 600 }}>{String(detail.Username_str || "—")}</div>
+                  </div>
+                  <div>
+                    <div className="micro">{t("client IP")}</div>
+                    <div className="mono" style={{ fontSize: "var(--t-data)" }}>{String(detail.Client_Ip_Address_ip || "—")}</div>
+                  </div>
+                  <div>
+                    <div className="micro">{t("virtual IP")}</div>
+                    <div className="mono" style={{ fontSize: "var(--t-data)", color: "var(--ok)" }}>
+                      {detail.VirtualIP_ip ? (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                          <span className="chip chip--ok" style={{ padding: "0 5px", fontSize: "10px" }}>{t("LAN")}</span>
+                          {filterIpv4(detail.VirtualIP_ip)}
+                        </span>
+                      ) : "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="micro">{t("client host")}</div>
+                    <div className="mono" style={{ fontSize: "var(--t-data)" }}>{cleanHost(detail)}</div>
+                  </div>
                 </div>
               </div>
-              <div>
-                <div className="micro">{t("client host")}</div>
-                <div className="mono" style={{ fontSize: "var(--t-data)" }}>{cleanHost(detail)}</div>
-              </div>
-            </div>
-          </div>
 
-          {/* Group 2: Connection & Protocol */}
-          <div className="session-card">
-            <div className="session-card__head">
-              <span className="session-card__dot" style={{ background: "#818cf8" }} />
-              {t("Connection & Protocol")}
-            </div>
-            <div className="session-grid-4">
-              <div>
-                <div className="micro">{t("protocol")}</div>
-                <div className="mono" style={{ fontSize: "var(--t-data)" }}>{String(detail.UnderlayProtocol_str || "—")}</div>
-              </div>
-              <div>
-                <div className="micro">{t("cipher")}</div>
-                <div className="mono" style={{ fontSize: "var(--t-data)" }}>{String(detail.CipherName_str || "plain")}</div>
-              </div>
-              <div>
-                <div className="micro">{t("TCP connections")}</div>
-                <div className="mono" style={{ fontSize: "var(--t-data)" }}>{`${detail.NumTcpConnections_u32 ?? 0} / ${detail.MaxTcpConnections_u32 ?? 0}`}</div>
-              </div>
-              <div>
-                <div className="micro">{t("UDP / Compress")}</div>
-                <div className="mono" style={{ fontSize: "var(--t-data)" }}>
-                  {(detail.IsUsingUdpAcceleration_bool ? t("in use") : detail.IsUdpAccelerationEnabled_bool ? "enabled" : "off") + " / " + (detail.UseCompress_bool ? t("yes") : "no")}
+              {/* Group 2: Connection & Protocol */}
+              <div className="session-card">
+                <div className="session-card__head">
+                  <span className="session-card__dot" style={{ background: "#818cf8" }} />
+                  {t("Connection & Protocol")}
+                </div>
+                <div className="session-grid-4">
+                  <div>
+                    <div className="micro">{t("protocol")}</div>
+                    <div className="mono" style={{ fontSize: "var(--t-data)" }}>{String(detail.UnderlayProtocol_str || "—")}</div>
+                  </div>
+                  <div>
+                    <div className="micro">{t("cipher")}</div>
+                    <div className="mono" style={{ fontSize: "var(--t-data)" }}>{String(detail.CipherName_str || "plain")}</div>
+                  </div>
+                  <div>
+                    <div className="micro">{t("TCP connections")}</div>
+                    <div className="mono" style={{ fontSize: "var(--t-data)" }}>{formatTcpConnections(detail, t)}</div>
+                  </div>
+                  <div>
+                    <div className="micro">{t("UDP / Compress")}</div>
+                    <div className="mono" style={{ fontSize: "var(--t-data)" }}>
+                      {(detail.IsUsingUdpAcceleration_bool ? t("in use") : detail.IsUdpAccelerationEnabled_bool ? "enabled" : "off") + " / " + (detail.UseCompress_bool ? t("yes") : "no")}
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
 
-          {/* Group 3: Client Info & Traffic */}
-          <div className="session-grid-2">
-            {/* Client Info */}
-            <div className="session-card">
-              <div className="session-card__head">
-                <span className="session-card__dot" style={{ background: "#22d3ee" }} />
-                {t("Client Environment")}
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "var(--s3)" }}>
-                <div>
-                  <div className="micro">{t("started")}</div>
-                  <div className="mono" style={{ fontSize: "var(--t-data)" }}>{formatDate(detail.StartTime_dt as string)}</div>
-                </div>
-                <div>
-                  <div className="micro">{t("half connection")}</div>
-                  <div className="mono" style={{ fontSize: "var(--t-data)" }}>{detail.HalfConnection_bool ? t("yes") : "no"}</div>
-                </div>
-                <div style={{ gridColumn: "1 / -1" }}>
-                  <div className="micro">{t("Client software")}</div>
-                  <div className="mono truncate" style={{ fontSize: "var(--t-data)" }}>
-                    {`${detail.ClientProductName_str || "—"} ${detail.ClientProductVer_u32 ?? ""}`.trim() || "—"}
+              {/* Group 3: Client Info & Traffic */}
+              <div className="session-grid-2">
+                {/* Client Info */}
+                <div className="session-card">
+                  <div className="session-card__head">
+                    <span className="session-card__dot" style={{ background: "#22d3ee" }} />
+                    {t("Client Environment")}
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "var(--s3)" }}>
+                    <div>
+                      <div className="micro">{t("started")}</div>
+                      <div className="mono" style={{ fontSize: "var(--t-data)" }}>{formatDate(detail.StartTime_dt as string)}</div>
+                    </div>
+                    <div>
+                      <div className="micro">{t("half connection")}</div>
+                      <div className="mono" style={{ fontSize: "var(--t-data)" }}>{detail.HalfConnection_bool ? t("yes") : "no"}</div>
+                    </div>
+                    <div>
+                      <div className="micro">{t("Client software")}</div>
+                      <div className="mono truncate" title={clientInfo.app} style={{ fontSize: "var(--t-data)" }}>
+                        {clientInfo.app}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="micro">{t("Client OS")}</div>
+                      <div className="mono truncate" title={clientInfo.os} style={{ fontSize: "var(--t-data)" }}>
+                        {clientInfo.os}
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </div>
 
-            {/* Traffic Statistics */}
-            <div className="session-card" style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-              <div className="session-card__head">
-                <span className="session-card__dot" style={{ background: "#fbbf24" }} />
-                {t("Traffic Statistics")}
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--s3)", paddingBlock: "var(--s1)" }}>
-                <div className="session-stat-card">
-                  <div className="micro" style={{ color: "var(--accent-strong, #3b82f6)", marginBottom: 4, display: "flex", alignItems: "center", gap: 4 }}>
-                    <span>↑</span> {t("Sent (Upload)")}
+                {/* Traffic Statistics */}
+                <div className="session-card" style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                  <div className="session-card__head">
+                    <span className="session-card__dot" style={{ background: "#fbbf24" }} />
+                    {t("Traffic Statistics")}
                   </div>
-                  <div className="mono" style={{ fontSize: "1.1rem", fontWeight: 700 }}>
-                    {formatBytes(Number(detail.TotalSendSizeReal_u64 ?? detail.TotalSendSize_u64))}
-                  </div>
-                </div>
-                <div className="session-stat-card">
-                  <div className="micro" style={{ color: "var(--ok, #10b981)", marginBottom: 4, display: "flex", alignItems: "center", gap: 4 }}>
-                    <span>↓</span> {t("Received (Download)")}
-                  </div>
-                  <div className="mono" style={{ fontSize: "1.1rem", fontWeight: 700 }}>
-                    {formatBytes(Number(detail.TotalRecvSizeReal_u64 ?? detail.TotalRecvSize_u64))}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--s3)", paddingBlock: "var(--s1)" }}>
+                    <div className="session-stat-card">
+                      <div className="micro" style={{ color: "var(--accent-strong, #3b82f6)", marginBottom: 4, display: "flex", alignItems: "center", gap: 4 }}>
+                        <span>↑</span> {t("Sent (Upload)")}
+                      </div>
+                      <div className="mono" style={{ fontSize: "1.1rem", fontWeight: 700 }}>
+                        {formatBytes(Number(detail.TotalSendSizeReal_u64 ?? detail.TotalSendSize_u64))}
+                      </div>
+                    </div>
+                    <div className="session-stat-card">
+                      <div className="micro" style={{ color: "var(--ok, #10b981)", marginBottom: 4, display: "flex", alignItems: "center", gap: 4 }}>
+                        <span>↓</span> {t("Received (Download)")}
+                      </div>
+                      <div className="mono" style={{ fontSize: "1.1rem", fontWeight: 700 }}>
+                        {formatBytes(Number(detail.TotalRecvSizeReal_u64 ?? detail.TotalRecvSize_u64))}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-      )}
-    </Sheet>
-  );
+          );
+        })()}
+      </Sheet>
+    );
 }
