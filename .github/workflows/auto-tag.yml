@@ -7,6 +7,11 @@ on:
       - main
     paths:
       - "VERSION"
+  workflow_dispatch:
+
+concurrency:
+  group: auto-tag-${{ github.ref }}
+  cancel-in-progress: false
 
 # contents: write for the tag, actions: write to start the release build.
 permissions:
@@ -15,35 +20,43 @@ permissions:
 
 jobs:
   auto-tag:
-    name: Create Git Tag for New Version
+    name: Ensure the Version Is Released
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - name: Create and push tag if missing
+      - name: Ensure tag and dispatch a missing or incomplete release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="$(cat VERSION)"
+          set -euo pipefail
+          VERSION="$(<VERSION)"
+          if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Invalid VERSION: $VERSION" >&2
+            exit 1
+          fi
           TAG="v$VERSION"
-          created=false
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists."
+          REF="refs/tags/$TAG"
+          if git show-ref --verify --quiet "$REF"; then
+            git merge-base --is-ancestor "$REF^{commit}" "$GITHUB_SHA" || {
+              echo "$TAG points outside this branch; choose a new VERSION." >&2
+              exit 1
+            }
           else
-            echo "Creating and pushing tag $TAG"
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git tag -a "$TAG" -m "Release $TAG"
-            git push origin "$TAG"
-            created=true
+            git tag -a "$TAG" "$GITHUB_SHA" -m "Release $TAG"
+            git push origin "$REF"
           fi
-          # A tag pushed with GITHUB_TOKEN never triggers another workflow, so a tag
-          # this job created would never reach release.yml (no GitHub release, and
-          # `--version latest` would stay on the previous tag). Start that build
-          # ourselves. Tags pushed by a person already trigger it on their own.
-          if [[ "$created" == true ]]; then
-            echo "Starting the release workflow for $TAG"
+          # GITHUB_TOKEN pushes do not trigger release.yml. Reconcile the assets
+          # too, so retrying after a successful push can still finish the release.
+          READY="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,assets \
+            --jq '[.assets[].name] as $names | (.isDraft | not) and (($names | index("softether-manager.tar.gz")) != null) and (($names | index("softether-manager.tar.gz.sha256")) != null)' || true)"
+          if [[ "$READY" == true ]]; then
+            echo "$TAG is already published with both assets."
+          else
             gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"
           fi

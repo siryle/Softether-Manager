@@ -1,6 +1,6 @@
 # SoftEther Manager
 
-**English** | [简体中文](README.md)
+**English** | [简体中文](README.md) | [Latest release](https://github.com/siryle/Softether-Manager/releases/latest)
 
 A modern, self-hosted web management panel for [SoftEther VPN Server](https://www.softether.org/).
 
@@ -14,9 +14,9 @@ happens in the browser.
 
 ![Dashboard](docs/screenshots/en/dashboard.png)
 
-These previews are captured from the current Go backend and frontend running with
-isolated demo data. This page shows the English interface; the Chinese README uses
-the Chinese interface.
+Previews use the current frontend build and a local mock management API. They contain
+no real server or user data. This page shows the English interface; the [Chinese README](README.md)
+uses its own Simplified Chinese previews.
 
 ## What it does
 
@@ -32,13 +32,15 @@ Panel accounts, domain and HTTPS settings are shared. Resource telemetry always
 refers to the panel host. Release any enforced quotas before changing a server's
 address, disabling it or removing its connection, so the panel can restore VPN access first.
 
+![Server list](docs/screenshots/en/servers.png)
+
 **Manages SoftEther.** The panel is built on a complete client for the
 SoftEther JSON-RPC suite, organised by where things
 live:
 
 | | |
 | --- | --- |
-| **Users** | create, edit, delete; password / certificate / signed / RADIUS / NT auth; group membership; expiry; per-user security policy (all forty knobs, grouped and explained); lifetime transfer counters; usage charts; live sessions with a kill switch; a one-click **.vpn connection file** download (optionally with the credential embedded, hashed the way the client stores it) — plus one **Users** page listing everyone across every hub, sortable by any column and searchable by name, hub, group or note |
+| **Users** | Create, edit or delete users; manage passwords, certificates, RADIUS and NT authentication, groups, expiry and per-user policies. Search users across hubs, download a `.vpn` connection file, or import and export CSV within a hub for anonymous or password accounts that can be restored without losing settings. |
 | **Traffic limits** | a byte ceiling per config *and* per hub, counting download only, upload only, or both, in MB / GB / TB, measured against the very Transfer figure the tables show — reached, the panel denies the config's access and cuts its sessions (or takes the hub offline), and restores exactly what it found when the limit is raised or the transfer reset. SoftEther cannot zero a counter, so the panel keeps its own zero and every figure it prints subtracts it: **Reset transfer** really does put the column back to 0 B |
 | **Groups** | create, edit, delete; group-wide security policy that members inherit |
 | **Sessions** | live table with client address, protocol, cipher and transfer; per-session detail with the session's own traffic curve; disconnect; and a session log that outlives the connection, so "who was on last night, from where, moving what" is still answerable in the morning |
@@ -47,7 +49,7 @@ live:
 | **SecureNAT** | enable/disable, virtual NAT and DHCP configuration, live NAT and lease tables |
 | **Cascades** | hub-to-hub links to other servers, with live link status |
 | **Switching** | MAC and IP address tables, local bridges, virtual layer-3 switches with interfaces and routes |
-| **Server** | listeners, VPN-over-ICMP/DNS, L2TP/IPsec, OpenVPN and SSTP clones, VPN Azure, dynamic DNS, cipher, certificate (view / replace / regenerate), clustering, keep-alive, syslog, EtherIP IDs, a paged browser for the server and security logs, config backup and restore |
+| **Server** | listeners, VPN-over-ICMP/DNS, L2TP/IPsec, OpenVPN and SSTP clones, VPN Azure, dynamic DNS status and hostname (enable or disable during VPN maintenance), cipher, certificate (view / replace / regenerate), clustering, keep-alive, syslog, EtherIP IDs, a paged browser for the server and security logs, config backup and restore |
 | **The panel itself** | a custom domain with a Let's Encrypt certificate the panel obtains and renews on its own, HTTPS on a port of your choosing, and a switch that makes the domain the only way in — a request by IP address gets a bare 404 |
 
 **Draws what the numbers mean.** SoftEther keeps cumulative counters and no history, so
@@ -135,6 +137,15 @@ for decisions. Managing a VPN server from a phone is a first-class path.
 
 ## Install
 
+### Docker
+
+The [multi-architecture image](https://github.com/siryle/Softether-Manager/pkgs/container/softether-manager)
+supports Linux amd64 and arm64. Run `docker compose up -d` from the repository after
+configuring the VPN management address and administrator credentials. See [DOCKER.md](DOCKER.md)
+for same-host, LAN and container-to-container setups. Persist `/data` across upgrades.
+
+### Native Linux (systemd)
+
 On the Linux server that runs (or will run) SoftEther, as root:
 
 ```bash
@@ -144,9 +155,10 @@ bash <(curl -Ls https://raw.githubusercontent.com/siryle/Softether-Manager/maste
 The installer asks four questions — username, password, port, and a secret web path the
 panel hides behind — and answers everything else itself: it downloads the native Go
 executable for the host architecture, verifies its checksum, writes a
-hardened systemd unit, starts the service and creates your account. There is no database
-to set up: the panel keeps everything in one SQLite file under
-`/var/lib/softether-manager`, and backing it up is copying that directory.
+hardened systemd unit, creates your account before opening the listener, and confirms
+the expected version is running. The default SQLite database is stored under
+`/var/lib/softether-manager`. Back up the data directory and any SQLite database
+configured outside it before upgrading.
 Running the panel requires neither Python nor a Go compiler.
 
 First sign-in, the panel asks for the SoftEther management port and administrator
@@ -187,17 +199,12 @@ notice. `sem update` does the identical thing from a shell.
 
 ### A domain and HTTPS
 
-Point a DNS record at the server, open port 80 and the HTTPS port, and enter the name
-under **Settings → Domain & HTTPS**. The panel registers with Let's Encrypt, answers the
-validation on port 80, obtains the certificate, starts serving HTTPS on the port you chose
-(443 unless SoftEther's own listener is sitting on it — then disable that listener, or
-pick another port), keeps port 80 answering with a redirect, and renews the certificate
-a month before it expires. Each stage — the domain, its DNS, port 80, the certificate,
-the renewal, the HTTPS listener — reports its own state and its own error on the page,
-so a record that points elsewhere, a firewall that blocks port 80 and a port SoftEther
-already holds read as three different problems, not one "failed". The account key, the
-certificate and its private key live in the data directory with everything else the
-panel owns.
+Set the certificate domain under **Current server configuration → Encryption & certificate**.
+For HTTP-01, point DNS at the panel and make port 80 available to Let's Encrypt. For
+Cloudflare DNS-01, provide a DNS API token and leave port 80 closed. Use a separate HTTPS
+port if SoftEther already owns 443. The panel starts renewal 30 days before expiry and
+stores the certificate and key in the data directory. Select an explicit VPN server if
+you want automatic certificate deployment; failures are recorded and retried separately.
 
 Once you are using the panel through the domain, **Only serve the panel at this domain**
 turns away every request that arrives by IP address or under any other name, on every
@@ -207,17 +214,14 @@ itself and the certificate validation path are always let through, so renewal an
 installer keep working. If a DNS change ever does strand you, `sem domain only off` on
 the server lifts it.
 
-## Scope: one server, on purpose
+## Scope
 
-This panel deliberately manages **only the SoftEther instance on its own machine**. It
-holds one connection, one database, one audit trail — which is what makes it simple to
-install, simple to reason about, and safe to hand to the machine's operator.
-
-Fleet-level concerns — installing SoftEther on fresh hosts, managing many of these
-panels, creating users across instances — belong to a separate master panel that speaks
-to many single-server panels like this one. That separation keeps each layer honest:
-this panel is the complete, self-sufficient control room for one server; the master
-panel (a separate project) orchestrates many of them.
+One panel manages one or more existing SoftEther servers, local or remote. Each browser
+tab targets a single server. The dashboard always reports resources from the panel host;
+VPN users, sessions, quotas, backups and history belong to the selected server. Backups
+record the last success and error per server. Release any outstanding quota blocks before
+restoring a VPN configuration. Use a full backup for authentication or policies that CSV
+cannot carry.
 
 ## Architecture
 
@@ -252,7 +256,8 @@ database and `encryption.key` together; old backups may still contain plain cred
 
 SoftEther management connections pin the certificate's SHA-256 fingerprint on first
 use. A mismatch blocks administrator credentials before any HTTP request is sent.
-After a legitimate replacement, use Servers → Edit → Inspect saved server certificate,
+When the panel installs a replacement, it updates the saved fingerprint automatically.
+For replacements made outside the panel, use **Servers → Edit → Inspect saved server certificate**,
 compare the fingerprint independently with the server, then confirm trust. Establish
 the first connection over a trusted network. On isolated/self-signed setups you can opt
 out per server with **Skip certificate verification (not recommended)** in the same form;
@@ -264,10 +269,7 @@ passwords through standard input. Its optional SoftEther installation uses pinne
 `v4.44-9807-rtm` archives for amd64 and arm64, checked against recorded SHA-256 hashes
 before unpacking or execution.
 
-The certificate comes from the Go ACME client (`internal/manager/tls.go`, HTTP-01),
-so there is no certbot installation or cron job, and the service's
-`ProtectSystem=full` sandbox stays as tight as it was: everything the certificate needs
-is in the data directory.
+The embedded Go ACME client supports HTTP-01 and Cloudflare DNS-01 without Certbot or a cron job.
 
 ## Development
 
@@ -316,14 +318,22 @@ It starts two temporary servers and a real cascade session, checks that resets l
 the user and session unchanged, and verifies reconnection after quota cancellation.
 The test is skipped when the variable is unset.
 
-Releases are tag-driven: CI builds the frontend, packages one tarball, and publishes it
-with a checksum on every `v*` tag. The archive contains Linux amd64 and arm64
-executables. Build it locally with `bash scripts/build-release.sh --version vX.Y.Z`.
-The installer and the in-panel updater both follow the installed repository.
+## Releases and previews
 
-Without an explicit version, local packaging and CI use the exact tag on HEAD,
-or fall back to `VERSION`. Docker and the panel also read this file. Publishing
-a GitHub release still requires pushing a `vX.Y.Z` tag.
+The release workflow builds one archive and its checksum. The archive contains Linux amd64
+and arm64 binaries, the static frontend and the installer. Build it locally with
+`bash scripts/build-release.sh --version vX.Y.Z`. Without an explicit version, packaging
+uses the exact tag on HEAD or falls back to `VERSION`.
+
+Pushing a new `VERSION` to the default branch creates its tag and dispatches the build.
+Pushing a `vX.Y.Z` tag manually also starts a release. If the tag exists but the release
+is missing, still a draft, or missing an asset, rerun **Auto Tag Release** from the default
+branch in Actions. There is no need to delete or move the tag.
+
+To refresh screenshots, run `npm --prefix app/web run build` and then
+`node scripts/generate_screenshots.mjs`. The script needs `puppeteer` on the module path
+(an isolated install via `NODE_PATH` works). Set `CHROME_PATH` to use an existing Chromium
+binary. It writes separate image sets to `docs/screenshots/en/` and `docs/screenshots/zh-CN/`.
 
 To upgrade from Python, stop the old service and back up the entire data directory,
 then run the new installer or replace the container. Keep `manager.db`, `session.key`,
@@ -333,9 +343,9 @@ version against the database at a time. Single-server databases migrate transact
 
 ## Security notes
 
-- Out of the box the panel serves plain HTTP. Give it a domain (Settings → Domain &
-  HTTPS) and it serves HTTPS with a Let's Encrypt certificate it renews itself; or put a
-  TLS-terminating reverse proxy in front of it, or bind it to localhost and reach it over
+- Out of the box the panel serves plain HTTP. Configure a domain in the server certificate
+  settings for Let's Encrypt, or put a TLS-terminating reverse proxy in front of the panel.
+  For private administration, bind it to localhost and reach it over
   an SSH tunnel or WireGuard. A session issued over HTTPS carries a `Secure` cookie and is
   never sent back over the plain port.
 - With a domain set, *Only serve the panel at this domain* refuses everything that does
@@ -366,12 +376,12 @@ Based on the actual implementation of this codebase:
 | :--- | :--- | :--- |
 | **Backend Architecture** | Python 3 + FastAPI; requires Python runtime, pip dependencies, and virtual environment | **Rewritten entirely in pure Go** (standard library `net/http` + pure Go SQLite `modernc.org/sqlite`). Zero Python, Node.js, or CGO runtime dependencies. Minimal memory footprint, fast startup, single binary serving both Web API and CLI maintenance |
 | **Server Management** | Manages only a single local SoftEther instance | **Multi-Server Management & Cluster Support**: Topbar search and instant switching between multiple SoftEther VPN server instances. Hubs, users, sessions, historical samples, traffic quotas, and credentials are fully isolated per server; safety checks enforce quota release before modifying/deleting servers |
-| **Traffic Quotas** | Basic limit detection | **Baseline Offset "True Zeroing" Algorithm**: Solves the lack of a native counter-reset API in SoftEther. Resets bring visible transfer counters back to 0 B without breaking cumulative tracking. Enforces byte ceilings (MB/GB/TB) with automatic disconnects and policy restoration upon quota reset/raise; atomic operations with rollback |
-| **Concurrency & Integrity** | No optimistic concurrency control | **Optimistic Concurrency Control**: ACL packet filter and quota modifications require `expected_version` tokens, returning 409 Conflict if changed concurrently to prevent cross-tab/multi-admin overwrite collisions |
+| **Traffic Quotas** | Basic limit detection | **Baseline Offset "True Zeroing" Algorithm**: Solves the lack of a native counter-reset API in SoftEther. Resets bring visible transfer counters back to 0 B without breaking cumulative tracking. Denies access when the limit is reached and restores the saved policy when the limit is released |
+| **Concurrency & Integrity** | No optimistic concurrency control | ACL updates and deletions use `expected_version`. Quota operations and management writes are serialized per server. |
 | **Security Hardening** | Basic credential storage | **Defense-in-Depth**: Sensitive VPN credentials and password hashes encrypted with Fernet symmetric cipher in SQLite; scrypt password hashing for panel admins; `HttpOnly` / `SameSite=Lax` cookies (no tokens in `localStorage`); brute-force lockout after 8 consecutive failures |
 | **TLS Verification** | Unpinned TLS connections | **TLS Certificate Pinning**: Records and pins SHA-256 fingerprints of the SoftEther JSON-RPC management interface upon first trust; refuses password transmission if certificates mismatch (MITM protection); visual fingerprint review and trust workflow |
 | **Anti-Reconnaissance** | Standard web endpoints | **Stealth Mode**: Supports custom secret URL paths; optional "Domain-Only Access" returns anonymous 404 responses for any direct IP or unrecognized host header requests |
-| **Automated SSL/TLS** | Manual certificate configuration | **Embedded ACME Client**: Native pure Go ACME client automatically requests and renews Let's Encrypt certificates (auto-renews 30 days prior to expiration via HTTP-01 challenge) without Certbot or cron jobs |
+| **Automated SSL/TLS** | Manual certificate configuration | **Embedded ACME Client**: Supports Let's Encrypt HTTP-01 and Cloudflare DNS-01, and starts renewal 30 days before expiry. No Certbot or cron job. |
 | **Packaging & Ops** | Source code installation | **Multi-Arch Docker & One-Line Installer**: Official multi-arch Docker image (`ghcr.io/siryle/softether-manager:latest` for amd64/arm64) supporting all LAN topologies; one-line Systemd installer with SHA-256 verified SoftEther 4.44 packaging and failure rollback; built-in `sem` CLI tool |
 | **Frontend & i18n** | Basic SPA | **Next.js 15 Modern SPA**: Full Dark/Light themes, instant real-time Chinese/English toggle without page reload, mobile-responsive layout (<960px switches to native app experience with bottom navigation and sheets), faithful chart rendering with gap preservation |
 

@@ -1,15 +1,14 @@
 import http from "node:http";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
-const OUT_DIR = path.resolve(ROOT, "app", "web", "out");
-const SCREENSHOTS_DIR = path.resolve(ROOT, "docs", "screenshots");
-
-const PORT = 38888;
-const BASE_URL = `http://127.0.0.1:${PORT}/`;
+const OUT_DIR = path.resolve(process.env.SEM_SCREENSHOT_WEB_DIR || path.join(ROOT, "app", "web", "out"));
+const SCREENSHOTS_DIR = path.join(ROOT, "docs", "screenshots");
+const version = fs.readFileSync(path.join(ROOT, "VERSION"), "utf8").trim();
 
 // ── Mock Data Generator ────────────────────────────────────────────────────────
 function generateTrafficPoints(hours, totalRecv, totalSend, seed = 42) {
@@ -443,7 +442,7 @@ function createMockServer() {
       if (apiPath === "/auth/state") return res.end(JSON.stringify({ setup_required: false }));
       if (apiPath === "/system/info") {
         return res.end(JSON.stringify({
-          version: "1.0.26",
+          version,
           commit: "66d0c5b",
           arch: "linux-amd64",
           go: "go1.27.3",
@@ -451,20 +450,34 @@ function createMockServer() {
           repo: "siryle/Softether-Manager",
         }));
       }
+      if (apiPath === "/system/domain") {
+        return res.end(JSON.stringify({
+          configured: false,
+          domain: "",
+          acme_challenge_type: "dns-01",
+          https_port: 443,
+          phase: "idle",
+          busy: false,
+          dns: {},
+          http: { listening: false, error: "" },
+          https: { listening: false, error: "" },
+          certificate: { present: false },
+          renewal: { due: false, last_error: "", last_error_type: "", renew_before_days: 30 },
+          events: [],
+        }));
+      }
       if (apiPath === "/system/resources") {
         return res.end(JSON.stringify({
+          available: true,
           cpu: {
             cores: [{ usage_percent: 14.2 }, { usage_percent: 18.5 }, { usage_percent: 11.0 }, { usage_percent: 16.8 }],
-            total_usage_percent: 15.1,
-            steal_percent: 0.0,
-            load_1m: 0.32,
-            load_5m: 0.28,
-            load_15m: 0.25,
+            overall: { usage_percent: 15.1, steal_percent: 0.0 },
           },
+          load: { one: 0.32, five: 0.28, fifteen: 0.25 },
           memory: { total_bytes: 8589934592, used_bytes: 2748779069, available_bytes: 5841155523, usage_percent: 32.0 },
           swap: { total_bytes: 4294967296, used_bytes: 268435456, available_bytes: 4026531840, usage_percent: 6.25 },
-          filesystems: [
-            { mount_point: "/", device: "/dev/vda1", fstype: "ext4", total_bytes: 107374182400, used_bytes: 25769803776, available_bytes: 81604378624, usage_percent: 24.0 },
+          disks: [
+            { mount_point: "/", device: "/dev/vda1", fs_type: "ext4", total_bytes: 107374182400, used_bytes: 25769803776, available_bytes: 81604378624, used_percent: 24.0 },
           ],
           network: {
             rx_bytes_per_second: 1258291,
@@ -483,7 +496,9 @@ function createMockServer() {
         return res.end(JSON.stringify({ server_id: 1, name: "vpnserver", host: "127.0.0.1", port: 5555, configured: true }));
       }
       if (apiPath === "/server/probe" || apiPath.match(/^\/servers\/\d+\/probe$/)) {
-        return res.end(JSON.stringify({ online: true, configured: true, version: "4.44 Build 9807", build: 9807 }));
+        const id = apiPath === "/server/probe" ? 1 : Number(apiPath.split("/")[2]);
+        const server = mockServers.find((entry) => entry.id === id);
+        return res.end(JSON.stringify({ online: true, configured: true, version: "4.44 Build 9807", hostname: server?.name, sessions: id === 1 ? 3 : 2, hubs: id === 1 ? 3 : 1 }));
       }
       if (apiPath === "/server/overview") {
         return res.end(JSON.stringify({
@@ -780,11 +795,11 @@ function createMockServer() {
       // Logs
       if (apiPath === "/server/logs") {
         return res.end(JSON.stringify({
-          files: [
-            { path: "server_log/vpn_20261117.log", size: 1048576, mtime: "2026-11-17T10:00:00.000Z" },
-            { path: "server_log/vpn_20261116.log", size: 2097152, mtime: "2026-11-16T23:59:59.000Z" },
-            { path: "security_log/DEFAULT/sec_20261117.log", size: 524288, mtime: "2026-11-17T09:45:00.000Z" },
-            { path: "packet_log/DEFAULT/pkt_20261117.log", size: 8388608, mtime: "2026-11-17T10:15:00.000Z" },
+          LogFiles: [
+            { FilePath_str: "server_log/vpn_20261117.log", FileSize_u32: 1048576, UpdatedTime_dt: "2026-11-17T10:00:00.000Z" },
+            { FilePath_str: "server_log/vpn_20261116.log", FileSize_u32: 2097152, UpdatedTime_dt: "2026-11-16T23:59:59.000Z" },
+            { FilePath_str: "security_log/DEFAULT/sec_20261117.log", FileSize_u32: 524288, UpdatedTime_dt: "2026-11-17T09:45:00.000Z" },
+            { FilePath_str: "packet_log/DEFAULT/pkt_20261117.log", FileSize_u32: 8388608, UpdatedTime_dt: "2026-11-17T10:15:00.000Z" },
           ],
         }));
       }
@@ -821,40 +836,29 @@ function createMockServer() {
     fs.createReadStream(filePath).pipe(res);
   });
 
-  return new Promise((resolve) => {
-    server.listen(PORT, "127.0.0.1", () => {
-      console.log(`Mock server running at ${BASE_URL}`);
-      resolve(server);
-    });
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve(server));
   });
 }
 
 // ── Screenshot Runner ──────────────────────────────────────────────────────────
 async function run() {
-  const puppeteerPath = path.resolve(ROOT, "app", "web", "node_modules", "puppeteer-core", "lib", "puppeteer", "puppeteer-core.js");
-  const { default: puppeteer } = await import(pathToFileURL(puppeteerPath).href);
+  const require = createRequire(path.join(ROOT, "app", "web", "package.json"));
+  const puppeteer = require("puppeteer");
+  if (!fs.existsSync(path.join(OUT_DIR, "index.html"))) {
+    throw new Error(`Build the frontend first: ${OUT_DIR}/index.html is missing`);
+  }
   const server = await createMockServer();
-
-  const edgePath = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
-
-  const browser = await puppeteer.launch({
-    executablePath: edgePath,
-    headless: true,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--font-render-hinting=none",
-      "--force-color-profile=srgb",
-      "--hide-scrollbars",
-    ],
-  });
+  const baseURL = `http://127.0.0.1:${server.address().port}/`;
+  let browser;
 
   const targets = [
     { name: "dashboard", hash: "#/", isMobile: false, theme: "dark" },
     { name: "users", hash: "#/users", isMobile: false, theme: "dark" },
     { name: "user", hash: "#/hub/DEFAULT/user/alice", isMobile: false, theme: "dark" },
     { name: "hubs", hash: "#/hubs", isMobile: false, theme: "dark" },
+    { name: "servers", hash: "#/servers", isMobile: false, theme: "dark" },
     { name: "hub-overview", hash: "#/hub/DEFAULT", isMobile: false, theme: "dark" },
     { name: "hub-overview-light", hash: "#/hub/DEFAULT", isMobile: false, theme: "light" },
     { name: "hub-sessions", hash: "#/hub/DEFAULT/sessions", isMobile: false, theme: "dark" },
@@ -869,57 +873,52 @@ async function run() {
   const languages = ["zh-CN", "en"];
 
   try {
+    browser = await puppeteer.launch({
+      executablePath: process.env.CHROME_PATH || undefined,
+      args: ["--force-color-profile=srgb", "--hide-scrollbars"],
+    });
+    console.log(`Mock server running at ${baseURL}`);
     for (const lang of languages) {
       console.log(`\n=== Capturing screenshots for language: ${lang} ===`);
-      const page = await browser.newPage();
-
-      // Ensure new documents in this page context have the correct language pre-configured
-      await page.evaluateOnNewDocument((l) => {
-        localStorage.setItem("sem_lang", l);
-      }, lang);
-
       for (const target of targets) {
+        const page = await browser.newPage();
+        const pageErrors = [];
+        page.on("pageerror", (error) => pageErrors.push(error));
+        await page.evaluateOnNewDocument((origin, language, theme) => {
+          if (location.origin !== origin) return;
+          localStorage.setItem("sem_lang", language);
+          localStorage.setItem("sem_theme", theme);
+          sessionStorage.setItem("sem_server_id", "1");
+        }, new URL(baseURL).origin, lang, target.theme);
         if (target.isMobile) {
           await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
         } else {
           await page.setViewport({ width: 1440, height: 1000, deviceScaleFactor: 1 });
         }
 
-        // Navigate to base
-        await page.goto(`${BASE_URL}${target.hash}`, { waitUntil: "networkidle0" });
-
-        // Set localStorage for lang and theme
-        await page.evaluate((l, t) => {
-          localStorage.setItem("sem_lang", l);
-          localStorage.setItem("sem_theme", t);
-          sessionStorage.setItem("sem_server_id", "1");
-          document.documentElement.setAttribute("data-theme", t);
-          document.documentElement.style.colorScheme = t;
-        }, lang, target.theme);
-
-        // Reload page to ensure language & theme are completely initialized by React
-        await page.reload({ waitUntil: "networkidle0" });
-
-        // Wait a bit for charts, transitions and animations
-        await new Promise((r) => setTimeout(r, 600));
+        await page.goto(`${baseURL}${target.hash}`, { waitUntil: "networkidle0" });
+        if (pageErrors.length) throw new AggregateError(pageErrors, `${lang}/${target.name}`);
+        await page.waitForSelector(`html[lang="${lang}"][data-theme="${target.theme}"] main h1`, { visible: true });
+        if (target.name === "logs") {
+          const log = await page.waitForSelector(".logsplit .rows button", { visible: true });
+          await log.click();
+          await page.waitForFunction(() => document.querySelector(".logsplit__view")?.textContent?.includes("Periodic housekeeping"));
+        }
+        await page.evaluate(() => document.fonts.ready);
+        if (pageErrors.length) throw new AggregateError(pageErrors, `${lang}/${target.name}`);
 
         const outPath = path.join(SCREENSHOTS_DIR, lang, `${target.name}.png`);
         fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
         await page.screenshot({ path: outPath });
         console.log(`Saved: docs/screenshots/${lang}/${target.name}.png (${target.isMobile ? "390x844" : "1440x1000"})`);
+        await page.close();
       }
-
-      await page.close();
     }
-
-    console.log("\nAll screenshots generated successfully!");
-  } catch (err) {
-    console.error("Error capturing screenshots:", err);
   } finally {
-    await browser.close();
+    await browser?.close();
     server.close();
   }
 }
 
-run();
+await run();
