@@ -921,4 +921,6 @@ async function run() {
   }
 }
 
-await run();
+export { createMockServer };
+// Importing this file for its mock server must not also start a capture run.
+if (!process.env.SEM_SCREENSHOTS_LIBRARY) await run();

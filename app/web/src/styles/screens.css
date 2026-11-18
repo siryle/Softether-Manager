@@ -513,3 +513,35 @@
   font-weight: 500;
   color: var(--text-2);
 }
+
+/* Hub users: search and its three actions share one row at every width. The
+   search shrinks; the buttons drop their labels rather than wrapping. */
+.users-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+  gap: var(--s2);
+}
+.users-toolbar > .btn {
+  flex: 0 0 auto;
+}
+.users-toolbar > :first-child {
+  max-width: 340px;
+}
+/* The title keeps one line; the toolbar gives up width instead. */
+.section:has(> .users-toolbar) > .section__t {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+@media (max-width: 719px) {
+  .users-toolbar .btn {
+    width: 33px;
+    padding: 0;
+  }
+  .users-toolbar .btn__label {
+    display: none;
+  }
+}

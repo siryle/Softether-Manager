@@ -107,19 +107,31 @@ export function HubUsers({ hub }: { hub: string }) {
       <SectionTitle
         count={users?.length}
         actions={
-          <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap" }}>
+          <div className="users-toolbar">
             <SearchBox value={query} onChange={setQuery} placeholder={t("name, group, note…")} />
             <button
               className="btn btn--sm"
+              title={t("Export users")}
+              aria-label={t("Export users")}
               onClick={() => void guardExport()}
             >
-              <IconDownload size={14} /> {t("Export users")}
+              <IconDownload size={14} /> <span className="btn__label">{t("Export users")}</span>
             </button>
-            <button className="btn btn--sm" onClick={() => setImporting(true)}>
-              <IconUpload size={14} /> {t("Import users")}
+            <button
+              className="btn btn--sm"
+              title={t("Import users")}
+              aria-label={t("Import users")}
+              onClick={() => setImporting(true)}
+            >
+              <IconUpload size={14} /> <span className="btn__label">{t("Import users")}</span>
             </button>
-            <button className="btn btn--primary btn--sm" onClick={() => setCreating(true)}>
-              <IconPlus size={14} /> {t("New user")}
+            <button
+              className="btn btn--primary btn--sm"
+              title={t("New user")}
+              aria-label={t("New user")}
+              onClick={() => setCreating(true)}
+            >
+              <IconPlus size={14} /> <span className="btn__label">{t("New user")}</span>
             </button>
           </div>
         }

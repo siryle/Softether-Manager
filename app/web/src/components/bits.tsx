@@ -116,7 +116,7 @@ export function CheckRow({
 export function SearchBox({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
   const { t } = useI18n();
   return (
-    <div style={{ position: "relative", flex: "1 1 220px", maxWidth: 340 }}>
+    <div style={{ position: "relative", flex: "1 1 220px", maxWidth: 340, minWidth: 0 }}>
       <span style={{ position: "absolute", insetInlineStart: 10, top: "50%", transform: "translateY(-50%)", color: "var(--text-faint)", display: "flex" }}>
         <IconSearch size={15} />
       </span>
