@@ -185,6 +185,21 @@ func TestEnrichSessions(t *testing.T) {
 	if isIPv4("fe80::90bd:bfd3:605a:6c95") {
 		t.Fatalf("expected fe80::... not to be IPv4")
 	}
+
+	// Test enrichSessions populates ActiveNatTcp_u32 from EnumNAT for matching session virtual IPs.
+	fake := attachSoftEther(t, a)
+	fake.natTable = []M{
+		{"SrcIp_ip": "192.168.6.189", "Protocol_u32": 0},
+		{"SrcIp_ip": "192.168.6.189", "Protocol_u32": 0},
+		{"SrcIp_ip": "192.168.6.189", "Protocol_u32": 1}, // UDP NAT entry, excluded
+		{"SrcIp_ip": "192.168.6.200", "Protocol_u32": 0}, // Different client IP, excluded
+	}
+	l2tpEnriched := a.enrichSessions(context.Background(), "DEFAULT", []M{
+		{"Name_str": "SID/ABC", "Username_str": "ALICE", "ClientIP_ip": "192.0.2.1"},
+	})
+	if integer(l2tpEnriched[0]["ActiveNatTcp_u32"]) != 2 {
+		t.Fatalf("expected ActiveNatTcp_u32 = 2, got %v", l2tpEnriched[0]["ActiveNatTcp_u32"])
+	}
 }
 
 func TestBackupEndpoints(t *testing.T) {

@@ -381,6 +381,7 @@ type fakeSoftEther struct {
 	userUsePolicy         bool
 	ignoreRestore         bool
 	missingTraffic        bool
+	natTable              []M
 }
 
 func attachSoftEther(t *testing.T, a *App) *fakeSoftEther {
@@ -467,6 +468,8 @@ func attachSoftEther(t *testing.T, a *App) *fakeSoftEther {
 			out = M{"SessionList": []M{{"Name_str": "SID/ABC", "Username_str": "ALICE", "UniqueId_bin": "stable-key", "ClientIP_ip": "192.0.2.1", "CreatedTime_dt": now(), "PacketSize_u64": fake.send + fake.recv}}}
 		case "EnumIpTable":
 			out = M{"IpTable": []M{{"SessionName_str": "SID/ABC", "IpAddress_ip": "192.168.6.189"}}}
+		case "EnumNAT":
+			out = M{"NatTable": fake.natTable}
 		case "GetSessionStatus":
 			if fake.failSessionStatus {
 				writeJSON(w, 200, M{"jsonrpc": "2.0", "id": req["id"], "error": M{"code": 1, "message": "ERR_BUSY"}})

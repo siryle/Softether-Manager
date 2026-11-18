@@ -40,6 +40,7 @@
   --s4: 16px;
   --s5: 20px;
   --s6: 24px;
+  --s7: 28px;
   --s8: 32px;
   --s12: 48px;
 
@@ -52,11 +53,11 @@
   --r-pill: 999px;
 
   /* ── layout ───────────────────────────────────────────────────────────── */
-  --rail-w: 248px;
-  --rail-w-min: 84px;
-  --canvas-max: 1560px;
+  --rail-w: 228px;
+  --rail-w-min: 64px;
+  --canvas-max: 1440px;
   --tabbar-h: 60px;
-  --topbar-h: 64px;
+  --topbar-h: 56px;
   --safe-t: env(safe-area-inset-top, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-l: env(safe-area-inset-left, 0px);
@@ -73,20 +74,21 @@
   --d-modal: 300ms;
   --d-sheet: 380ms;
 
-  /* ══ DARK (primary) — Unslop Ink neutral ramp ══════════════════════════ */
-  --bg: #0b0d14;        /* Deep Ink page canvas */
-  --panel: #0b0d14;
-  --canvas: #07080d;    /* Deepest well & sidebar */
+  /* ══ DARK (primary) — Precision Obsidian Ink ═══════════════════════════ */
+  --bg: #090b10;        /* Deep Obsidian canvas */
+  --panel: #090b10;
+  --canvas: #0c0f16;    /* Sidebar rail & deep well */
 
-  --glass: #11141c;     /* Clean flat card face */
-  --glass-hi: #1a1e28;  /* Raised surface / hover */
-  --glass-lo: #0f121a;  /* Inset wells & inputs */
-  --glass-line: rgba(255, 255, 255, 0.08);
-  --glass-line-hi: rgba(255, 255, 255, 0.16);
+  --glass: #11151f;     /* Elevated card surface */
+  --glass-hi: #171c29;  /* Raised surface / hover */
+  --glass-lo: #0b0e15;  /* Inset wells & inputs */
+  --glass-line: rgba(255, 255, 255, 0.075);
+  --glass-line-hi: rgba(255, 255, 255, 0.14);
+  --card-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.045);
 
-  --card-grad: #11141c;
-  --nm-raise: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
-  --nm-raise-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.3), 0 1px 2px -1px rgba(0, 0, 0, 0.2);
+  --card-grad: #11151f;
+  --nm-raise: 0 8px 24px -6px rgba(0, 0, 0, 0.48);
+  --nm-raise-sm: 0 2px 8px -2px rgba(0, 0, 0, 0.35);
   --nm-inset: inset 0 1px 2px 0 rgba(0, 0, 0, 0.4);
   --nm-inset-sm: inset 0 1px 1px 0 rgba(0, 0, 0, 0.3);
 
@@ -100,19 +102,19 @@
 
   --text: #f1f5f9;
   --text-2: #cbd5e1;
-  --text-muted: #94a3b8;
-  --text-faint: #64748b;
+  --text-muted: #8b98ab;
+  --text-faint: #586579;
 
-  --accent: #2563eb;
-  --accent-strong: #3b82f6;
+  --accent: #3b82f6;
+  --accent-strong: #60a5fa;
   --accent-ink: #ffffff;
-  --accent-soft: rgba(37, 99, 235, 0.12);
-  --accent-line: rgba(37, 99, 235, 0.3);
-  --accent-2: #2563eb;
+  --accent-soft: rgba(59, 130, 246, 0.12);
+  --accent-line: rgba(59, 130, 246, 0.28);
+  --accent-2: #3b82f6;
 
   --action-bg: #f1f5f9;
   --action-bg-hi: #ffffff;
-  --action-fg: #0b0d14;
+  --action-fg: #090b10;
   --action-line: transparent;
 
   /* Switches keep a visible track and thumb in both themes. */
@@ -125,6 +127,9 @@
   --brand-coin: #8fd94a;
   --brand-coin-hi: #a0e35f;
   --brand-ink: #16210a;
+  --brand-fg: #8fd94a;
+  --brand-soft: rgba(143, 217, 74, 0.12);
+  --brand-line: rgba(143, 217, 74, 0.28);
 
   /* Unslop semantic palette aliases */
   --bg-deep: var(--canvas);
@@ -187,19 +192,20 @@
 
 /* ══ LIGHT — Sleek Modern High-Contrast Slate ════════════════════════════ */
 :root[data-theme="light"] {
-  --bg: #f8fafc;        /* Clean light slate page canvas */
-  --panel: #f8fafc;
-  --canvas: #f1f5f9;    /* Clean light contrast well */
+  --bg: #f5f7fa;        /* Clean light slate page canvas */
+  --panel: #f5f7fa;
+  --canvas: #eef1f6;    /* Clean light contrast rail & well */
 
   --glass: #ffffff;     /* Crisp pure white card */
   --glass-hi: #f8fafc;  /* Raised / hover */
-  --glass-lo: #f1f5f9;  /* Inset wells & inputs */
-  --glass-line: rgba(17, 24, 39, 0.08);
-  --glass-line-hi: rgba(17, 24, 39, 0.16);
+  --glass-lo: #f1f4f9;  /* Inset wells & inputs */
+  --glass-line: rgba(15, 23, 42, 0.08);
+  --glass-line-hi: rgba(15, 23, 42, 0.16);
+  --card-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.9);
 
   --card-grad: #ffffff;
-  --nm-raise: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
-  --nm-raise-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.03);
+  --nm-raise: 0 8px 20px -4px rgba(15, 23, 42, 0.08), 0 2px 6px -2px rgba(15, 23, 42, 0.04);
+  --nm-raise-sm: 0 2px 8px -2px rgba(15, 23, 42, 0.06), 0 1px 2px -1px rgba(15, 23, 42, 0.04);
   --nm-inset: inset 0 1px 2px 0 rgba(0, 0, 0, 0.04);
   --nm-inset-sm: inset 0 1px 1px 0 rgba(0, 0, 0, 0.03);
 
@@ -219,8 +225,8 @@
   --accent: #2563eb;
   --accent-strong: #1d4ed8;
   --accent-ink: #ffffff;
-  --accent-soft: rgba(37, 99, 235, 0.08);
-  --accent-line: rgba(37, 99, 235, 0.25);
+  --accent-soft: rgba(37, 99, 235, 0.09);
+  --accent-line: rgba(37, 99, 235, 0.24);
   --accent-2: #2563eb;
 
   --action-bg: #0f172a;
@@ -232,6 +238,9 @@
   --brand-coin: #7ec93b;
   --brand-coin-hi: #8bd44b;
   --brand-ink: #1a2b07;
+  --brand-fg: #5ea31c;
+  --brand-soft: rgba(126, 201, 59, 0.14);
+  --brand-line: rgba(126, 201, 59, 0.32);
 
   /* Unslop semantic palette aliases */
   --bg-deep: var(--canvas);
@@ -292,19 +301,20 @@
 /* System preference — only while the operator has not chosen explicitly. */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]):not([data-theme="light"]) {
-    --bg: #f8fafc;
-    --panel: #f8fafc;
-    --canvas: #f1f5f9;
+    --bg: #f5f7fa;
+    --panel: #f5f7fa;
+    --canvas: #eef1f6;
 
     --glass: #ffffff;
     --glass-hi: #f8fafc;
-    --glass-lo: #f1f5f9;
-    --glass-line: rgba(17, 24, 39, 0.08);
-    --glass-line-hi: rgba(17, 24, 39, 0.16);
+    --glass-lo: #f1f4f9;
+    --glass-line: rgba(15, 23, 42, 0.08);
+    --glass-line-hi: rgba(15, 23, 42, 0.16);
+    --card-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.9);
 
     --card-grad: #ffffff;
-    --nm-raise: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
-    --nm-raise-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.03);
+    --nm-raise: 0 8px 20px -4px rgba(15, 23, 42, 0.08), 0 2px 6px -2px rgba(15, 23, 42, 0.04);
+    --nm-raise-sm: 0 2px 8px -2px rgba(15, 23, 42, 0.06), 0 1px 2px -1px rgba(15, 23, 42, 0.04);
     --nm-inset: inset 0 1px 2px 0 rgba(0, 0, 0, 0.04);
     --nm-inset-sm: inset 0 1px 1px 0 rgba(0, 0, 0, 0.03);
 
@@ -324,14 +334,21 @@
     --accent: #2563eb;
     --accent-strong: #1d4ed8;
     --accent-ink: #ffffff;
-    --accent-soft: rgba(37, 99, 235, 0.08);
-    --accent-line: rgba(37, 99, 235, 0.25);
+    --accent-soft: rgba(37, 99, 235, 0.09);
+    --accent-line: rgba(37, 99, 235, 0.24);
     --accent-2: #2563eb;
 
     --action-bg: #0f172a;
     --action-bg-hi: #1e293b;
     --action-fg: #ffffff;
     --action-line: transparent;
+
+    --brand-coin: #7ec93b;
+    --brand-coin-hi: #8bd44b;
+    --brand-ink: #1a2b07;
+    --brand-fg: #5ea31c;
+    --brand-soft: rgba(126, 201, 59, 0.14);
+    --brand-line: rgba(126, 201, 59, 0.32);
 
     --ok: #059669;
     --ok-soft: rgba(5, 150, 105, 0.1);

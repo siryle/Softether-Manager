@@ -48,7 +48,7 @@ export function HubList({ hubs }: { hubs: Wire[] | null | undefined }) {
   const { t } = useI18n();
   if (!hubs) return <LoadingBlock />;
   return (
-    <div className="divide-y divide-hairline">
+    <div className="hub-list">
       {hubs.length === 0 ? (
         <p className="text-xs text-muted py-3">
           {t("A Virtual Hub is where users, sessions and access control live. Create the first one.")}
@@ -63,12 +63,11 @@ export function HubList({ hubs }: { hubs: Wire[] | null | undefined }) {
             <Link
               key={name}
               to={`/hub/${seg(name)}`}
-              className="hub-topology-row p-3 rounded-md bg-raised border border-hairline flex items-center justify-between hover:border-blue-500/40 transition-colors cursor-pointer"
-              style={{ marginTop: 6 }}
+              className="hub-topology-row"
             >
               <div className="flex items-center gap-3 min-w-0">
                 <span className="hub-topology-row__icon">
-                  <IconHub size={22} />
+                  <IconHub size={20} />
                 </span>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -88,7 +87,7 @@ export function HubList({ hubs }: { hubs: Wire[] | null | undefined }) {
                 </div>
               </div>
               <div className="hub-topology-row__go flex items-center gap-2 shrink-0">
-                <span className="text-xs text-muted hover:text-primary font-medium transition-colors">
+                <span className="text-xs text-muted font-medium">
                   {t("View details →")}
                 </span>
               </div>

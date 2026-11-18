@@ -304,3 +304,18 @@ test("IP location localizes a known ISP and leaves unknown ones alone", () => {
   assert.equal(formatIPLocation("江苏省 苏州", "China Telecom"), "江苏省 苏州 中国电信");
   assert.equal(formatIPLocation("Tokyo", "Some Local ISP"), "Tokyo Some Local ISP");
 });
+
+test("formatTcpConnections shows numeric count in compact list mode for UDP/L2TP sessions", () => {
+  const { formatTcpConnections } = component("../src/screens/hub/HubSessions.tsx", "formatTcpConnections", [], {
+    "../../lib/api": {},
+    "../../lib/router": {},
+    "../../lib/se": {},
+    "../../lib/util": {},
+    "../../ui/Status": {},
+  });
+  const t = v => v;
+  const session = { Name_str: "SID-SEAN-[L2TP]-2", ActiveNatTcp_u32: 7 };
+  assert.equal(formatTcpConnections(session, t, true), "7");
+  assert.equal(formatTcpConnections(session, t), "UDP (7 active sessions)");
+  assert.equal(formatTcpConnections({ Name_str: "SID-SEAN-[L2TP]-2", ActiveNatTcp_u32: 0 }, t, true), "UDP tunnel");
+});

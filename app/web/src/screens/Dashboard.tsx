@@ -1,26 +1,24 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { Empty, ErrorAlert, LoadingBlock, usePoll } from "../components/bits";
+import { Empty, ErrorAlert, LoadingBlock, PageHead, usePoll } from "../components/bits";
 import { RangeSeg, TrafficChart, useTrafficUsage } from "../components/TrafficChart";
 import { api, type Wire, type WireGuardState } from "../lib/api";
-import { useI18n, t } from "../lib/i18n";
+import { useI18n } from "../lib/i18n";
 import { useServer } from "../lib/server";
-import { Link, seg } from "../lib/router";
+import { Link } from "../lib/router";
 import { formatBytes, formatCount, formatDuration } from "../lib/util";
 import { IconChevron, IconPlus, IconSettings } from "../ui/Icon";
 
 import { CreateHubSheet, HubList } from "./Hubs";
 
 /**
- * Unslopped Dashboard View for SoftEther Manager.
+ * Operational Dashboard for SoftEther Manager.
  *
- * 1. Calm Contextual Header: Server title, operational facts, primary actions.
- * 2. 4-Column Stat Cards: High-signal tabular figures without decorative micro-sparklines.
- * 3. 24h Dual Throughput Telemetry Chart: Full-width landmark (One Bright Moment).
- * 4. 2-Column Operational Grid:
- *    - Left: Virtual HUB Topology table & Host Machine performance sensors.
- *    - Right: Access Protocols & Ports list and Server Bootstrap info.
+ * 1. Unified PageHead: Server title, live running badge, endpoint metadata, primary actions.
+ * 2. 4-Column Stat Cards: Hero live sessions anchor + users + RX/TX cumulative with live rate badges.
+ * 3. Middle 12-Col Split (8 + 4): Throughput Telemetry chart & Host Diagnostics + Runtime strip.
+ * 4. Bottom 12-Col Split (7 + 5): Virtual Hub Topology & Listening Ports / Protocols matrix.
  */
 export function Dashboard() {
   const { probe, health, refresh, currentServer, clientCount } = useServer();
@@ -92,33 +90,82 @@ export function Dashboard() {
   const txTotal = (Number(status?.["Send.UnicastBytes_u64"]) || 0) + (Number(status?.["Send.BroadcastBytes_u64"]) || 0);
   const sessionsUrl = "/clients";
 
+  const net = resources && resources.available !== false ? (resources.network as Wire | undefined) : undefined;
+  const netRx = Number(net?.rx_bytes_per_second) || 0;
+  const netTx = Number(net?.tx_bytes_per_second) || 0;
+
+  const protocols = [
+    {
+      name: "SoftEther SSL-VPN",
+      val: (listeners ?? []).filter((l) => l.Enables_bool).map((l) => l.Ports_u32).join(", ") || t("no listeners"),
+      on: (listeners ?? []).some((l) => l.Enables_bool),
+    },
+    {
+      name: "WireGuard",
+      val: !wg ? "—" : !wg.supported ? t("Unsupported") : wg.enabled ? `UDP ${wg.default_udp_port ?? 51820}` : t("Off"),
+      on: Boolean(wg?.supported && wg.enabled),
+    },
+    {
+      name: "OpenVPN",
+      val: openvpn?.EnableOpenVPN_bool ? `UDP ${openvpn.OpenVPNPortList_str || "1194"}` : t("Off"),
+      on: Boolean(openvpn?.EnableOpenVPN_bool),
+    },
+    {
+      name: "L2TP / IPsec",
+      val: ipsec ? (ipsec.L2TP_IPsec_bool ? (String(ipsec.L2TP_DefaultHub_str || t("Enabled"))) : t("Off")) : "—",
+      on: Boolean(ipsec?.L2TP_IPsec_bool),
+    },
+    {
+      name: "MS-SSTP",
+      val: openvpn?.EnableSSTP_bool ? t("Enabled (TCP 443)") : t("Off"),
+      on: Boolean(openvpn?.EnableSSTP_bool),
+    },
+    {
+      name: "VPN Azure",
+      val: azure?.IsEnabled_bool ? (ddns?.CurrentHostName_str ? `${ddns.CurrentHostName_str}.vpnazure.net` : t("Enabled")) : t("Off"),
+      on: Boolean(azure?.IsEnabled_bool),
+    },
+  ];
+  const activeProtocolCount = protocols.filter((p) => p.on).length;
+
   return (
-    <div className="dash-view space-y-6">
-      {/* ── 1. Calm Contextual Header ─────────────────────────────────── */}
-      <div className="dash-header pb-4 border-b border-hairline flex flex-col sm:flex-row sm:items-baseline justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-primary">
-            {t("Server overview")} · {currentServer?.name || probe?.hostname || "vpnserver"}
-          </h1>
-          <p className="text-xs text-secondary mt-1 font-mono">
-            {probe?.version || "SoftEther VPN"} {uptimeSeconds ? `· ${t("Continuous running")} ${formatDuration(uptimeSeconds)}` : ""} · {currentServer ? `${currentServer.host}:${currentServer.port}` : "—"}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <button onClick={() => setCreatingHub(true)} className="btn-primary">
-            <IconPlus size={14} /> {t("New Virtual HUB")}
-          </button>
-          <Link to="/server-settings" className="btn-secondary">
-            <IconSettings size={14} /> {t("Server config")}
-          </Link>
-        </div>
-      </div>
+    <div className="page space-y-6">
+      {/* ── 1. Unified Page Header ─────────────────────────────────────── */}
+      <PageHead
+        title={
+          <span className="flex items-center gap-3 flex-wrap">
+            <span>{t("Server overview")} · {currentServer?.name || probe?.hostname || "vpnserver"}</span>
+            <span className="live-badge">
+              <span className="live-badge__dot" />
+              {t("Running")}{uptimeSeconds ? ` · ${formatDuration(uptimeSeconds)}` : ""}
+            </span>
+          </span>
+        }
+        sub={
+          <span className="font-mono text-xs">
+            {probe?.version || "SoftEther VPN"} · {currentServer ? `${currentServer.host}:${currentServer.port}` : "—"} · {t("{count} hubs on this server", { count: hubs?.length ?? 0 })}
+          </span>
+        }
+        actions={
+          <>
+            <Link to="/server-settings" className="btn-secondary">
+              <IconSettings size={14} /> {t("Server config")}
+            </Link>
+            <button onClick={() => setCreatingHub(true)} className="btn-primary">
+              <IconPlus size={14} /> {t("New Virtual HUB")}
+            </button>
+          </>
+        }
+      />
 
       {/* ── 2. Stat KPI Cards ─────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Link to={sessionsUrl} className="stat-card stat-card--clickable">
+        <Link to={sessionsUrl} className="stat-card stat-card--hero stat-card--clickable">
           <div className="stat-card__l flex items-center justify-between">
-            <span>{t("Online clients")}</span>
+            <span className="flex items-center gap-2">
+              <span className="stat-card__dot" />
+              <span>{t("Online clients")}</span>
+            </span>
             <IconChevron size={12} className="stat-card__chevron" />
           </div>
           <div className="stat-card__v">{formatCount(clientCount ?? activeSessions)}</div>
@@ -135,7 +182,10 @@ export function Dashboard() {
         </Link>
 
         <div className="stat-card">
-          <div className="stat-card__l">{t("Cumulative inbound (RX)")}</div>
+          <div className="stat-card__l flex items-center justify-between gap-2">
+            <span>{t("Cumulative inbound (RX)")}</span>
+            {net && <span className="stat-card__badge stat-card__badge--rx">↓ {formatBytes(netRx)}/s</span>}
+          </div>
           <div className="stat-card__v">{formatBytes(rxTotal)}</div>
           <div className="stat-card__s">
             {uptimeSeconds ? t("Since {duration} ago", { duration: formatDuration(uptimeSeconds) }) : t("since server start")}
@@ -143,7 +193,10 @@ export function Dashboard() {
         </div>
 
         <div className="stat-card">
-          <div className="stat-card__l">{t("Cumulative outbound (TX)")}</div>
+          <div className="stat-card__l flex items-center justify-between gap-2">
+            <span>{t("Cumulative outbound (TX)")}</span>
+            {net && <span className="stat-card__badge stat-card__badge--tx">↑ {formatBytes(netTx)}/s</span>}
+          </div>
           <div className="stat-card__v">{formatBytes(txTotal)}</div>
           <div className="stat-card__s">
             {uptimeSeconds ? t("Since {duration} ago", { duration: formatDuration(uptimeSeconds) }) : t("since server start")}
@@ -151,62 +204,46 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* ── 3. 24-hour Telemetry Chart (Landmark) ─────────────────────── */}
-      <div className="panel-card space-y-4">
-        <div className="panel-card__h">
-          <div>
-            <h2 className="panel-card__t">{t("Throughput Telemetry")}</h2>
-            <p className="panel-card__s">{t(trafficHours >= 48 ? "Past {days} days · Recorded samples only; gaps are left blank." : "Past {hours} hours · Recorded samples only; gaps are left blank.", { days: trafficHours / 24, hours: trafficHours })}</p>
+      {/* ── 3. Middle 12-Col Band: Telemetry (8) + Host Diagnostics (4) ─ */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+        <div className="lg:col-span-8 panel-card panel-card--split">
+          <div className="panel-card__h">
+            <div>
+              <h2 className="panel-card__t">{t("Throughput Telemetry")}</h2>
+              <p className="panel-card__s">{t(trafficHours >= 48 ? "Past {days} days · Recorded samples only; gaps are left blank." : "Past {hours} hours · Recorded samples only; gaps are left blank.", { days: trafficHours / 24, hours: trafficHours })}</p>
+            </div>
+            <div className="flex items-center gap-3 text-xs font-mono">
+              <RangeSeg hours={trafficHours} onChange={setTrafficHours} />
+            </div>
           </div>
-          <div className="flex items-center gap-4 text-xs font-mono">
-            <RangeSeg hours={trafficHours} onChange={setTrafficHours} />
+          <div style={{ paddingTop: 4 }}>
+            {serverUsage ? (
+              <TrafficChart usage={serverUsage} emptyLabel={t("No server-wide traffic recorded in this time window yet.")} />
+            ) : (
+              <LoadingBlock label={t("Loading throughput telemetry")} />
+            )}
           </div>
         </div>
-        <div style={{ paddingTop: 4 }}>
-          {serverUsage ? (
-            <TrafficChart usage={serverUsage} emptyLabel={t("No server-wide traffic recorded in this time window yet.")} />
-          ) : (
-            <LoadingBlock label={t("Loading throughput telemetry")} />
-          )}
-        </div>
-      </div>
 
-      {/* ── 4. 2-Column Operational Grid ─────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column (2 Cols) */}
-        <div className="lg:col-span-2 space-y-5">
-          {/* Virtual HUB Topology */}
-          <div className="panel-card space-y-3">
+        <div className="lg:col-span-4 panel-card panel-card--split">
+          <div>
             <div className="panel-card__h">
               <div>
-                <h3 className="panel-card__t">{t("Virtual Hub Topology")}</h3>
-                <p className="panel-card__s">{t("Broadcast domain isolation and policies")}</p>
+                <h2 className="panel-card__t">{t("Panel host resources")}</h2>
+                <p className="panel-card__s">{t("Linux kernel rolling performance window")}</p>
               </div>
-              <button onClick={() => setCreatingHub(true)} className="btn-secondary">
-                <IconPlus size={13} /> {t("Create hub")}
-              </button>
+              {resources && resources.available !== false && (
+                <span className="text-[11px] font-mono text-muted">{t("Sampling interval 3s")}</span>
+              )}
             </div>
 
-            <HubList hubs={hubs} />
-          </div>
-
-          {/* Host Machine Performance Diagnostics */}
-          {resources && resources.available !== false && (
-            <div className="panel-card space-y-3">
-              <div className="panel-card__h">
-                <div>
-                  <h3 className="panel-card__t">{t("Panel host resources")}</h3>
-                  <p className="panel-card__s">{t("Linux kernel rolling performance window")}</p>
-                </div>
-                <span className="text-[11px] font-mono text-muted">{t("Sampling interval 3s")}</span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {resources && resources.available !== false ? (
+              <div className="space-y-3">
                 {/* CPU */}
-                <div className="p-3 rounded bg-raised border border-hairline space-y-1.5">
+                <div className="p-3 rounded-md bg-raised border border-hairline space-y-1.5">
                   <div className="flex justify-between text-xs">
-                    <span className="text-muted">{t("CPU load")}</span>
-                    <span className="font-mono font-medium text-primary">
+                    <span className="text-secondary font-medium">{t("CPU load")}</span>
+                    <span className="font-mono font-semibold text-primary">
                       {(Number(resources.cpu?.overall?.usage_percent) || 0).toFixed(1)}%
                     </span>
                   </div>
@@ -216,7 +253,7 @@ export function Dashboard() {
                       style={{ width: `${Math.min(100, Math.max(0, Number(resources.cpu?.overall?.usage_percent) || 0))}%` }}
                     />
                   </div>
-                  <div className="text-[10px] text-muted font-mono truncate">
+                  <div className="text-[11px] text-muted font-mono truncate">
                     {t("Load")}: {resources.load?.one ?? "—"} (1m) · {resources.load?.five ?? "—"} (5m)
                   </div>
                 </div>
@@ -228,10 +265,10 @@ export function Dashboard() {
                   const total = Number(mem.total_bytes) || 1;
                   const percent = Math.round((used / total) * 100);
                   return (
-                    <div className="p-3 rounded bg-raised border border-hairline space-y-1.5">
+                    <div className="p-3 rounded-md bg-raised border border-hairline space-y-1.5">
                       <div className="flex justify-between text-xs">
-                        <span className="text-muted">{t("Memory")}</span>
-                        <span className={`font-mono font-medium ${percent >= 85 ? "text-amber-500" : "text-primary"}`}>
+                        <span className="text-secondary font-medium">{t("Memory")}</span>
+                        <span className={`font-mono font-semibold ${percent >= 85 ? "text-amber-500" : "text-primary"}`}>
                           {percent}%
                         </span>
                       </div>
@@ -241,7 +278,7 @@ export function Dashboard() {
                           style={{ width: `${percent}%` }}
                         />
                       </div>
-                      <div className="text-[10px] text-muted font-mono truncate">
+                      <div className="text-[11px] text-muted font-mono truncate">
                         {formatBytes(used)} / {formatBytes(total)}
                       </div>
                     </div>
@@ -250,15 +287,12 @@ export function Dashboard() {
 
                 {/* Network Throughput */}
                 {(() => {
-                  const net = (resources.network as Wire) ?? {};
-                  const rx = Number(net.rx_bytes_per_second) || 0;
-                  const tx = Number(net.tx_bytes_per_second) || 0;
-                  const totalMB = ((rx + tx) / (1024 * 1024)).toFixed(1);
+                  const totalMB = ((netRx + netTx) / (1024 * 1024)).toFixed(1);
                   return (
-                    <div className="p-3 rounded bg-raised border border-hairline space-y-1.5">
+                    <div className="p-3 rounded-md bg-raised border border-hairline space-y-1.5">
                       <div className="flex justify-between text-xs">
-                        <span className="text-muted">{t("Network")}</span>
-                        <span className="font-mono font-medium text-emerald-500">
+                        <span className="text-secondary font-medium">{t("Network")}</span>
+                        <span className="font-mono font-semibold text-emerald-500">
                           {totalMB} MB/s
                         </span>
                       </div>
@@ -268,81 +302,79 @@ export function Dashboard() {
                           style={{ width: `${Math.min(100, (Number(totalMB) / 20) * 100)}%` }}
                         />
                       </div>
-                      <div className="text-[10px] text-muted font-mono truncate">
-                        ↓ {formatBytes(rx)}/s · ↑ {formatBytes(tx)}/s
+                      <div className="text-[11px] text-muted font-mono truncate">
+                        ↓ {formatBytes(netRx)}/s · ↑ {formatBytes(netTx)}/s
                       </div>
                     </div>
                   );
                 })()}
               </div>
+            ) : (
+              <div className="space-y-2 text-xs font-mono text-secondary">
+                <div className="flex justify-between py-2 border-b border-hairline">
+                  <span className="text-muted">{t("Authentication protocol")}</span>
+                  <span className="text-primary">Header / Basic</span>
+                </div>
+                <div className="flex justify-between py-2 border-b border-hairline">
+                  <span className="text-muted">{t("Session retention policy")}</span>
+                  <span className="text-primary">{t("30 days")}</span>
+                </div>
+                <div className="flex justify-between py-2">
+                  <span className="text-muted">{t("Traffic sampling period")}</span>
+                  <span className="text-primary">{t("5 minutes")}</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="panel-card__foot">
+            <span>{t("Traffic sampling period")}: {t("5 minutes")} · {t("30 days")}</span>
+            <span>Header / Basic</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── 4. Bottom 12-Col Band: Virtual Hubs (7) + Protocols (5) ───── */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        <div className="lg:col-span-7 panel-card">
+          <div className="panel-card__h">
+            <div>
+              <h3 className="panel-card__t">{t("Virtual Hub Topology")}</h3>
+              <p className="panel-card__s">{t("Broadcast domain isolation and policies")}</p>
             </div>
-          )}
+            <div className="flex items-center gap-2">
+              <Link to="/hubs" className="btn-secondary">{t("View all")}</Link>
+              <button onClick={() => setCreatingHub(true)} className="btn-secondary">
+                <IconPlus size={13} /> {t("Create hub")}
+              </button>
+            </div>
+          </div>
+
+          <HubList hubs={hubs} />
         </div>
 
-        {/* Right Column (1 Col) */}
-        <div className="space-y-5">
-          {/* Listening Ports & Protocols */}
-          <div className="panel-card space-y-3">
-            <h3 className="panel-card__t">{t("Listening ports & protocols")}</h3>
-            <div className="divide-y divide-hairline text-xs font-mono">
-              <div className="py-2.5 flex items-center justify-between">
-                <span className="text-secondary">SoftEther SSL-VPN</span>
-                <span className="text-primary font-medium">
-                  {(listeners ?? []).filter((l) => l.Enables_bool).map((l) => l.Ports_u32).join(", ") || t("no listeners")}
-                </span>
-              </div>
-              <div className="py-2.5 flex items-center justify-between">
-                <span className="text-secondary">L2TP / IPsec</span>
-                <span className={ipsec?.L2TP_IPsec_bool ? "text-emerald-500 font-medium" : "text-muted"}>
-                  {ipsec ? (ipsec.L2TP_IPsec_bool ? (ipsec.L2TP_DefaultHub_str || t("Enabled")) : t("Off")) : "—"}
-                </span>
-              </div>
-              <div className="py-2.5 flex items-center justify-between">
-                <span className="text-secondary">OpenVPN</span>
-                <span className={openvpn?.EnableOpenVPN_bool ? "text-primary font-medium" : "text-muted"}>
-                  {openvpn?.EnableOpenVPN_bool ? `UDP ${openvpn.OpenVPNPortList_str || "1194"}` : t("Off")}
-                </span>
-              </div>
-              <div className="py-2.5 flex items-center justify-between">
-                <span className="text-secondary">MS-SSTP</span>
-                <span className={openvpn?.EnableSSTP_bool ? "text-emerald-500 font-medium" : "text-muted"}>
-                  {openvpn?.EnableSSTP_bool ? t("Enabled (TCP 443)") : t("Off")}
-                </span>
-              </div>
-              <div className="py-2.5 flex items-center justify-between">
-                <span className="text-secondary">WireGuard</span>
-                <span className={wg?.supported && wg.enabled ? "text-emerald-500 font-medium" : "text-muted"}>
-                  {!wg ? "—" : !wg.supported ? t("Unsupported") : wg.enabled ? `UDP ${wg.default_udp_port ?? 51820}` : t("Off")}
-                </span>
-              </div>
-              <div className="py-2.5 flex items-center justify-between">
-                <span className="text-secondary">VPN Azure</span>
-                <span className={azure?.IsEnabled_bool ? "text-emerald-500 font-medium" : "text-muted"}>
-                  {azure?.IsEnabled_bool ? (ddns?.CurrentHostName_str ? `${ddns.CurrentHostName_str}.vpnazure.net` : t("Enabled")) : t("Off")}
-                </span>
-              </div>
+        <div className="lg:col-span-5 panel-card">
+          <div className="panel-card__h">
+            <div>
+              <h3 className="panel-card__t">{t("Listening ports & protocols")}</h3>
+              <p className="panel-card__s">{t("Access protocols")}</p>
             </div>
+            <span className="font-mono text-xs text-emerald-500 font-semibold">
+              {activeProtocolCount} / {protocols.length}
+            </span>
           </div>
 
-          {/* Server Bootstrap Info */}
-          <div className="panel-card space-y-2 text-xs">
-            <div className="panel-card__t">{t("Server bootstrap info")}</div>
-            <div className="space-y-1 font-mono text-[11px] text-secondary">
-              <div className="flex justify-between py-1 border-b border-hairline">
-                <span>{t("Authentication protocol")}</span>
-                <span className="text-primary">Header / Basic</span>
+          <div className="protocol-grid">
+            {protocols.map((p) => (
+              <div key={p.name} className="protocol-cell">
+                <div className="protocol-cell__info">
+                  <div className="protocol-cell__name">{p.name}</div>
+                  <div className="protocol-cell__val" title={p.val}>{p.val}</div>
+                </div>
+                <span className={`protocol-cell__dot${p.on ? " protocol-cell__dot--on" : ""}`} />
               </div>
-              <div className="flex justify-between py-1 border-b border-hairline">
-                <span>{t("Session retention policy")}</span>
-                <span className="text-primary">{t("30 days")}</span>
-              </div>
-              <div className="flex justify-between py-1">
-                <span>{t("Traffic sampling period")}</span>
-                <span className="text-primary">{t("5 minutes")}</span>
-              </div>
-            </div>
+            ))}
           </div>
-
         </div>
       </div>
 

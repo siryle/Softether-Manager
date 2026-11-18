@@ -53,6 +53,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const [resources, setResources] = useState<Wire | null>(null);
   const [version, setVersion] = useState<string | null>(null);
+  const [cmdkOpen, setCmdkOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     try {
@@ -72,18 +73,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     });
   };
 
-  const searchRef = useRef<HTMLInputElement>(null);
   useEffect(() => { void api.systemInfo().then(info => setVersion(String(info.version))).catch(() => {}); }, []);
   useEffect(() => {
     const focusSearch = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        searchRef.current?.focus();
+        setCmdkOpen(prev => !prev);
       }
     };
     window.addEventListener("keydown", focusSearch);
     return () => window.removeEventListener("keydown", focusSearch);
   }, []);
+
+  const loadResources = useCallback(async () => {
+    setResources(await api.resources().catch(() => null));
+  }, []);
+  usePoll(loadResources, "live", [currentServerId]);
 
   const loadClients = useCallback(async () => {
     if (health !== "online") return;
@@ -98,8 +103,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   // Total user count from hubs
   const totalUsers = hubs?.reduce((acc, h) => acc + (Number(h.NumUsers_u32) || 0), 0) ?? 0;
+  const net = (resources?.available !== false ? (resources?.network as Wire | undefined) : undefined);
+  const netRx = Number(net?.rx_bytes_per_second) || 0;
+  const netTx = Number(net?.tx_bytes_per_second) || 0;
 
-  const navLink = (to: string, label: string, icon: React.ReactNode, count?: React.ReactNode) => {
+  const navLink = (to: string, label: string, icon: React.ReactNode, count?: React.ReactNode, liveCount?: boolean) => {
     const target = to.slice(1);
     const on = target === "" ? active === "" || active === "connect" : target === "hubs" ? active === "hubs" || active === "hub" : target === "clients" ? active === "clients" || active === "connections" : active === target;
     return <Link
@@ -110,47 +118,54 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       onClick={(e) => { e.currentTarget.blur(); }}
     >
       <span className="side__item-left">{icon}<span className="side__item-label">{t(label)}</span></span>
-      {count !== undefined && <span className="side__count">{count}</span>}
+      {count !== undefined && <span className={`side__count${liveCount ? " side__count--live" : ""}`}>{count}</span>}
     </Link>;
   };
 
   return (
     <div className="shell">
-      {/* ── Top Navigation Bar (Quiet Chrome) ────────────────────────── */}
+      {/* ── Top Navigation Bar (56px Single-Row Precision Chrome) ─────── */}
       <header className="topbar">
-        {/* Left: Identity + Restrained Status Indicator */}
+        {/* Left: Identity + Slash + Server Switcher */}
         <div className="topbar__left">
           <Link to="/" className="topbar__brand" aria-label="SoftEther Manager">
-            <BrandMark size={28} />
+            <BrandMark size={26} />
             <span className="topbar__brand-title">SoftEther Manager</span>
             {version && <span className="topbar__brand-ver">v{version.replace(/^v/, "")}</span>}
           </Link>
 
+          <span className="topbar__slash" aria-hidden="true">/</span>
           <ServerSwitcher />
         </div>
 
-        {/* Center: Monospace Search (Cmd+K) */}
-        <div className="topbar__center">
-          <div className="topbar__search">
-            <IconSearch size={14} className="topbar__search-icon" />
-            <input
-              ref={searchRef}
-              type="text"
-              placeholder={t("Search hubs, sessions, users...")}
-              aria-label={t("Search hubs, sessions, users...")}
-              className="topbar__search-input"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  navigate("/users");
-                }
-              }}
-            />
-            <span className="keycap">⌘K</span>
-          </div>
-        </div>
-
-        {/* Right: Controls */}
+        {/* Right: Live Telemetry, Command Search (⌘K), Utilities & User */}
         <div className="topbar__right">
+          {net && (
+            <div className="topbar__telemetry" title={t("Network")}>
+              <span className="topbar__rx">
+                <span className="topbar__rx-lbl">↓</span>
+                <span>{formatBytes(netRx)}/s</span>
+              </span>
+              <span className="topbar__telemetry-sep" aria-hidden="true">|</span>
+              <span className="topbar__tx">
+                <span className="topbar__tx-lbl">↑</span>
+                <span>{formatBytes(netTx)}/s</span>
+              </span>
+            </div>
+          )}
+
+          <button
+            type="button"
+            className="cmdk-btn"
+            onClick={() => setCmdkOpen(true)}
+            aria-label={t("Quick jump")}
+            title={t("Search hubs, sessions, users...")}
+          >
+            <IconSearch size={13} />
+            <span className="cmdk-btn__label">{t("Quick jump")}</span>
+            <span className="keycap">⌘K</span>
+          </button>
+
           <LanguageButton />
           <ThemeToggle />
 
@@ -182,24 +197,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="side__section">
               <div className="side__gtitle">{t("Core Network")}</div>
               <nav className="side__nav">
-                {navLink("/", "Console overview", <IconPanels size={18} />)}
-                {navLink("/hubs", "Virtual Hubs", <IconHub size={18} />, hubs?.length ?? "—")}
-                {navLink("/users", "Users", <IconUsers size={18} />, hubs ? totalUsers : "—")}
-                {navLink("/clients", "Online clients", <IconPulse size={18} />, hubs ? (clientCount ?? 0) : "—")}
+                {navLink("/", "Console overview", <IconPanels size={17} />)}
+                {navLink("/hubs", "Virtual Hubs", <IconHub size={17} />, hubs?.length ?? "—")}
+                {navLink("/clients", "Online clients", <IconPulse size={17} />, hubs ? (clientCount ?? 0) : "—", Boolean(hubs && (clientCount ?? 0) > 0))}
+                {navLink("/users", "Users", <IconUsers size={17} />, hubs ? totalUsers : "—")}
               </nav>
             </div>
             <div className="side__section">
               <div className="side__gtitle">{t("Server management")}</div>
               <nav className="side__nav">
-                {navLink("/servers", "Server list", <IconNode size={18} />, servers?.length ?? "—")}
-                {navLink("/server-settings", "Server config", <IconSettings size={18} />)}
-                {navLink("/logs", "Logs", <IconLogs size={18} />)}
+                {navLink("/servers", "Server list", <IconNode size={17} />, servers?.length ?? "—")}
+                {navLink("/server-settings", "Server config", <IconSettings size={17} />)}
+                {navLink("/logs", "Logs", <IconLogs size={17} />)}
               </nav>
             </div>
             <div className="side__section">
               <div className="side__gtitle">{t("Panel navigation")}</div>
               <nav className="side__nav">
-                {navLink("/settings", "Panel settings", <IconSettings size={18} />)}
+                {navLink("/settings", "Panel settings", <IconSettings size={17} />)}
               </nav>
             </div>
           </div>
@@ -235,6 +250,131 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* Mobile Tabbar (< 768px) */}
       <TabBar />
+
+      {cmdkOpen && (
+        <CommandPalette
+          onClose={() => setCmdkOpen(false)}
+          hubs={hubs ?? []}
+        />
+      )}
+    </div>
+  );
+}
+
+function CommandPalette({ onClose, hubs }: { onClose: () => void; hubs: Wire[] }) {
+  const { t } = useI18n();
+  const { servers, switchServer } = useServer();
+  const { push } = useToast();
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const pages = [
+    { label: t("Console overview"), to: "/", meta: "/" },
+    { label: t("Virtual Hubs"), to: "/hubs", meta: "/hubs" },
+    { label: t("Online clients"), to: "/clients", meta: "/clients" },
+    { label: t("Users"), to: "/users", meta: "/users" },
+    { label: t("Server list"), to: "/servers", meta: "/servers" },
+    { label: t("Server config"), to: "/server-settings", meta: "/server-settings" },
+    { label: t("Logs"), to: "/logs", meta: "/logs" },
+    { label: t("Panel settings"), to: "/settings", meta: "/settings" },
+  ].filter(item => !q || item.label.toLowerCase().includes(q) || item.meta.includes(q));
+
+  const matchedHubs = hubs
+    .map(h => ({
+      name: String(h.HubName_str ?? ""),
+      sessions: Number(h.NumSessions_u32) || 0,
+      online: Boolean(h.Online_bool),
+    }))
+    .filter(h => h.name && (!q || h.name.toLowerCase().includes(q)));
+
+  const matchedServers = (servers ?? []).filter(
+    s => !q || `${s.name} ${s.host}:${s.port}`.toLowerCase().includes(q),
+  );
+
+  const go = (to: string) => {
+    navigate(to);
+    onClose();
+  };
+
+  return (
+    <div className="cmdk-backdrop" onClick={onClose} role="dialog" aria-modal="true" aria-label={t("Quick jump")}>
+      <div className="cmdk-dialog" onClick={e => e.stopPropagation()}>
+        <div className="cmdk-head">
+          <IconSearch size={15} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+          <input
+            className="cmdk-input"
+            autoFocus
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder={t("Search pages, hubs, servers...")}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                if (matchedHubs[0]) go(`/hub/${seg(matchedHubs[0].name)}`);
+                else if (pages[0]) go(pages[0].to);
+              }
+            }}
+          />
+          <button type="button" className="keycap" onClick={onClose}>ESC</button>
+        </div>
+        <div className="cmdk-list">
+          {pages.length > 0 && (
+            <>
+              <div className="cmdk-group">{t("Pages")}</div>
+              {pages.map(item => (
+                <button key={item.to} type="button" className="cmdk-item" onClick={() => go(item.to)}>
+                  <span>{item.label}</span>
+                  <span className="cmdk-item__meta">{item.meta}</span>
+                </button>
+              ))}
+            </>
+          )}
+
+          {matchedHubs.length > 0 && (
+            <>
+              <div className="cmdk-group">{t("Virtual Hubs")}</div>
+              {matchedHubs.map(h => (
+                <button key={h.name} type="button" className="cmdk-item" onClick={() => go(`/hub/${seg(h.name)}`)}>
+                  <span className="mono">{h.name}</span>
+                  <span className="cmdk-item__meta">{h.online ? `${h.sessions} ${t("sessions")}` : t("Offline")}</span>
+                </button>
+              ))}
+            </>
+          )}
+
+          {matchedServers.length > 0 && (
+            <>
+              <div className="cmdk-group">{t("Servers")}</div>
+              {matchedServers.map(s => (
+                <button
+                  key={s.id}
+                  type="button"
+                  className="cmdk-item"
+                  disabled={!s.is_enabled}
+                  onClick={async () => {
+                    onClose();
+                    try { await switchServer(s.id); } catch (e) { push("err", e instanceof Error ? e.message : String(e)); }
+                  }}
+                >
+                  <span>{s.name}</span>
+                  <span className="cmdk-item__meta">{s.host}:{s.port}</span>
+                </button>
+              ))}
+            </>
+          )}
+
+          {!pages.length && !matchedHubs.length && !matchedServers.length && (
+            <div className="cmdk-empty">{t("No matching results")}</div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -270,6 +410,9 @@ function ServerSwitcher() {
     <button ref={triggerRef} type="button" className="topbar__switcher-btn" aria-label={t("Switch server")} aria-expanded={open} aria-controls="server-picker" onClick={() => { setFilter(""); setOpen(!open); }}>
       <span className={`server-dot server-dot--${health}`} />
       <span className="topbar__server-name">{currentServer?.name ?? t("Choose server")}</span>
+      {currentServer?.host && (
+        <span className="topbar__switcher-addr">{currentServer.host}:{currentServer.port}</span>
+      )}
       <IconChevron size={12} style={{ transform: "rotate(90deg)" }} />
     </button>
     {open && <div className="topbar__dropdown" id="server-picker">

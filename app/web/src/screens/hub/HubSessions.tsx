@@ -49,11 +49,12 @@ export function cleanHost(d: Wire): string {
   return h;
 }
 
-export function formatTcpConnections(d: Wire, t: (s: string) => string): string {
+export function formatTcpConnections(d: Wire, t: (s: string) => string, compact = false): string {
   const proto = String(d.UnderlayProtocol_str || d.Name_str || "");
   const isUdp = proto.includes("L2TP") || proto.includes("UDP") || proto.includes("IPsec");
   if (isUdp) {
     if (d.ActiveNatTcp_u32 != null && Number(d.ActiveNatTcp_u32) > 0) {
+      if (compact) return String(Number(d.ActiveNatTcp_u32));
       return `UDP (${d.ActiveNatTcp_u32} ${t("active sessions")})`;
     }
     return t("UDP tunnel");
@@ -249,7 +250,7 @@ export function SessionsTable({
                           host={cleanHost(s)}
                         />
                       </td>
-                      <td className="tmono">{formatTcpConnections(s, t)}</td>
+                      <td className="tmono" title={formatTcpConnections(s, t)}>{formatTcpConnections(s, t, true)}</td>
                       <td className="tmono">{formatCount(Number(s.PacketNum_u64))}</td>
                       <td className="tmono">{formatBytes(Number(s.PacketSize_u64))}</td>
                       <td className="tmono">{timeAgo(s.CreatedTime_dt as string)}</td>

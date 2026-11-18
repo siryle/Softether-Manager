@@ -527,30 +527,31 @@
   }
 }
 
-/* ── hub tab strip — scrollable on mobile ─────────────────────────────────── */
+/* ── hub tab strip — grounded underline rail, scrollable on mobile ────────── */
 .tabs {
   display: flex;
-  gap: var(--s2);
-  margin-bottom: var(--s5);
+  gap: var(--s1);
+  margin: calc(-1 * var(--s2)) 0 var(--s5);
   overflow-x: auto;
   scrollbar-width: none;
-  padding: 4px;
+  border-bottom: 1px solid var(--glass-line);
 }
 .tabs::-webkit-scrollbar {
   display: none;
 }
 .tabs__i {
+  position: relative;
   flex: none;
-  padding: 9px 16px;
-  border-radius: var(--r-pill);
+  padding: 10px 14px;
   font-size: var(--t-small);
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text-muted);
   white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
   transition:
     color var(--d-fast) ease,
-    background-color var(--d-fast) ease,
-    box-shadow var(--d-fast) ease;
+    border-color var(--d-fast) ease;
 }
 @media (hover: hover) and (pointer: fine) {
   .tabs__i:hover {
@@ -558,9 +559,9 @@
   }
 }
 .tabs__i.on {
-  color: var(--accent);
-  background: var(--glass-lo);
-  box-shadow: var(--nm-inset-sm);
+  color: var(--text);
+  font-weight: 700;
+  border-bottom-color: var(--brand-fg);
 }
 
 /* ── user identity card ───────────────────────────────────────────────────── */
@@ -874,7 +875,6 @@
 }
 .settings-page {
   max-width: 1200px;
-  padding: 0;
 }
 .settings-page .setdoc {
   container: settings-content / inline-size;

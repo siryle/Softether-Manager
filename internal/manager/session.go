@@ -35,6 +35,19 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 		dhcpTable = list(out["DhcpTable"])
 	}()
 
+	natTcpByIP := make(map[string]int)
+	func() {
+		defer func() { _ = recover() }()
+		out := a.rpc(ctx, "EnumNAT", M{"HubName_str": hub})
+		for _, entry := range list(out["NatTable"]) {
+			if integer(entry["Protocol_u32"]) == 0 {
+				if srcIP := strings.TrimSpace(str(entry["SrcIp_ip"])); srcIP != "" {
+					natTcpByIP[srcIP]++
+				}
+			}
+		}
+	}()
+
 	sessionIPs := make(map[string][]string)
 	for _, entry := range ipTable {
 		sessName := str(entry["SessionName_str"])
@@ -131,6 +144,12 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 			s["VirtualIP_ip"] = ""
 		}
 
+		activeNatTcp := 0
+		for _, ip := range sessionIPs[sessName] {
+			activeNatTcp += natTcpByIP[ip]
+		}
+		s["ActiveNatTcp_u32"] = activeNatTcp
+
 		var realHost string
 		if cH, ok := sessClientHosts[sessName]; ok && cH != "" {
 			realHost = cH
@@ -189,6 +208,19 @@ func (a *App) enrichSessionStatus(ctx context.Context, hub, name string, status 
 		defer func() { _ = recover() }()
 		out := a.rpc(ctx, "EnumDHCP", M{"HubName_str": hub})
 		dhcpTable = list(out["DhcpTable"])
+	}()
+
+	natTcpByIP := make(map[string]int)
+	func() {
+		defer func() { _ = recover() }()
+		out := a.rpc(ctx, "EnumNAT", M{"HubName_str": hub})
+		for _, entry := range list(out["NatTable"]) {
+			if integer(entry["Protocol_u32"]) == 0 {
+				if srcIP := strings.TrimSpace(str(entry["SrcIp_ip"])); srcIP != "" {
+					natTcpByIP[srcIP]++
+				}
+			}
+		}
 	}()
 
 	var virtualIPs []string

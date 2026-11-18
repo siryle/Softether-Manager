@@ -194,7 +194,7 @@ export function AllClients() {
                               host={cleanHost(s)}
                             />
                           </td>
-                          <td className="tmono">{formatTcpConnections(s, t)}</td>
+                          <td className="tmono" title={formatTcpConnections(s, t)}>{formatTcpConnections(s, t, true)}</td>
                           <td className="tmono">{Number(s.PacketNum_u64 ?? s.NumPacket_u32 ?? 0).toLocaleString()}</td>
                           <td className="tmono">{formatBytes(Number(s.PacketSize_u64 ?? 0))}</td>
                           <td className="tmono">{timeAgo(s.CreatedTime_dt as string)}</td>
