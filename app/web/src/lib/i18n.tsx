@@ -210,6 +210,7 @@ const zhCN: Record<string, string> = {
   "Active sessions": "在线客户端",
   "Online clients": "在线客户端",
   "All online clients": "全部在线客户端",
+  "no online clients": "暂无在线客户端",
   "Configured users": "已配置用户",
   "Cumulative inbound (RX)": "累计入站流量 (RX)",
   "Cumulative outbound (TX)": "累计出站流量 (TX)",

@@ -9,6 +9,7 @@ export type ServerHealth = "probing" | "online" | "offline" | "unconfigured";
 export interface ServerApi {
   probe: Probe | null;
   hubs: Wire[] | null;
+  clientCount: number | null;
   health: ServerHealth;
   servers: ManagedServer[] | null;
   currentServer: ManagedServer | null;
@@ -17,6 +18,7 @@ export interface ServerApi {
   refresh: () => Promise<void>;
   switchServer: (id: number) => Promise<void>;
   refreshServers: () => Promise<ManagedServer[] | null>;
+  setClientCount: (count: number | null) => void;
 }
 const ServerContext = createContext<ServerApi>(null as unknown as ServerApi);
 
@@ -26,6 +28,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
   const [currentServerId, setCurrentServerId] = useState<number | null>(null);
   const [probe, setProbe] = useState<Probe | null>(null);
   const [hubs, setHubs] = useState<Wire[] | null>(null);
+  const [clientCount, setClientCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const alive = useRef(false);
   const generation = useRef(0);
@@ -39,13 +42,22 @@ export function ServerProvider({ children }: { children: ReactNode }) {
       const next = await api.probe();
       if (!current()) return;
       setProbe(next);
-      if (!next.online) { setHubs(null); return; }
-      const list = await api.hubs().catch(() => null);
-      if (current()) setHubs(list ? (list.HubList as Wire[]) ?? [] : null);
+      if (!next.online) { setHubs(null); setClientCount(null); return; }
+      const [list, clientsRes] = await Promise.all([
+        api.hubs().catch(() => null),
+        api.allClients().catch(() => null),
+      ]);
+      if (current()) {
+        setHubs(list ? (list.HubList as Wire[]) ?? [] : null);
+        if (clientsRes && Array.isArray(clientsRes.clients)) {
+          setClientCount(clientsRes.clients.length);
+        }
+      }
     } catch (e) {
       if (current()) {
         setProbe({ online: false, configured: true, error: e instanceof Error ? e.message : String(e) });
         setHubs(null);
+        setClientCount(null);
       }
     }
   }, []);
@@ -65,6 +77,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
         generation.current++;
         setProbe(null);
         setHubs(null);
+        setClientCount(null);
       }
       if (next) {
         setStoredServerId(next.id);
@@ -83,6 +96,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
     setStoredServerId(id);
     setProbe(null);
     setHubs(null);
+    setClientCount(null);
     setCurrentServerId(id);
     navigate("/");
     void refresh();
@@ -92,7 +106,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
     alive.current = true;
     generation.current++;
     if (!user) {
-      setServers(null); setCurrentServerId(null); setProbe(null); setHubs(null); setError(null);
+      setServers(null); setCurrentServerId(null); setProbe(null); setHubs(null); setClientCount(null); setError(null);
     } else {
       void refreshServers().then(list => { if (list) void refresh(); });
     }
@@ -104,6 +118,6 @@ export function ServerProvider({ children }: { children: ReactNode }) {
 
   const currentServer = servers?.find(s => s.id === currentServerId) ?? null;
   const health: ServerHealth = probe === null ? "probing" : !probe.configured ? "unconfigured" : probe.online ? "online" : "offline";
-  return <ServerContext.Provider value={{ probe, hubs, health, servers, currentServer, currentServerId, error, refresh, switchServer, refreshServers }}>{children}</ServerContext.Provider>;
+  return <ServerContext.Provider value={{ probe, hubs, clientCount, health, servers, currentServer, currentServerId, error, refresh, switchServer, refreshServers, setClientCount }}>{children}</ServerContext.Provider>;
 }
 export const useServer = () => useContext(ServerContext);

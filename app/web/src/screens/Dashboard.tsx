@@ -23,7 +23,7 @@ import { CreateHubSheet, HubList } from "./Hubs";
  *    - Right: Access Protocols & Ports list and Server Bootstrap info.
  */
 export function Dashboard() {
-  const { probe, health, refresh, currentServer } = useServer();
+  const { probe, health, refresh, currentServer, clientCount } = useServer();
   const { t } = useI18n();
   const [resources, setResources] = useState<Wire | null>(null);
   const [overview, setOverview] = useState<Wire | null>(null);
@@ -115,7 +115,7 @@ export function Dashboard() {
             <span>{t("Online clients")}</span>
             <IconChevron size={12} className="stat-card__chevron" />
           </div>
-          <div className="stat-card__v">{formatCount(activeSessions)}</div>
+          <div className="stat-card__v">{formatCount(clientCount ?? activeSessions)}</div>
           <div className="stat-card__s">{t("Across all {count} hubs", { count: hubs?.length ?? 1 })}</div>
         </Link>
 

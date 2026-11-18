@@ -464,6 +464,10 @@
   justify-content: center;
   flex-shrink: 0;
 }
+.side__item:focus,
+.side__item:focus-visible {
+  outline: none;
+}
 .side__item:hover {
   color: var(--text-primary);
   background: var(--bg-raised);
@@ -617,6 +621,10 @@
 }
 .tab:active {
   opacity: 0.6;
+}
+.tab:focus,
+.tab:focus-visible {
+  outline: none;
 }
 .tab[aria-current="page"] {
   color: var(--accent);

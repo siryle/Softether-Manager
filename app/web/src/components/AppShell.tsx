@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../lib/auth";
 import { useServer } from "../lib/server";
 import { Link, navigate, seg, useRoute } from "../lib/router";
 import { LanguageButton, useI18n, t } from "../lib/i18n";
 import { api, type Probe, type Wire } from "../lib/api";
 import { formatBytes } from "../lib/util";
+import { usePoll } from "./bits";
 import {
   BrandMark,
   IconCheck,
@@ -44,7 +45,7 @@ import { useTheme } from "../ui/theme";
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
-  const { hubs, servers } = useServer();
+  const { hubs, servers, health, currentServerId, clientCount, setClientCount } = useServer();
   const { t } = useI18n();
   const route = useRoute();
   const p = route.parts;
@@ -84,14 +85,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", focusSearch);
   }, []);
 
-  // Total session and user counts from hubs
-  const totalSessions = hubs?.reduce((acc, h) => acc + (Number(h.NumSessions_u32) || 0), 0) ?? 0;
+  const loadClients = useCallback(async () => {
+    if (health !== "online") return;
+    try {
+      const res = await api.allClients().catch(() => null);
+      if (res && Array.isArray(res.clients)) {
+        setClientCount(res.clients.length);
+      }
+    } catch {}
+  }, [health, setClientCount]);
+  usePoll(loadClients, "list", [health, currentServerId]);
+
+  // Total user count from hubs
   const totalUsers = hubs?.reduce((acc, h) => acc + (Number(h.NumUsers_u32) || 0), 0) ?? 0;
 
   const navLink = (to: string, label: string, icon: React.ReactNode, count?: React.ReactNode) => {
     const target = to.slice(1);
     const on = target === "" ? active === "" || active === "connect" : target === "hubs" ? active === "hubs" || active === "hub" : target === "clients" ? active === "clients" || active === "connections" : active === target;
-    return <Link to={to} className={`side__item${on ? " on" : ""}`} aria-current={on ? "page" : undefined} title={collapsed ? t(label) : undefined}>
+    return <Link
+      to={to}
+      className={`side__item${on ? " on" : ""}`}
+      aria-current={on ? "page" : undefined}
+      title={collapsed ? t(label) : undefined}
+      onClick={(e) => { e.currentTarget.blur(); }}
+    >
       <span className="side__item-left">{icon}<span className="side__item-label">{t(label)}</span></span>
       {count !== undefined && <span className="side__count">{count}</span>}
     </Link>;
@@ -168,7 +185,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 {navLink("/", "Console overview", <IconPanels size={18} />)}
                 {navLink("/hubs", "Virtual Hubs", <IconHub size={18} />, hubs?.length ?? "—")}
                 {navLink("/users", "Users", <IconUsers size={18} />, hubs ? totalUsers : "—")}
-                {navLink("/clients", "Online clients", <IconPulse size={18} />, hubs ? totalSessions : "—")}
+                {navLink("/clients", "Online clients", <IconPulse size={18} />, hubs ? (clientCount ?? 0) : "—")}
               </nav>
             </div>
             <div className="side__section">

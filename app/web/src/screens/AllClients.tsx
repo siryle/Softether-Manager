@@ -4,6 +4,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { ConfirmSheet, Empty, LoadingBlock, PageHead, SearchBox, usePoll } from "../components/bits";
 import { api, type Wire } from "../lib/api";
 import { useI18n } from "../lib/i18n";
+import { useServer } from "../lib/server";
 import { Link, navigate, seg } from "../lib/router";
 import { useToast } from "../lib/toast";
 import { formatBytes, formatIPLocation, hasIPLocation, timeAgo } from "../lib/util";
@@ -18,6 +19,7 @@ import { cleanHost, formatTcpConnections, parseClientInfo, SessionSheet } from "
  */
 export function AllClients() {
   const { t } = useI18n();
+  const { setClientCount } = useServer();
   const [data, setData] = useState<{ hubs: string[]; clients: Wire[]; errors: { hub: string; error: string }[] } | null>(null);
   const [query, setQuery] = useState("");
   const [openSession, setOpenSession] = useState<{ hub: string; name: string } | null>(null);
@@ -32,11 +34,14 @@ export function AllClients() {
     try {
       const res = await api.allClients().catch(() => null);
       setData(res);
+      if (res && Array.isArray(res.clients)) {
+        setClientCount(res.clients.length);
+      }
     } finally {
       inFlight.current = false;
       setRefreshing(false);
     }
-  }, []);
+  }, [setClientCount]);
   usePoll(load, "list", []);
 
   const filtered = useMemo(() => {
