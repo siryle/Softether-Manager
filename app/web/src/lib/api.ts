@@ -67,6 +67,34 @@ export interface BackupSettings {
   last_error: string;
 }
 
+export interface WireGuardPeer {
+  public_key: string;
+  hub: string;
+  user: string;
+  label: string;
+  assigned_ip: string;
+  created_date?: string;
+}
+
+export interface WireGuardHubNetwork {
+  hub: string;
+  gateway: string;
+  subnet: string;
+}
+
+export interface WireGuardState {
+  supported: boolean;
+  enabled?: boolean;
+  public_key?: string;
+  preshared_key?: string;
+  has_preshared_key?: boolean;
+  udp_ports?: number[];
+  default_udp_port?: number;
+  default_endpoint_host?: string;
+  peers?: WireGuardPeer[];
+  hub_networks?: WireGuardHubNetwork[];
+}
+
 export class ApiError extends Error {
   status: number;
   seError: string;
@@ -400,6 +428,26 @@ function apiMethods(request: typeof sendRequest) {
   setOpenvpn: (body: Wire) => request("PUT", "/server/openvpn", body),
   openvpnSample: () =>
     request<{ filename: string; config: string }>("POST", "/server/openvpn/sample-config"),
+  wireguard: () => request<WireGuardState>("GET", "/server/wireguard"),
+  setWireguard: (body: Wire) => request<{ restarting: boolean }>("PUT", "/server/wireguard", body),
+  setWireguardHubNetwork: (hub: string, body: { gateway: string; subnet: string; confirm_restart: boolean }) =>
+    request<{ restarting: boolean }>("PUT", `/hubs/${encodeURIComponent(hub)}/wireguard/network`, body),
+  addWireguardPeer: (hub: string, body: Wire) =>
+    request<{ restarting: boolean; peer: WireGuardPeer; client_private_key?: string; client_config: string }>(
+      "POST",
+      `/hubs/${encodeURIComponent(hub)}/wireguard/peers`,
+      body,
+    ),
+  deleteWireguardPeer: (hub: string, body: { public_key: string; confirm_restart: boolean }) =>
+    request<{ restarting: boolean }>("POST", `/hubs/${encodeURIComponent(hub)}/wireguard/peers/delete`, body),
+  updateWireguardPeerMeta: (hub: string, body: { public_key: string; label: string; assigned_ip: string }) =>
+    request<WireGuardPeer>("PUT", `/hubs/${encodeURIComponent(hub)}/wireguard/peers/meta`, body),
+  wireguardClientConfig: (hub: string, body: Wire) =>
+    request<{ filename: string; config: string; assigned_ip: string }>(
+      "POST",
+      `/hubs/${encodeURIComponent(hub)}/wireguard/config`,
+      body,
+    ),
   azure: () => request("GET", "/server/azure"),
   setAzure: (enabled: boolean) => request("PUT", "/server/azure", { IsEnabled_bool: enabled }),
   ddns: () => request("GET", "/server/ddns"),

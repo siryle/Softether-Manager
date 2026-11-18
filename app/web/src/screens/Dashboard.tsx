@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { Empty, ErrorAlert, LoadingBlock, usePoll } from "../components/bits";
 import { RangeSeg, TrafficChart, useTrafficUsage } from "../components/TrafficChart";
-import { api, type Wire } from "../lib/api";
+import { api, type Wire, type WireGuardState } from "../lib/api";
 import { useI18n, t } from "../lib/i18n";
 import { useServer } from "../lib/server";
 import { Link, seg } from "../lib/router";
@@ -27,6 +27,7 @@ export function Dashboard() {
   const { t } = useI18n();
   const [resources, setResources] = useState<Wire | null>(null);
   const [overview, setOverview] = useState<Wire | null>(null);
+  const [wg, setWg] = useState<WireGuardState | null>(null);
   const [trafficHours, setTrafficHours] = useState(24);
   const [creatingHub, setCreatingHub] = useState(false);
 
@@ -39,6 +40,11 @@ export function Dashboard() {
     if (health === "online") setOverview(await api.overview().catch(() => null));
   }, [health]);
   usePoll(loadOverview, "detail", [health]);
+
+  const loadWireGuard = useCallback(async () => {
+    if (health === "online") setWg(await api.wireguard().catch(() => null));
+  }, [health]);
+  usePoll(loadWireGuard, "list", [health]);
 
   const serverUsage = useTrafficUsage(
     () => health === "online" ? api.serverTraffic(trafficHours) : Promise.resolve(null),
@@ -301,6 +307,12 @@ export function Dashboard() {
                 <span className="text-secondary">MS-SSTP</span>
                 <span className={openvpn?.EnableSSTP_bool ? "text-emerald-500 font-medium" : "text-muted"}>
                   {openvpn?.EnableSSTP_bool ? t("Enabled (TCP 443)") : t("Off")}
+                </span>
+              </div>
+              <div className="py-2.5 flex items-center justify-between">
+                <span className="text-secondary">WireGuard</span>
+                <span className={wg?.supported && wg.enabled ? "text-emerald-500 font-medium" : "text-muted"}>
+                  {!wg ? "—" : !wg.supported ? t("Unsupported") : wg.enabled ? `UDP ${wg.default_udp_port ?? 51820}` : t("Off")}
                 </span>
               </div>
               <div className="py-2.5 flex items-center justify-between">

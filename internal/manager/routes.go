@@ -24,6 +24,7 @@ func (a *App) register() {
 	a.registerCustomRPC()
 	a.registerUserBulk()
 	a.registerDDNS()
+	a.registerWireGuard()
 	a.registerHistory()
 	a.registerVPN()
 	a.registerQuotas()
@@ -195,6 +196,7 @@ func (a *App) registerCustomRPC() {
 		serverID := a.serverIDFromContext(r.Context())
 		execute(a.db, `DELETE FROM TrafficQuota WHERE ServerID=? AND HubName=?`, serverID, hub)
 		execute(a.db, `DELETE FROM VpnUserCredential WHERE ServerID=? AND HubName=?`, serverID, hub)
+		execute(a.db, `DELETE FROM WireGuardPeer WHERE ServerID=? AND HubName=?`, serverID, hub)
 		a.audit(u, "hub.deleted", "hub", hub, "")
 		return out
 	})
@@ -260,6 +262,7 @@ func (a *App) registerCustomRPC() {
 			if method == "DELETE" {
 				execute(a.db, `DELETE FROM VpnUserCredential WHERE ServerID=? AND HubName=? AND UserName=?`, serverID, hub, name)
 				execute(a.db, `DELETE FROM TrafficQuota WHERE ServerID=? AND SubjectType='user' AND HubName=? AND UserKey=?`, serverID, hub, fold(name))
+				execute(a.db, `DELETE FROM WireGuardPeer WHERE ServerID=? AND HubName=? AND UserName=?`, serverID, hub, name)
 			} else if password := str(body["Auth_Password_str"]); password != "" && integer(withDefault(body, "AuthType_u32", 1)) == 1 {
 				a.saveCredential(serverID, hub, name, hashedPassword(password, name))
 			}

@@ -17,7 +17,8 @@ import { QuotaEnforceSwitch, QuotaSummary, netBytes } from "../components/QuotaC
 import { RangeSeg, TrafficChart, useTrafficUsage } from "../components/TrafficChart";
 import { UserSheet } from "../components/UserSheet";
 import { VpnFileSheet } from "../components/VpnFileSheet";
-import { api, type Quota, type Usage, type Wire } from "../lib/api";
+import { WireGuardAddPeerSheet, WireGuardConfigSheet, waitForWireGuardReady } from "../components/WireGuardPeerSheet";
+import { ApiError, api, useServerApi, type Quota, type Usage, type Wire, type WireGuardPeer, type WireGuardState } from "../lib/api";
 import { Sheet } from "../ui/Sheet";
 import { Spark } from "../components/ResourceCards";
 import { Link, navigate, seg } from "../lib/router";
@@ -25,7 +26,7 @@ import { AUTH_TYPES, isNever, userBytes, SESSION_TYPE } from "../lib/se";
 import { useToast } from "../lib/toast";
 import { useI18n, t } from "../lib/i18n";
 import { formatBytes, formatCount, formatDate, formatDuration, formatIPLocation, hasIPLocation, timeAgo } from "../lib/util";
-import { BrandMark, IconDownload, IconTrash } from "../ui/Icon";
+import { BrandMark, IconDownload, IconKey, IconPlus, IconTrash } from "../ui/Icon";
 import { Pill } from "../ui/Status";
 import { UserStatePill } from "./hub/HubUsers";
 import { SessionSheet, SessionsTable } from "./hub/HubSessions";
@@ -205,12 +206,17 @@ function SessionUsageSheet({ hub, row, onClose }: { hub: string; row: Wire; onCl
  * decoration.
  */
 export function UserDetail({ hub, name }: { hub: string; name: string }) {
+  const serverApi = useServerApi();
   const { t } = useI18n();
   const [user, setUser] = useState<Wire | null>(null);
   const [sessions, setSessions] = useState<Wire[] | null>(null);
   const [history, setHistory] = useState<Wire[] | null>(null);
   const [historyExhausted, setHistoryExhausted] = useState(false);
   const [quota, setQuota] = useState<Quota | null>(null);
+  const [wg, setWg] = useState<WireGuardState | null>(null);
+  const [addingWg, setAddingWg] = useState(false);
+  const [editingWg, setEditingWg] = useState<WireGuardPeer | null>(null);
+  const [deletingWg, setDeletingWg] = useState<WireGuardPeer | null>(null);
   const [hours, setHours] = useState(24);
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -238,6 +244,11 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hub, name, policyDirty]);
   usePoll(load, "detail", [hub, name]);
+
+  const loadWg = useCallback(async () => {
+    setWg(await serverApi.wireguard().catch(() => null));
+  }, [serverApi]);
+  usePoll(loadWg, "list", [hub, name]);
 
   const usage = useTrafficUsage(() => api.userUsage(hub, name, hours), "list", [hub, name, hours]);
 
@@ -359,6 +370,62 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
           </div>
         </>
       )}
+
+      {wg?.supported && (() => {
+        const userPeers = (wg.peers ?? []).filter(
+          (p) => p.hub === hub && p.user.toLowerCase() === name.toLowerCase(),
+        );
+        return (
+          <>
+            <SectionTitle
+              count={userPeers.length}
+              actions={
+                <button type="button" className="btn btn--sm" onClick={() => setAddingWg(true)}>
+                  <IconPlus size={14} /> {t("Add WireGuard peer")}
+                </button>
+              }
+            >
+              {t("WireGuard")}
+            </SectionTitle>
+            {userPeers.length === 0 ? (
+              <Empty title={t("no WireGuard peers")}>
+                {t("Bind a WireGuard public key to let this user connect with a standard WireGuard client.")}
+              </Empty>
+            ) : (
+              <div className="rows">
+                {userPeers.map((peer) => (
+                  <div key={peer.public_key} className="row">
+                    <div className="row__main">
+                      <div className="row__name" style={{ display: "flex", alignItems: "center", gap: "var(--s2)", flexWrap: "wrap" }}>
+                        <span className="mono">{peer.label || t("WireGuard peer")}</span>
+                        {peer.assigned_ip && <span className="chip chip--ok mono">{peer.assigned_ip}/32</span>}
+                      </div>
+                      <div className="spec">
+                        <span className="chip mono" title={peer.public_key}>
+                          <IconKey size={12} /> {peer.public_key}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="row__side">
+                      <button type="button" className="btn btn--sm" onClick={() => setEditingWg(peer)}>
+                        <IconDownload size={13} /> {t(".conf")}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--sm btn--ghost"
+                        aria-label={t("Delete peer")}
+                        onClick={() => setDeletingWg(peer)}
+                      >
+                        <IconTrash size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        );
+      })()}
 
       <SectionTitle actions={<RangeSeg hours={hours} onChange={setHours} />}>{t("Usage")}</SectionTitle>
       <div className="card" style={{ padding: "var(--s4)" }}>
@@ -540,6 +607,49 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
           hub={hub}
           name={openSession}
           onClose={() => setOpenSession(null)}
+        />
+      )}
+      {addingWg && wg && (
+        <WireGuardAddPeerSheet
+          state={wg}
+          fixedHub={hub}
+          fixedUser={name}
+          onClose={() => setAddingWg(false)}
+          onChanged={(fresh) => {
+            if (fresh) setWg(fresh);
+            else void loadWg();
+          }}
+        />
+      )}
+      {editingWg && wg && (
+        <WireGuardConfigSheet
+          state={wg}
+          peer={editingWg}
+          onClose={() => setEditingWg(null)}
+          onMetaSaved={() => void loadWg()}
+        />
+      )}
+      {deletingWg && (
+        <ConfirmSheet
+          title={t("Remove WireGuard peer and restart?")}
+          verb="Apply & restart"
+          body={t("This writes vpn_server.config via SetConfig and restarts the SoftEther service, which disconnects all active VPN sessions.")}
+          onClose={() => setDeletingWg(null)}
+          onConfirm={async () => {
+            try {
+              await serverApi.deleteWireguardPeer(hub, {
+                public_key: deletingWg.public_key,
+                confirm_restart: true,
+              });
+            } catch (error) {
+              if (!(error instanceof ApiError) || error.seError !== "TransportError") throw error;
+            }
+            const fresh = await waitForWireGuardReady(serverApi, (s) =>
+              !s.peers?.some((p) => p.public_key === deletingWg.public_key),
+            );
+            setWg(fresh);
+            push("ok", t("WireGuard peer removed."));
+          }}
         />
       )}
     </div>

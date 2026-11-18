@@ -135,7 +135,7 @@ type App struct {
 	db                                       *sql.DB
 	sessionKey, encryptionKey                string
 	mux                                      *http.ServeMux
-	setupMu, connectionMu, quotaMu, accessMu sync.Mutex
+	setupMu, connectionMu, quotaMu, accessMu, wgMu sync.Mutex
 	quotaLocks                               map[int64]*sync.Mutex
 	rpcClients                               map[int64]*RPCClient
 	logins                                   loginLimiter

@@ -67,6 +67,7 @@ function component(file, exports, states, modules) {
     },
     "./bits": stubs,
     "../components/bits": stubs,
+    "../components/WireGuardPeerSheet": stubs,
     "../../components/bits": stubs,
     "../ui/Sheet": stubs, "../../ui/Sheet": stubs,
     "../ui/Icon": stubs, "../../ui/Icon": stubs,

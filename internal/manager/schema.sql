@@ -124,6 +124,18 @@ CREATE TABLE IF NOT EXISTS "AuditLog" (
         "Detail"      TEXT    NOT NULL DEFAULT '',
         "CreatedDate" TEXT    NOT NULL
     );
+CREATE TABLE IF NOT EXISTS "WireGuardPeer" (
+        "WireGuardPeerID" INTEGER PRIMARY KEY AUTOINCREMENT,
+        "ServerID"        INTEGER NOT NULL DEFAULT 1 REFERENCES "Server"("ServerID") ON DELETE CASCADE,
+        "PublicKey"       TEXT    NOT NULL,
+        "HubName"         TEXT    NOT NULL,
+        "UserName"        TEXT    NOT NULL,
+        "Label"           TEXT    NOT NULL DEFAULT '',
+        "AssignedIP"      TEXT    NOT NULL DEFAULT '',
+        "CreatedDate"     TEXT    NOT NULL,
+        "UpdatedDate"     TEXT    NOT NULL,
+        UNIQUE ("ServerID", "PublicKey")
+    );
 CREATE INDEX IF NOT EXISTS "IX_UserTrafficSample_Key" ON "UserTrafficSample"("ServerID", "HubName", "UserName", "SampledDate");
 CREATE INDEX IF NOT EXISTS "IX_UserTrafficSample_History" ON "UserTrafficSample"("ServerID", "HubName", "UserName" COLLATE NOCASE, julianday("SampledDate"));
 CREATE INDEX IF NOT EXISTS "IX_UserTrafficSample_Retention" ON "UserTrafficSample"(datetime("SampledDate"));
@@ -140,3 +152,4 @@ CREATE INDEX IF NOT EXISTS "IX_VpnSessionTrafficSample_Session" ON "VpnSessionTr
 CREATE INDEX IF NOT EXISTS "IX_VpnSessionTrafficSample_Date" ON "VpnSessionTrafficSample"("SampledDate");
 CREATE INDEX IF NOT EXISTS "IX_VpnSessionTrafficSample_Retention" ON "VpnSessionTrafficSample"(datetime("SampledDate"));
 CREATE INDEX IF NOT EXISTS "IX_TrafficQuota_Hub" ON "TrafficQuota"("ServerID", "HubName", "SubjectType");
+CREATE INDEX IF NOT EXISTS "IX_WireGuardPeer_HubUser" ON "WireGuardPeer"("ServerID", "HubName", "UserName");
