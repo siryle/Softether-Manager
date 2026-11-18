@@ -231,6 +231,8 @@
     top: calc(var(--topbar-h) + var(--s6));
     flex-direction: column;
     overflow-x: visible;
+    overflow-y: auto;
+    max-height: calc(100dvh - var(--topbar-h) - var(--s12));
     padding: 6px;
   }
   .docnav__item {

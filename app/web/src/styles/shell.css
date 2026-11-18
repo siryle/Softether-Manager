@@ -25,7 +25,8 @@
   flex: 1;
   min-width: 0;
   padding: var(--s5) var(--s4) calc(var(--tabbar-h) + var(--safe-b) + var(--s6));
-  overflow-y: auto;
+  /* Clip horizontal overflow without creating a scroll container that traps position:sticky descendants. */
+  overflow-x: clip;
 }
 
 @media (min-width: 768px) {
