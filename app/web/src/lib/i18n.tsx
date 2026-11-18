@@ -223,7 +223,7 @@ const zhCN: Record<string, string> = {
   "Traffic sampling period": "流量采样周期",
   "View details →": "进入详情 →",
   "New Virtual HUB": "新建虚拟 HUB",
-  "Server config": "服务配置",
+  "Server config": "服务器配置",
   "Continuous running": "连续运行",
   "Across all {count} hubs": "全站 {count} 个虚拟 HUB",
   "Local passwords / certificates": "本地密码/证书",
@@ -1167,7 +1167,7 @@ const zhCN: Record<string, string> = {
   "No certificate yet: enter the name this server should answer for and save.":
     "尚未申请证书：填写这台服务器对外使用的域名并保存即可。",
   "The panel itself: account, address, sampling and updates. The VPN server and its certificate are handled under Server settings.":
-    "面板自身：账号、访问地址、采样与更新。VPN 服务器及其证书在“当前服务器配置”中管理。",
+    "面板自身：账号、访问地址、采样与更新。VPN 服务器及其证书在“服务器配置”中管理。",
   "Leave blank for no dedicated password": "留空表示不单独设置密码",
   "Only sent when you type a new one. Lets someone administer just this hub.": "只有填写新密码才会提交。可以让别人只管理这一个 HUB。",
   "Save hub settings": "保存 HUB 设置",
@@ -1750,7 +1750,7 @@ const zhCN: Record<string, string> = {
   "Choose another default server first.": "请先将另一台服务器设为默认服务器。",
   "Server management": "服务器管理",
   "Server list": "服务器列表",
-  "Current server configuration": "当前服务器配置",
+  "Current server configuration": "服务器配置",
   "Panel navigation": "面板",
 };
 

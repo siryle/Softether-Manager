@@ -106,7 +106,7 @@ function ListenersCard() {
           </div>
         )}
         {special && (
-          <div style={{ marginTop: "var(--s3)" }}>
+          <div className="row2" style={{ marginTop: "var(--s3)" }}>
             <SpecialListenerSwitch
               special={special}
               field="VpnOverIcmpListener_bool"
@@ -331,32 +331,32 @@ function AzureDdnsCard() {
   return (
     <div className="card" style={{ padding: "var(--s4)" }}>
       <div className="section__t" style={{ marginBottom: "var(--s3)" }}>{t("VPN Azure & dynamic DNS")}</div>
-      {ddnsUnsupported ? (
-        <>
-          <div className="alert" role="status">{t("Dynamic DNS is not supported by this server.")}</div>
-          {azureControl}
-        </>
-      ) : (
-        <>
-          {ddnsError && <ErrorAlert><span role="alert">{t("Could not load dynamic DNS: {error}", { error: ddnsError.message })}</span></ErrorAlert>}
-          {ddns ? (
-            <DdnsSettings ddns={ddns} onFresh={onDdnsFresh}>{azureControl}</DdnsSettings>
+      <div className="row2" style={{ alignItems: "start", gap: "var(--s4)" }}>
+        <div>
+          {ddnsUnsupported ? (
+            <div className="alert" role="status">{t("Dynamic DNS is not supported by this server.")}</div>
+          ) : ddnsError ? (
+            <ErrorAlert><span role="alert">{t("Could not load dynamic DNS: {error}", { error: ddnsError.message })}</span></ErrorAlert>
+          ) : ddns ? (
+            <DdnsSettings ddns={ddns} onFresh={onDdnsFresh} />
           ) : (
-            <>
-              {!ddnsError && <LoadingBlock label="Loading dynamic DNS" />}
-              {azureControl}
-            </>
+            <LoadingBlock label="Loading dynamic DNS" />
           )}
-        </>
-      )}
+        </div>
+        <div>
+          {azureControl}
+        </div>
+      </div>
       {canRetry && (
-        <button className="btn" disabled={refreshing} onClick={() => void load()}>{t("Retry")}</button>
+        <div style={{ marginTop: "var(--s3)" }}>
+          <button className="btn" disabled={refreshing} onClick={() => void load()}>{t("Retry")}</button>
+        </div>
       )}
     </div>
   );
 }
 
-function DdnsSettings({ ddns, onFresh, children }: { ddns: Wire; onFresh: (fresh: Wire) => void; children: ReactNode }) {
+function DdnsSettings({ ddns, onFresh }: { ddns: Wire; onFresh: (fresh: Wire) => void }) {
   const api = useServerApi();
   const [confirming, setConfirming] = useState(false);
   const [ddnsHost, setDdnsHost] = useState("");
@@ -399,31 +399,28 @@ function DdnsSettings({ ddns, onFresh, children }: { ddns: Wire; onFresh: (fresh
         onToggle={() => setConfirming(true)}
         status={<Pill kind={on ? "ok" : "idle"} label={on ? "enabled" : "disabled"} />}
       />
-      <div>
-        {children}
-        {on && (
-          <fieldset disabled={toggle.pending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-            <KV rows={[
-              ["DDNS hostname", String(ddns.CurrentHostName_str || "—")],
-              ["FQDN", String(ddns.CurrentFqdn_str || "—")],
-              ["IPv4", String(ddns.CurrentIPv4_str || "—")],
-              ["last error", Number(ddns.Err_IPv4_u32 ?? 0) === 0 ? t("none") : String(ddns.ErrStr_IPv4_utf || t("code {n}", { n: String(ddns.Err_IPv4_u32) }))],
-            ]} />
-            <Field label="Change DDNS hostname" hint="The name half of <name>.softether.net — it must be globally unused.">
-              <div style={{ display: "flex", gap: "var(--s2)" }}>
-                <input className="input mono" value={ddnsHost} onChange={(e) => setDdnsHost(e.target.value)} placeholder={String(ddns.CurrentHostName_str ?? "")} autoCapitalize="none" spellCheck={false} />
-                <button className="btn" disabled={!ddnsHost.trim()} onClick={() => void guard(async () => {
-                  await api.setDdnsHostname(ddnsHost.trim());
-                  setDdnsHost("");
-                  onFresh(await api.ddns());
-                }, "DDNS hostname changed.")}>
-                  {t("Apply")}
-                </button>
-              </div>
-            </Field>
-          </fieldset>
-        )}
-      </div>
+      {on && (
+        <fieldset disabled={toggle.pending} style={{ border: 0, padding: 0, margin: "var(--s3) 0 0", minWidth: 0 }}>
+          <KV rows={[
+            ["DDNS hostname", String(ddns.CurrentHostName_str || "—")],
+            ["FQDN", String(ddns.CurrentFqdn_str || "—")],
+            ["IPv4", String(ddns.CurrentIPv4_str || "—")],
+            ["last error", Number(ddns.Err_IPv4_u32 ?? 0) === 0 ? t("none") : String(ddns.ErrStr_IPv4_utf || t("code {n}", { n: String(ddns.Err_IPv4_u32) }))],
+          ]} />
+          <Field label="Change DDNS hostname" hint="The name half of <name>.softether.net — it must be globally unused.">
+            <div style={{ display: "flex", gap: "var(--s2)" }}>
+              <input className="input mono" value={ddnsHost} onChange={(e) => setDdnsHost(e.target.value)} placeholder={String(ddns.CurrentHostName_str ?? "")} autoCapitalize="none" spellCheck={false} />
+              <button className="btn" disabled={!ddnsHost.trim()} onClick={() => void guard(async () => {
+                await api.setDdnsHostname(ddnsHost.trim());
+                setDdnsHost("");
+                onFresh(await api.ddns());
+              }, "DDNS hostname changed.")}>
+                {t("Apply")}
+              </button>
+            </div>
+          </Field>
+        </fieldset>
+      )}
       {confirming && (
         <ConfirmSheet
           title={t(on ? "Disable dynamic DNS and restart?" : "Enable dynamic DNS and restart?")}
@@ -478,14 +475,16 @@ function ProtocolsCard() {
                 label="Raw L2TP (no encryption)" hint="Only for equipment that cannot do IPsec." />
               <CheckRow checked={Boolean(ipsec.EtherIP_IPsec_bool)} onChange={(v) => { setIpsec({ ...ipsec, EtherIP_IPsec_bool: v }); setDirty((d) => ({ ...d, ipsec: true })); }}
                 label="EtherIP / L2TPv3 over IPsec" hint="Site-to-site from routers; client IDs are defined below." />
-              <Field label="IPsec pre-shared key" hint="What clients type as the 'secret'. Keep it short — some devices truncate at 9 characters.">
-                <input className="input mono" value={secret} onChange={(e) => { setSecret(e.target.value); setDirty((d) => ({ ...d, ipsec: true })); }} autoCapitalize="none" spellCheck={false} />
-              </Field>
-              <Field label="Default hub" hint="Where L2TP users land when they do not name a hub.">
-                <select className="select" value={String(ipsec.L2TP_DefaultHub_str ?? "")} onChange={(e) => { setIpsec({ ...ipsec, L2TP_DefaultHub_str: e.target.value }); setDirty((d) => ({ ...d, ipsec: true })); }}>
-                  {hubs.map((h) => <option key={h} value={h}>{h}</option>)}
-                </select>
-              </Field>
+              <div className="row2">
+                <Field label="IPsec pre-shared key" hint="What clients type as the 'secret'. Keep it short — some devices truncate at 9 characters.">
+                  <input className="input mono" value={secret} onChange={(e) => { setSecret(e.target.value); setDirty((d) => ({ ...d, ipsec: true })); }} autoCapitalize="none" spellCheck={false} />
+                </Field>
+                <Field label="Default hub" hint="Where L2TP users land when they do not name a hub.">
+                  <select className="select" value={String(ipsec.L2TP_DefaultHub_str ?? "")} onChange={(e) => { setIpsec({ ...ipsec, L2TP_DefaultHub_str: e.target.value }); setDirty((d) => ({ ...d, ipsec: true })); }}>
+                    {hubs.map((h) => <option key={h} value={h}>{h}</option>)}
+                  </select>
+                </Field>
+              </div>
               {dirty.ipsec && (
                 <button className="btn btn--primary" onClick={() => void guard(async () => {
                   await api.setIpsec({
@@ -541,7 +540,9 @@ function ProtocolsCard() {
             </>
           )}
         </div>
+      </div>
 
+      <div style={{ marginTop: "var(--s4)" }}>
         <AzureDdnsCard />
       </div>
     </section>
@@ -655,26 +656,30 @@ function CertUpload({ onUpload }: { onUpload: (cert: File, key: File) => Promise
   const [busy, setBusy] = useState(false);
   return (
     <>
-      <Field label="Replace with your own (certificate + private key)">
-        <input className="input" type="file" accept=".cer,.crt,.pem" onChange={(e) => setCert(e.target.files?.[0] ?? null)} />
-      </Field>
-      <Field label="Private key">
-        <input className="input" type="file" accept=".key,.pem" onChange={(e) => setKey(e.target.files?.[0] ?? null)} />
-      </Field>
-      <button
-        className="btn btn--primary"
-        disabled={!cert || !key || busy}
-        onClick={async () => {
-          if (!cert || !key) return;
-          setBusy(true);
-          await onUpload(cert, key);
-          setBusy(false);
-          setCert(null);
-          setKey(null);
-        }}
-      >
-        {busy && <span className="spin" />} <IconUpload size={14} /> {t("Install certificate")}
-      </button>
+      <div className="row2">
+        <Field label="Replace with your own (certificate + private key)">
+          <input className="input" type="file" accept=".cer,.crt,.pem" onChange={(e) => setCert(e.target.files?.[0] ?? null)} />
+        </Field>
+        <Field label="Private key">
+          <input className="input" type="file" accept=".key,.pem" onChange={(e) => setKey(e.target.files?.[0] ?? null)} />
+        </Field>
+      </div>
+      <div style={{ marginTop: "var(--s3)" }}>
+        <button
+          className="btn btn--primary"
+          disabled={!cert || !key || busy}
+          onClick={async () => {
+            if (!cert || !key) return;
+            setBusy(true);
+            await onUpload(cert, key);
+            setBusy(false);
+            setCert(null);
+            setKey(null);
+          }}
+        >
+          {busy && <span className="spin" />} <IconUpload size={14} /> {t("Install certificate")}
+        </button>
+      </div>
     </>
   );
 }
@@ -876,32 +881,36 @@ function IssueCertificateSection() {
         </Field>
       )}
 
-      <Field label={t("Contact email (optional)")} hint={t("Let's Encrypt writes to it if a certificate is about to expire unrenewed. Nothing else is done with it.")}>
-        <input className="input mono" value={form.acme_email} onChange={(e) => set({ acme_email: e.target.value })} placeholder="ops@example.com" autoCapitalize="none" spellCheck={false} inputMode="email" />
-      </Field>
+      <div className="row2">
+        <Field label={t("Contact email (optional)")} hint={t("Let's Encrypt writes to it if a certificate is about to expire unrenewed. Nothing else is done with it.")}>
+          <input className="input mono" value={form.acme_email} onChange={(e) => set({ acme_email: e.target.value })} placeholder="ops@example.com" autoCapitalize="none" spellCheck={false} inputMode="email" />
+        </Field>
+        <Field label={t("Custom renewal hook (optional)")} hint={t("Optional script path executed when certificate is renewed (e.g. ssl/hook.sh).")}>
+          <input
+            className="input mono"
+            value={form.cert_renew_hook}
+            onChange={(e) => set({ cert_renew_hook: e.target.value })}
+            placeholder="ssl/hook.sh"
+            autoCapitalize="none"
+            spellCheck={false}
+          />
+        </Field>
+      </div>
 
-      <CheckRow
-        checked={form.cert_auto_push}
-        onChange={(v) => set({ cert_auto_push: v })}
-        label={t("Auto push certificate to SoftEther VPN server")}
-        hint={t("When the certificate is issued or renewed, automatically update the VPN server certificate via RPC.")}
-      />
-      <Field label={t("Custom renewal hook (optional)")} hint={t("Optional script path executed when certificate is renewed (e.g. ssl/hook.sh).")}>
-        <input
-          className="input mono"
-          value={form.cert_renew_hook}
-          onChange={(e) => set({ cert_renew_hook: e.target.value })}
-          placeholder="ssl/hook.sh"
-          autoCapitalize="none"
-          spellCheck={false}
+      <div className="row2" style={{ marginBottom: "var(--s2)" }}>
+        <CheckRow
+          checked={form.cert_auto_push}
+          onChange={(v) => set({ cert_auto_push: v })}
+          label={t("Auto push certificate to SoftEther VPN server")}
+          hint={t("When the certificate is issued or renewed, automatically update the VPN server certificate via RPC.")}
         />
-      </Field>
-      <CheckRow
-        checked={form.acme_staging}
-        onChange={(v) => set({ acme_staging: v })}
-        label={t("Use Let's Encrypt's staging environment")}
-        hint={t("Issues a certificate browsers do not trust, without counting against the real rate limits — for checking DNS and firewall before asking for the real thing. Switch it off afterwards and a trusted certificate is obtained in its place.")}
-      />
+        <CheckRow
+          checked={form.acme_staging}
+          onChange={(v) => set({ acme_staging: v })}
+          label={t("Use Let's Encrypt's staging environment")}
+          hint={t("Issues a certificate browsers do not trust, without counting against the real rate limits — for checking DNS and firewall before asking for the real thing. Switch it off afterwards and a trusted certificate is obtained in its place.")}
+        />
+      </div>
       <p className="hint" style={{ marginTop: 0 }}>
         {challenge === "dns-01"
           ? t("Using Cloudflare DNS-01 challenge. Automatically creates and cleans up _acme-challenge TXT records.")

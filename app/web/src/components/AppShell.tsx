@@ -205,7 +205,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <div className="side__gtitle">{t("Server management")}</div>
               <nav className="side__nav">
                 {navLink("/servers", "Server list", <IconNode size={18} />, servers?.length ?? "—")}
-                {navLink("/server-settings", "Current server configuration", <IconSettings size={18} />)}
+                {navLink("/server-settings", "Server config", <IconSettings size={18} />)}
                 {navLink("/logs", "Logs", <IconLogs size={18} />)}
               </nav>
             </div>
@@ -222,8 +222,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               type="button"
               className="side__toggle"
               onClick={toggleCollapsed}
-              title={collapsed ? t("Expand sidebar") : t("Collapse sidebar")}
-              aria-label={collapsed ? t("Expand sidebar") : t("Collapse sidebar")}
+              title={collapsed ? t("Expand") : t("Collapse")}
+              aria-label={collapsed ? t("Expand") : t("Collapse")}
               aria-expanded={!collapsed}
             >
               <span className="side__toggle-icon">
@@ -235,7 +235,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   }}
                 />
               </span>
-              {!collapsed && <span className="side__toggle-label">{t("Collapse sidebar")}</span>}
+              {!collapsed && <span className="side__toggle-label">{t("Collapse")}</span>}
             </button>
           </div>
         </aside>

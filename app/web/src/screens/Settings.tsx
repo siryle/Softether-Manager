@@ -305,10 +305,14 @@ function VpnFileTemplateCard() {
         />
 
         <div className="tpl__group">{t("Tunnel")}</div>
-        <CheckRow checked={boolOpt("UseEncrypt")} onChange={(v) => setOpt("UseEncrypt", v)} label={t("Encrypt with SSL")} hint={t("Off sends VPN traffic in the clear — only for links that are already protected.")} />
-        <CheckRow checked={boolOpt("UseCompress")} onChange={(v) => setOpt("UseCompress", v)} label={t("Compress data")} />
-        <CheckRow checked={boolOpt("NoUdpAcceleration")} onChange={(v) => setOpt("NoUdpAcceleration", v)} label={t("Disable UDP acceleration")} />
-        <CheckRow checked={boolOpt("HalfConnection")} onChange={(v) => setOpt("HalfConnection", v)} label={t("Half-duplex connections")} hint={t("Each TCP connection carries one direction only; needs at least two connections.")} />
+        <div className="row2">
+          <CheckRow checked={boolOpt("UseEncrypt")} onChange={(v) => setOpt("UseEncrypt", v)} label={t("Encrypt with SSL")} hint={t("Off sends VPN traffic in the clear — only for links that are already protected.")} />
+          <CheckRow checked={boolOpt("UseCompress")} onChange={(v) => setOpt("UseCompress", v)} label={t("Compress data")} />
+        </div>
+        <div className="row2">
+          <CheckRow checked={boolOpt("NoUdpAcceleration")} onChange={(v) => setOpt("NoUdpAcceleration", v)} label={t("Disable UDP acceleration")} />
+          <CheckRow checked={boolOpt("HalfConnection")} onChange={(v) => setOpt("HalfConnection", v)} label={t("Half-duplex connections")} hint={t("Each TCP connection carries one direction only; needs at least two connections.")} />
+        </div>
         <div className="row2">
           {numberField("TCP connections", "MaxConnection", "1–32; more can help on lossy links.", 1, 32)}
           {numberField("UDP port", "PortUDP", "0 lets the client pick.", 0, 65535)}
@@ -324,8 +328,10 @@ function VpnFileTemplateCard() {
         </div>
 
         <div className="tpl__group">{t("Security")}</div>
-        <CheckRow checked={boolOpt("CheckServerCert")} onChange={(v) => setOpt("CheckServerCert", v)} label={t("Verify the server certificate")} hint={t("On, the client refuses a server whose certificate it cannot trust.")} />
-        <CheckRow checked={boolOpt("NoTls1")} onChange={(v) => setOpt("NoTls1", v)} label={t("Disable TLS 1.0")} />
+        <div className="row2">
+          <CheckRow checked={boolOpt("CheckServerCert")} onChange={(v) => setOpt("CheckServerCert", v)} label={t("Verify the server certificate")} hint={t("On, the client refuses a server whose certificate it cannot trust.")} />
+          <CheckRow checked={boolOpt("NoTls1")} onChange={(v) => setOpt("NoTls1", v)} label={t("Disable TLS 1.0")} />
+        </div>
 
         <div className="tpl__group">{t("Proxy")}</div>
         <Field label={t("Connect via")}>
@@ -355,12 +361,18 @@ function VpnFileTemplateCard() {
         )}
 
         <div className="tpl__group">{t("Client behaviour")}</div>
-        <CheckRow checked={boolOpt("StartupAccount")} onChange={(v) => setOpt("StartupAccount", v)} label={t("Connect at client startup")} />
-        <CheckRow checked={boolOpt("HideStatusWindow")} onChange={(v) => setOpt("HideStatusWindow", v)} label={t("Hide the status window while connecting")} />
-        <CheckRow checked={boolOpt("HideNicInfoWindow")} onChange={(v) => setOpt("HideNicInfoWindow", v)} label={t("Hide the adapter info window")} />
-        <CheckRow checked={boolOpt("NoRoutingTracking")} onChange={(v) => setOpt("NoRoutingTracking", v)} label={t("Disable routing tracking")} hint={t("Stops the client adjusting the routing table while connected.")} />
-        <CheckRow checked={boolOpt("DisableQoS")} onChange={(v) => setOpt("DisableQoS", v)} label={t("Disable VoIP/QoS handling")} />
-        <CheckRow checked={boolOpt("RequireMonitorMode")} onChange={(v) => setOpt("RequireMonitorMode", v)} label={t("Monitoring mode")} hint={t("Asks for a promiscuous session; needs hub permission.")} />
+        <div className="row2">
+          <CheckRow checked={boolOpt("StartupAccount")} onChange={(v) => setOpt("StartupAccount", v)} label={t("Connect at client startup")} />
+          <CheckRow checked={boolOpt("DisableQoS")} onChange={(v) => setOpt("DisableQoS", v)} label={t("Disable VoIP/QoS handling")} />
+        </div>
+        <div className="row2">
+          <CheckRow checked={boolOpt("HideStatusWindow")} onChange={(v) => setOpt("HideStatusWindow", v)} label={t("Hide the status window while connecting")} />
+          <CheckRow checked={boolOpt("HideNicInfoWindow")} onChange={(v) => setOpt("HideNicInfoWindow", v)} label={t("Hide the adapter info window")} />
+        </div>
+        <div className="row2">
+          <CheckRow checked={boolOpt("NoRoutingTracking")} onChange={(v) => setOpt("NoRoutingTracking", v)} label={t("Disable routing tracking")} hint={t("Stops the client adjusting the routing table while connected.")} />
+          <CheckRow checked={boolOpt("RequireMonitorMode")} onChange={(v) => setOpt("RequireMonitorMode", v)} label={t("Monitoring mode")} hint={t("Asks for a promiscuous session; needs hub permission.")} />
+        </div>
         <CheckRow checked={boolOpt("RequireBridgeRoutingMode")} onChange={(v) => setOpt("RequireBridgeRoutingMode", v)} label={t("Bridge / router mode")} hint={t("Needed when the client side bridges or routes for other machines.")} />
         <div className="row2">
           <Field label={t("Virtual adapter name")} hint={t("The client-side NIC the connection binds to.")}>

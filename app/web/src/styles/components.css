@@ -359,6 +359,15 @@
   grid-template-columns: 1fr 1fr;
   gap: var(--s3);
 }
+.row2 > .checkrow {
+  margin-bottom: 0;
+  height: 100%;
+}
+@media (max-width: 720px) {
+  .row2 {
+    grid-template-columns: 1fr;
+  }
+}
 @media (min-width: 960px) {
   .input,
   .textarea,
