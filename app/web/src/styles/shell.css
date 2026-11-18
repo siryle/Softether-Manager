@@ -310,45 +310,59 @@
   gap: var(--s2);
   flex-shrink: 0;
 }
-.topbar__telemetry {
-  display: none;
+.topbar__clients {
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   height: 32px;
   padding: 0 11px;
   border-radius: var(--r-ctl);
   background: var(--glass-lo);
   border: 1px solid var(--border-hairline);
   font-size: var(--t-micro);
-  font-family: var(--font-mono);
+  font-weight: 600;
   color: var(--text-secondary);
   white-space: nowrap;
+  text-decoration: none;
+  transition: background var(--d-fast) ease, border-color var(--d-fast) ease, color var(--d-fast) ease;
 }
-@media (min-width: 1024px) {
-  .topbar__telemetry {
-    display: flex;
+.topbar__clients:hover {
+  background: var(--glass-hi);
+  border-color: var(--glass-line-hi);
+  color: var(--text-primary);
+}
+.topbar__clients--live {
+  background: var(--brand-soft);
+  border-color: var(--brand-line);
+  color: var(--text-primary);
+}
+.topbar__clients--live:hover {
+  background: var(--brand-soft);
+  border-color: var(--brand-fg);
+}
+.topbar__clients-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--text-faint);
+  flex-shrink: 0;
+}
+.topbar__clients--live .topbar__clients-dot {
+  background: var(--brand-fg);
+  box-shadow: 0 0 0 3px var(--brand-soft);
+}
+.topbar__clients-count {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.topbar__clients-label {
+  display: none;
+}
+@media (min-width: 768px) {
+  .topbar__clients-label {
+    display: inline;
   }
-}
-.topbar__telemetry-sep {
-  color: var(--glass-line-hi);
-}
-.topbar__rx {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-.topbar__rx-lbl {
-  color: var(--color-emerald);
-  font-weight: 600;
-}
-.topbar__tx {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-.topbar__tx-lbl {
-  color: var(--accent);
-  font-weight: 600;
 }
 .topbar__user {
   display: flex;
@@ -570,21 +584,6 @@
   white-space: nowrap;
 }
 .side--collapsed .side__item-label {
-  display: none !important;
-}
-.side__count {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-muted);
-}
-.side__count--live {
-  padding: 1px 6px;
-  border-radius: var(--r-chip);
-  background: var(--brand-soft);
-  color: var(--brand-fg);
-  font-weight: 600;
-}
-.side--collapsed .side__count {
   display: none !important;
 }
 

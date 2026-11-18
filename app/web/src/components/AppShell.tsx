@@ -6,7 +6,6 @@ import { useServer } from "../lib/server";
 import { Link, navigate, seg, useRoute } from "../lib/router";
 import { LanguageButton, useI18n, t } from "../lib/i18n";
 import { api, type Probe, type Wire } from "../lib/api";
-import { formatBytes } from "../lib/util";
 import {
   BrandMark,
   IconCheck,
@@ -33,18 +32,18 @@ import { useTheme } from "../ui/theme";
  * Sticky Topbar:
  *   - Identity with original lime-coin BrandMark
  *   - Restrained LED connection status indicator (IP:Port · Running)
+ *   - Online client count shortcut pill
  *   - Monospace search bar with ⌘K keycap
- *   - Live dual-stream telemetry readout (RX/TX)
- *   - Language, Theme, Version and Administrator controls
+ *   - Language, Theme, and Administrator controls
  *
  * Sidebar:
- *   - Core Network: Dashboard, Hubs, Users, Sessions (with count badges)
+ *   - Core Network: Dashboard, Hubs, Online clients, Users
  *   - Server Management: Server List, Server Configuration, Logs
  *   - Panel: Panel Settings
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
-  const { hubs, servers, health, clientCount, resources } = useServer();
+  const { hubs, clientCount } = useServer();
   const { t } = useI18n();
   const route = useRoute();
   const p = route.parts;
@@ -83,13 +82,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", focusSearch);
   }, []);
 
-  // Total user count from hubs
-  const totalUsers = hubs?.reduce((acc, h) => acc + (Number(h.NumUsers_u32) || 0), 0) ?? 0;
-  const net = (resources?.available !== false ? (resources?.network as Wire | undefined) : undefined);
-  const netRx = Number(net?.rx_bytes_per_second) || 0;
-  const netTx = Number(net?.tx_bytes_per_second) || 0;
+  const onlineClients = hubs ? (clientCount ?? 0) : null;
+  const liveClients = Boolean(onlineClients && onlineClients > 0);
 
-  const navLink = (to: string, label: string, icon: React.ReactNode, count?: React.ReactNode, liveCount?: boolean) => {
+  const navLink = (to: string, label: string, icon: React.ReactNode) => {
     const target = to.slice(1);
     const on = target === "" ? active === "" || active === "connect" : target === "hubs" ? active === "hubs" || active === "hub" : target === "clients" ? active === "clients" || active === "connections" : active === target;
     return <Link
@@ -100,7 +96,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       onClick={(e) => { e.currentTarget.blur(); }}
     >
       <span className="side__item-left">{icon}<span className="side__item-label">{t(label)}</span></span>
-      {count !== undefined && <span className={`side__count${liveCount ? " side__count--live" : ""}`}>{count}</span>}
     </Link>;
   };
 
@@ -120,21 +115,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <ServerSwitcher />
         </div>
 
-        {/* Right: Live Telemetry, Command Search (⌘K), Utilities & User */}
+        {/* Right: Online Clients, Command Search (⌘K), Utilities & User */}
         <div className="topbar__right">
-          {net && (
-            <div className="topbar__telemetry" title={t("Network")}>
-              <span className="topbar__rx">
-                <span className="topbar__rx-lbl">↓</span>
-                <span>{formatBytes(netRx)}/s</span>
-              </span>
-              <span className="topbar__telemetry-sep" aria-hidden="true">|</span>
-              <span className="topbar__tx">
-                <span className="topbar__tx-lbl">↑</span>
-                <span>{formatBytes(netTx)}/s</span>
-              </span>
-            </div>
-          )}
+          <Link
+            to="/clients"
+            className={`topbar__clients${liveClients ? " topbar__clients--live" : ""}`}
+            title={t("Online clients")}
+            aria-label={`${t("Online clients")}: ${onlineClients ?? "—"}`}
+          >
+            <span className="topbar__clients-dot" aria-hidden="true" />
+            <span className="topbar__clients-count">{onlineClients ?? "—"}</span>
+            <span className="topbar__clients-label">{t("Online clients")}</span>
+          </Link>
 
           <button
             type="button"
@@ -180,15 +172,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <div className="side__gtitle">{t("Core Network")}</div>
               <nav className="side__nav">
                 {navLink("/", "Console overview", <IconPanels size={17} />)}
-                {navLink("/hubs", "Virtual Hubs", <IconHub size={17} />, hubs?.length ?? "—")}
-                {navLink("/clients", "Online clients", <IconPulse size={17} />, hubs ? (clientCount ?? 0) : "—", Boolean(hubs && (clientCount ?? 0) > 0))}
-                {navLink("/users", "Users", <IconUsers size={17} />, hubs ? totalUsers : "—")}
+                {navLink("/hubs", "Virtual Hubs", <IconHub size={17} />)}
+                {navLink("/clients", "Online clients", <IconPulse size={17} />)}
+                {navLink("/users", "Users", <IconUsers size={17} />)}
               </nav>
             </div>
             <div className="side__section">
               <div className="side__gtitle">{t("Server management")}</div>
               <nav className="side__nav">
-                {navLink("/servers", "Server list", <IconNode size={17} />, servers?.length ?? "—")}
+                {navLink("/servers", "Server list", <IconNode size={17} />)}
                 {navLink("/server-settings", "Server config", <IconSettings size={17} />)}
                 {navLink("/logs", "Logs", <IconLogs size={17} />)}
               </nav>
