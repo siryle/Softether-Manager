@@ -125,6 +125,9 @@ CREATE TABLE IF NOT EXISTS "AuditLog" (
         "CreatedDate" TEXT    NOT NULL
     );
 CREATE INDEX IF NOT EXISTS "IX_UserTrafficSample_Key" ON "UserTrafficSample"("ServerID", "HubName", "UserName", "SampledDate");
+CREATE INDEX IF NOT EXISTS "IX_UserTrafficSample_History" ON "UserTrafficSample"("ServerID", "HubName", "UserName" COLLATE NOCASE, julianday("SampledDate"));
+CREATE INDEX IF NOT EXISTS "IX_UserTrafficSample_Retention" ON "UserTrafficSample"(datetime("SampledDate"));
+CREATE INDEX IF NOT EXISTS "IX_HubTrafficSample_Retention" ON "HubTrafficSample"(datetime("SampledDate"));
 CREATE INDEX IF NOT EXISTS "IX_UserTrafficSample_Date" ON "UserTrafficSample"("SampledDate");
 CREATE INDEX IF NOT EXISTS "IX_HubTrafficSample_Key" ON "HubTrafficSample"("ServerID", "HubName", "SampledDate");
 CREATE INDEX IF NOT EXISTS "IX_HubTrafficSample_Date" ON "HubTrafficSample"("SampledDate");
@@ -133,4 +136,5 @@ CREATE INDEX IF NOT EXISTS "IX_VpnSessionSample_Open" ON "VpnSessionSample"("Ser
 CREATE INDEX IF NOT EXISTS "IX_VpnSessionSample_User" ON "VpnSessionSample"("ServerID", "HubName", "UserName", "StartedDate");
 CREATE INDEX IF NOT EXISTS "IX_VpnSessionTrafficSample_Session" ON "VpnSessionTrafficSample"("VpnSessionSampleID", "SampledDate");
 CREATE INDEX IF NOT EXISTS "IX_VpnSessionTrafficSample_Date" ON "VpnSessionTrafficSample"("SampledDate");
+CREATE INDEX IF NOT EXISTS "IX_VpnSessionTrafficSample_Retention" ON "VpnSessionTrafficSample"(datetime("SampledDate"));
 CREATE INDEX IF NOT EXISTS "IX_TrafficQuota_Hub" ON "TrafficQuota"("ServerID", "HubName", "SubjectType");

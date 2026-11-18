@@ -33,7 +33,7 @@ function backend(text = async () => "{}") {
     localStorage: { getItem: () => null, removeItem() {} },
     fetch: async (url, options) => {
       requests.push({ url, ...options });
-      return { status: 200, ok: true, text };
+      return { status: 200, ok: true, text, blob: text };
     },
   });
   return { ...api, requests, switchServer: () => { serverId = "2"; } };
@@ -105,6 +105,18 @@ test("a server switch during response download rejects the old response", async 
   client.switchServer();
   body.resolve('{"ok":true}');
   await assert.rejects(pending, { name: "AbortError" });
+});
+
+test("backup downloads use the panel prefix and keep the server scope", async () => {
+  const body = deferred();
+  const client = backend(() => body.promise);
+  const download = client.createServerApi(1).downloadBackup("vpn_server_test.config");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(client.requests[0].url, "api/v1/server/backups/vpn_server_test.config/download");
+  assert.equal(client.requests[0].headers["X-Server-ID"], "1");
+  client.switchServer();
+  body.resolve("backup");
+  await assert.rejects(download, { name: "AbortError" });
 });
 
 test("configuration restore cannot follow a switch while reading the local file", async () => {

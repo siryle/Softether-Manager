@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"golang.org/x/crypto/acme"
 	"golang.org/x/net/idna"
+	"math/big"
 	"net"
 	"net/http"
 	"os"
@@ -120,27 +121,26 @@ func fileExists(p string) bool {
 }
 
 func (m *tlsManager) pushCertToServer(ctx context.Context, domain string, chain, keyPEM []byte) error {
-	// SoftEther keeps serving whatever pair it is given, so a broken pair takes the
-	// management listener down for every client. Check before touching the server.
-	if _, err := tls.X509KeyPair(chain, keyPEM); err != nil {
-		return fmt.Errorf("refusing to push the certificate for %s: %v", domain, err)
+	if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > 45*time.Second {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 45*time.Second)
+		defer cancel()
 	}
-	var pushErr error
-	func() {
-		defer func() {
-			if p := recover(); p != nil {
-				pushErr = fmt.Errorf("RPC SetServerCert failed: %v", p)
-			}
-		}()
-		certB64 := base64.StdEncoding.EncodeToString(chain)
-		keyB64 := base64.StdEncoding.EncodeToString(keyPEM)
-		m.app.rpc(ctx, "SetServerCert", M{
-			"Cert_bin": certB64,
-			"Key_bin":  keyB64,
-		})
+	id := m.app.serverIDFromContext(ctx)
+	ctx = context.WithValue(ctx, serverIDKey, id)
+	err := func() error {
+		lock := m.app.quotaLock(id)
+		lock.Lock()
+		defer lock.Unlock()
+		if automatic, _ := ctx.Value(certificateDeploymentKey).(bool); automatic &&
+			(integer(m.app.setting("cert_push_server_id")) != id || !boolean(m.app.setting("cert_auto_push")) || m.effectiveDomain() != domain) {
+			return fmt.Errorf("automatic certificate deployment target changed")
+		}
+		_, err := m.app.installServerCertificate(ctx, chain, keyPEM)
+		return err
 	}()
-	if pushErr == nil {
-		m.repinServerCertificate(ctx, chain)
+	if err != nil {
+		return err
 	}
 
 	hookCmd := strings.TrimSpace(str(m.app.setting("cert_renew_hook")))
@@ -151,7 +151,10 @@ func (m *tlsManager) pushCertToServer(ctx context.Context, domain string, chain,
 		}
 	}
 	if hookCmd != "" {
-		sslDir := filepath.Join(m.app.cfg.Root, "ssl")
+		sslDir := filepath.Join(m.app.cfg.DataDir, "ssl")
+		if err := writeSSLCopy(sslDir, domain, chain, keyPEM); err != nil {
+			return fmt.Errorf("certificate deployment script files: %w", err)
+		}
 		cmd := exec.CommandContext(ctx, "/bin/sh", "-c", hookCmd)
 		cmd.Env = append(os.Environ(),
 			"CERT_DOMAIN="+domain,
@@ -159,30 +162,67 @@ func (m *tlsManager) pushCertToServer(ctx context.Context, domain string, chain,
 			"CERT_KEY="+filepath.Join(sslDir, domain+".key"),
 			"CERT_BUNDLE="+filepath.Join(sslDir, domain+".pem.key"),
 		)
-		_ = cmd.Run()
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("certificate deployment script: %w", err)
+		}
 	}
-
-	return pushErr
+	return nil
 }
 
-// repinServerCertificate moves the panel's certificate pin to the certificate it
-// just installed. Without this, SetServerCert would make the next RPC handshake
-// look like a MITM and the panel would lock itself out of its own server.
-func (m *tlsManager) repinServerCertificate(ctx context.Context, chain []byte) {
-	fingerprint := fingerprintOfPEM(chain)
-	serverID := m.app.serverIDFromContext(ctx)
-	if fingerprint == "" || serverID == 0 {
-		return
+func (a *App) installServerCertificate(ctx context.Context, chain, key []byte) (M, error) {
+	certPEM, keyPEM := chain, key
+	if block, _ := pem.Decode(chain); block == nil {
+		certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: chain})
 	}
-	row := one(m.app.db, `SELECT Host,Port FROM Server WHERE ServerID=?`, serverID)
-	if row == nil {
-		return
+	if block, _ := pem.Decode(key); block == nil {
+		kind := "PRIVATE KEY"
+		if _, err := x509.ParsePKCS1PrivateKey(key); err == nil {
+			kind = "RSA PRIVATE KEY"
+		} else if _, err := x509.ParseECPrivateKey(key); err == nil {
+			kind = "EC PRIVATE KEY"
+		}
+		keyPEM = pem.EncodeToMemory(&pem.Block{Type: kind, Bytes: key})
 	}
-	// UPDATE only: a server with no pin keeps first-use trust on its next connection.
-	_, _ = m.app.db.Exec(`UPDATE RPCTrust SET Fingerprint=? WHERE Host=? AND Port=?`, fingerprint, row["Host"], row["Port"])
-	m.app.connectionMu.Lock()
-	m.app.invalidateClientLocked(serverID)
-	m.app.connectionMu.Unlock()
+	pair, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		return nil, httpError{422, "The certificate and private key do not form a valid pair."}
+	}
+	id := a.serverIDFromContext(ctx)
+	client, err := a.clientFor(id)
+	if err != nil {
+		return nil, err
+	}
+	out, err := client.Call(ctx, "SetServerCert", M{"Cert_bin": base64.StdEncoding.EncodeToString(chain), "Key_bin": base64.StdEncoding.EncodeToString(key)})
+	if err != nil {
+		return nil, err
+	}
+	a.connectionMu.Lock()
+	defer a.connectionMu.Unlock()
+	_, err = a.db.Exec(`INSERT INTO RPCTrust(Host,Port,Fingerprint) VALUES(?,?,?) ON CONFLICT(Host,Port) DO UPDATE SET Fingerprint=excluded.Fingerprint`, client.host, client.port, certFingerprint(pair.Certificate[0]))
+	a.invalidateClientLocked(id)
+	return out, err
+}
+
+func (a *App) regenerateServerCertificate(ctx context.Context, name string) M {
+	if strings.TrimSpace(name) == "" || len(name) > 253 {
+		fail(422, "A certificate common name is required.")
+	}
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	check(err)
+	limit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serial, err := rand.Int(rand.Reader, limit)
+	check(err)
+	cert := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: name}, NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().AddDate(1, 0, 0), KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+	if ip := net.ParseIP(name); ip != nil {
+		cert.IPAddresses = []net.IP{ip}
+	} else {
+		cert.DNSNames = []string{name}
+	}
+	der, err := x509.CreateCertificate(rand.Reader, cert, cert, &key.PublicKey, key)
+	check(err)
+	_, err = a.installServerCertificate(ctx, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))
+	check(err)
+	return M{"StrValue_str": name}
 }
 
 func saveToSSLDir(rootDir, dataDir, domain string, chain, keyPEM []byte) error {
@@ -190,16 +230,20 @@ func saveToSSLDir(rootDir, dataDir, domain string, chain, keyPEM []byte) error {
 	if dataDir != rootDir && dataDir != "" {
 		dirs = append(dirs, filepath.Join(dataDir, "ssl"))
 	}
-	combined := append(append([]byte{}, chain...), keyPEM...)
+	var errs error
 	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			continue
-		}
-		_ = atomicWrite(filepath.Join(dir, domain+".pem"), chain, 0644)
-		_ = atomicWrite(filepath.Join(dir, domain+".key"), keyPEM, 0600)
-		_ = atomicWrite(filepath.Join(dir, domain+".pem.key"), combined, 0600)
+		errs = errors.Join(errs, writeSSLCopy(dir, domain, chain, keyPEM))
 	}
-	return nil
+	return errs
+}
+
+func writeSSLCopy(dir, domain string, chain, keyPEM []byte) error {
+	combined := append(append([]byte{}, chain...), keyPEM...)
+	return errors.Join(
+		atomicWrite(filepath.Join(dir, domain+".pem"), chain, 0644),
+		atomicWrite(filepath.Join(dir, domain+".key"), keyPEM, 0600),
+		atomicWrite(filepath.Join(dir, domain+".pem.key"), combined, 0600),
+	)
 }
 
 func (m *tlsManager) certDir(domain string) string {
@@ -446,7 +490,66 @@ func (m *tlsManager) start(ctx context.Context) {
 		if requested || (due && canRetry) {
 			m.issue(ctx, domain)
 		}
+		m.deployCertificate(ctx, domain)
 	})
+}
+
+const certificateDeploymentKey contextKey = "automatic_certificate_deployment"
+
+func (m *tlsManager) deployCertificate(ctx context.Context, domain string) {
+	a := m.app
+	id := integer(a.setting("cert_push_server_id"))
+	if !boolean(a.setting("cert_auto_push")) || id <= 0 || domain != m.effectiveDomain() {
+		return
+	}
+	info, cert := m.certificate(domain)
+	if cert == nil || boolean(info["stale"]) || boolean(info["staging"]) {
+		return
+	}
+	key := fmt.Sprintf("%d:%s:%s", id, domain, certFingerprint(cert.Certificate[0]))
+	m.mu.Lock()
+	previousKey := str(m.state["deployment_key"])
+	previousAttempt := parseTime(str(m.state["deployment_attempt_at"]))
+	deployed := str(m.state["deployment_error"]) == ""
+	m.mu.Unlock()
+	if key == previousKey && (deployed || time.Since(previousAttempt) < time.Minute) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithValue(ctx, serverIDKey, id), 45*time.Second)
+	defer cancel()
+	ctx = context.WithValue(ctx, certificateDeploymentKey, true)
+	err := recoverAsError(func() error { return m.pushDomainCertificate(ctx, domain) })
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.state["deployment_key"], m.state["deployment_attempt_at"], m.state["deployment_error"] = key, now(), ""
+	if err != nil {
+		m.state["deployment_error"] = err.Error()
+		logTLS(err)
+	}
+	m.persistLocked()
+}
+
+func (m *tlsManager) pushDomainCertificate(ctx context.Context, domain string) error {
+	info, cert := m.certificate(domain)
+	if cert == nil || boolean(info["stale"]) || boolean(info["staging"]) {
+		return httpError{409, "A current production certificate is required before pushing to SoftEther."}
+	}
+	var chain []byte
+	for _, der := range cert.Certificate {
+		chain = append(chain, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})...)
+	}
+	var keyPEM []byte
+	switch key := cert.PrivateKey.(type) {
+	case *rsa.PrivateKey:
+		keyPEM = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	default:
+		der, err := x509.MarshalPKCS8PrivateKey(key)
+		if err != nil {
+			return err
+		}
+		keyPEM = pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
+	}
+	return m.pushCertToServer(ctx, domain, chain, keyPEM)
 }
 func newCertificateOrder(ctx context.Context, client *acme.Client, account *acme.Account, domain string) (*acme.Order, error) {
 	if _, err := client.Register(ctx, account, acme.AcceptTOS); err != nil && !errors.Is(err, acme.ErrAccountAlreadyExists) {
@@ -643,11 +746,7 @@ func (m *tlsManager) issue(ctx context.Context, domain string) {
 		chain = append(chain, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert})...)
 	}
 	check(saveCertificate(m.certDir(domain), chain, keyPEM, M{"domain": domain, "staging": staging, "issued_at": now(), "directory": directory}))
-	_ = saveToSSLDir(m.app.cfg.Root, m.app.cfg.DataDir, domain, chain, keyPEM)
-
-	if boolean(m.app.setting("cert_auto_push")) {
-		_ = m.pushCertToServer(ctx, domain, chain, keyPEM)
-	}
+	logTLS(saveToSSLDir(m.app.cfg.Root, m.app.cfg.DataDir, domain, chain, keyPEM))
 }
 
 func saveCertificate(dir string, chain, key []byte, meta M) error {
@@ -724,6 +823,8 @@ func (m *tlsManager) status(r *http.Request) M {
 		"cf_dns_token":        a.setting("cf_dns_token"),
 		"cert_key_type":       a.setting("cert_key_type"),
 		"cert_auto_push":      a.setting("cert_auto_push"),
+		"cert_push_server_id": a.setting("cert_push_server_id"),
+		"deployment_error":    str(m.state["deployment_error"]),
 		"cert_renew_hook":     a.setting("cert_renew_hook"),
 		"vpn_public_host":     a.setting("vpn_public_host"),
 		"vpn_public_port":     a.setting("vpn_public_port"),

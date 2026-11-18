@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	_ "embed"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,12 +27,14 @@ type RPCClient struct {
 	http                                   *http.Client
 	url, password, auth, encryptedPassword string
 	id                                     atomic.Uint64
+	host                                   string
+	port                                   int
 }
 
 func NewRPCClient(host string, port int, password, auth string) *RPCClient {
 	// Standalone clients use normal PKI validation; panel clients add persisted pinning.
 	transport := &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}, MaxIdleConnsPerHost: 4, IdleConnTimeout: 90 * time.Second, DialContext: (&net.Dialer{Timeout: 10 * time.Second}).DialContext, TLSHandshakeTimeout: 10 * time.Second}
-	return &RPCClient{http: &http.Client{Transport: transport, Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, url: "https://" + net.JoinHostPort(host, strconv.Itoa(port)) + "/api/", password: password, auth: auth}
+	return &RPCClient{http: &http.Client{Transport: transport, Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, url: "https://" + net.JoinHostPort(host, strconv.Itoa(port)) + "/api/", password: password, auth: auth, host: host, port: port}
 }
 func (c *RPCClient) Close() { c.http.CloseIdleConnections() }
 func (c *RPCClient) Call(ctx context.Context, method string, params M) (M, error) {
@@ -100,7 +103,7 @@ func (c *RPCClient) Call(ctx context.Context, method string, params M) (M, error
 			kind    string
 		}{
 			{"NOT_SUPPORTED|UNSUPPORTED|METHOD_NOT_FOUND|METHOD NOT FOUND", 400, "UnsupportedError"},
-			{"OBJECT_NOT_FOUND|NOT_FOUND|NO_SUCH|NOT_EXISTS|OBJECT_EXISTS_NOT", 404, "NotFoundError"}, {"ALREADY_EXISTS|OBJECT_EXISTS|LOCAL_BRIDGE_EXISTS|DUPLICATE", 409, "AlreadyExistsError"},
+			{"OBJECT_NOT_FOUND|NOT_FOUND|NO_SUCH|NOT_EXISTS|OBJECT_EXISTS_NOT|OBJECT NOT FOUND|USER NOT FOUND|HUB NOT FOUND", 404, "NotFoundError"}, {"ALREADY_EXISTS|OBJECT_EXISTS|LOCAL_BRIDGE_EXISTS|DUPLICATE", 409, "AlreadyExistsError"},
 			{"AUTH_FAILED|ACCESS_DENIED|NOT_ADMINPACK|ADMIN_PASSWORD|PASSWORD_IS_WRONG", 502, "AuthenticationError"}, {"NOT_ENOUGH_RIGHT|SECURITY_POLICY|ADMIN_ONLY", 403, "PermissionError"}, {"INVALID_", 400, "InvalidParameterError"},
 		} {
 			matched := false
@@ -173,12 +176,44 @@ func (a *App) client(ctx ...context.Context) *RPCClient {
 	var c context.Context
 	if len(ctx) > 0 {
 		c = ctx[0]
+		if c != nil {
+			if client, ok := c.Value(rpcClientKey).(*RPCClient); ok {
+				return client
+			}
+		}
 	}
 	client, err := a.clientFor(a.serverIDFromContext(c))
 	check(err)
 	return client
 }
 func (a *App) rpc(ctx context.Context, method string, params M) M {
+	switch method {
+	case "SetServerCert":
+		chain, certErr := base64.StdEncoding.DecodeString(str(params["Cert_bin"]))
+		key, keyErr := base64.StdEncoding.DecodeString(str(params["Key_bin"]))
+		if certErr != nil || keyErr != nil {
+			fail(422, "The certificate and key must be valid base64.")
+		}
+		out, err := a.installServerCertificate(ctx, chain, key)
+		check(err)
+		return out
+	case "RegenerateServerCert":
+		return a.regenerateServerCertificate(ctx, str(params["StrValue_str"]))
+	case "SetConfig":
+		id := a.serverIDFromContext(ctx)
+		a.requireReleasedQuotas(id)
+		data, err := base64.StdEncoding.DecodeString(str(params["FileData_bin"]))
+		if err != nil || len(data) == 0 {
+			fail(422, "A non-empty base64 configuration is required.")
+		}
+		out, err := a.client(ctx).Call(ctx, method, params)
+		if status, ok := err.(httpError); err == nil || (ok && str(object(status.Detail)["se_error"]) == "TransportError") {
+			// A restart can close the connection before returning its response.
+			a.resetQuotaBaselines(id)
+		}
+		check(err)
+		return out
+	}
 	if (method == "SetUser" || method == "CreateUser") && params["Auth_Password_str"] != nil {
 		params = clone(params)
 		delete(params, "HashedKey_bin")
@@ -209,8 +244,10 @@ func (a *App) saveConnection(host string, port int, password *string, auth strin
 	defer a.connectionMu.Unlock()
 	id := a.serverIDFromContext(c)
 	row := a.serverRow(id)
-	if !strings.EqualFold(str(row["Host"]), host) || integer(row["Port"]) != int64(port) {
+	retargeting := !strings.EqualFold(str(row["Host"]), host) || integer(row["Port"]) != int64(port)
+	if retargeting {
 		a.requireReleasedQuotas(id)
+		a.requireUnassignedCertificateTarget(id)
 	}
 	if one(a.db, `SELECT ServerID FROM Server WHERE lower(Host)=lower(?) AND Port=? AND ServerID!=?`, host, port, id) != nil {
 		fail(409, "A server with this address and port already exists.")
@@ -222,7 +259,21 @@ func (a *App) saveConnection(host string, port int, password *string, auth strin
 	if auth != "" {
 		row["AuthType"] = auth
 	}
-	execute(a.db, `UPDATE Server SET Host=?,Port=?,EncryptedPassword=?,AuthType=?,UpdatedDate=? WHERE ServerID=?`, row["Host"], row["Port"], row["EncryptedPassword"], row["AuthType"], now(), id)
+	update := `UPDATE Server SET Host=?,Port=?,EncryptedPassword=?,AuthType=?,UpdatedDate=? WHERE ServerID=?`
+	if retargeting {
+		update += ` AND NOT EXISTS (SELECT 1 FROM TrafficQuota WHERE ServerID=Server.ServerID AND RestoreState!='')`
+	}
+	result, err := a.db.Exec(update, row["Host"], row["Port"], row["EncryptedPassword"], row["AuthType"], now(), id)
+	check(err)
+	changed, err := result.RowsAffected()
+	check(err)
+	if changed != 1 {
+		fail(409, "The server or its quotas changed during the connection update. Try again.")
+	}
+	if retargeting {
+		a.resetQuotaBaselines(id)
+		execute(a.db, `UPDATE Server SET BackupLastRun='',BackupLastError='' WHERE ServerID=?`, id)
+	}
 	a.invalidateClientLocked(id)
 	if boolean(row["IsDefault"]) {
 		a.syncDefaultConnection(row)

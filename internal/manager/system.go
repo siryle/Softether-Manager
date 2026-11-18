@@ -2,8 +2,6 @@ package manager
 
 import (
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 	"unicode"
@@ -138,6 +136,17 @@ func (a *App) registerSystem() {
 				changed = append(changed, key)
 			}
 		}
+		if v, ok := body["cert_push_server_id"]; ok && v != nil {
+			id := integer(v)
+			if id < 0 || number(v) != float64(id) {
+				fail(422, "Invalid certificate deployment server ID.")
+			}
+			if id > 0 && !boolean(a.serverRow(id)["IsEnabled"]) {
+				fail(422, "The certificate deployment server must be enabled.")
+			}
+			a.set("cert_push_server_id", id)
+			changed = append(changed, "cert_push_server_id")
+		}
 		a.tls.apply()
 		a.audit(u, "domain.updated", "panel", domain, strings.Join(changed, ", "))
 		out := a.tls.status(r)
@@ -181,25 +190,7 @@ func (a *App) registerSystem() {
 		if domain == "" {
 			fail(422, "Set a domain or server public host first.")
 		}
-		sslDir := filepath.Join(a.cfg.Root, "ssl")
-		pemBytes, err := os.ReadFile(filepath.Join(sslDir, domain+".pem"))
-		if err != nil {
-			pemBytes, err = os.ReadFile(filepath.Join(a.tls.certDir(domain), "bundle.pem"))
-			if err != nil {
-				fail(404, "No certificate file found for domain "+domain+". Please issue certificate first.")
-			}
-		}
-		keyBytes, err := os.ReadFile(filepath.Join(sslDir, domain+".key"))
-		if err != nil {
-			keyBytes, err = os.ReadFile(filepath.Join(a.tls.certDir(domain), "privkey.pem"))
-			if err != nil {
-				fail(404, "No private key found for domain "+domain+"; pushing the certificate without its key would break the SoftEther listener.")
-			}
-		}
-		err = a.tls.pushCertToServer(r.Context(), domain, pemBytes, keyBytes)
-		if err != nil {
-			fail(500, err.Error())
-		}
+		check(a.tls.pushDomainCertificate(r.Context(), domain))
 		a.audit(u, "domain.certificate_pushed", "server", domain, "SetServerCert")
 		return M{"ok": true, "message": "Certificate pushed to SoftEther VPN Server successfully."}
 	})

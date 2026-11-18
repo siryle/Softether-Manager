@@ -47,7 +47,11 @@ fi
 ''')
         self.executable("curl", '''#!/bin/sh
 case "$*" in *auth/setup*) echo 'network setup must never run' >&2; exit 1;; esac
-exit 0
+if [ -n "$TEST_HEALTH_REPLY" ]; then
+  printf '%s\\n\\n200' "$TEST_HEALTH_REPLY"
+else
+  printf '{"ok":true,"version":"1.0.0"}\\n\\n200'
+fi
 ''')
         for name in ("apt-get", "dnf", "yum", "ss", "netstat"):
             self.executable(name, "#!/bin/sh\nexit 0\n")
@@ -139,6 +143,42 @@ else:
         services = log.read_text() if log.exists() else ""
         self.assertNotIn("restart softether-manager", services)
         self.assertNotIn("enable softether-manager", services)
+
+    def test_retry_after_account_failure_initializes_before_start(self):
+        self.env["FAIL_ACCOUNT"] = "1"
+        first = self.run_install()
+        self.assertEqual(first.returncode, 17, first.stderr)
+        self.env.pop("FAIL_ACCOUNT")
+        retry = self.run_install()
+        self.assertEqual(retry.returncode, 0, retry.stderr)
+        self.assertTrue(json.loads(retry.stdout)["account_created"])
+        self.assertEqual((self.root / "data/account").read_text(), "operator")
+
+    def test_unrelated_success_response_does_not_pass_readiness(self):
+        self.env["TEST_HEALTH_REPLY"] = '{"ok":true,"version":"wrong-version"}'
+        self.executable("seq", "#!/bin/sh\necho 1\n")
+        result = self.run_install()
+        self.assertEqual(result.returncode, 17, result.stderr)
+
+    def test_rollback_restores_sqlite_outside_data_dir(self):
+        first = self.run_install()
+        self.assertEqual(first.returncode, 0, first.stderr)
+        (self.root / "app/VERSION").write_text("0.9.0\n")
+        external = self.root / "external.db"
+        external.write_text("previous database")
+        with (self.root / "panel.env").open("a") as env_file:
+            env_file.write(f"SEM_DATABASE_URL=sqlite:///{external}\n")
+        self.executable("systemctl", '''#!/bin/sh
+if [ "$1" = restart ] && [ "$(head -n1 "$TEST_INSTALL_ROOT/app/VERSION")" = 1.0.0 ]; then
+  printf 'failed migration' > "$TEST_INSTALL_ROOT/external.db"
+  exit 1
+fi
+exit 0
+''')
+        result = self.run_install("--upgrade")
+        self.assertEqual(result.returncode, 17, result.stderr)
+        self.assertEqual(external.read_text(), "previous database")
+        self.assertEqual((self.root / "app/VERSION").read_text(), "0.9.0\n")
 
     def test_bad_panel_checksum_never_installs(self):
         (self.release / "softether-manager.tar.gz.sha256").write_text("0" * 64)

@@ -744,6 +744,7 @@ PREVIOUS_APP=""
 ROLLBACK=0
 SERVICE_STOPPED=0
 ROLLBACK_DATA_DIR="$DATA_DIR"
+ROLLBACK_DB=""
 BACKUP_FILES=("$ENV_PATH" "$UNIT_PATH" "$CLI_PATH" "$CLI_ENV_PATH" "$CACHED_INSTALLER")
 cleanup_install() {
   local result=$? recovery_failed=0 i
@@ -754,6 +755,16 @@ cleanup_install() {
       if ! rm -rf "$APP_DIR" || ! mv "$PREVIOUS_APP" "$APP_DIR"; then recovery_failed=1; fi
       if [[ -d "$STAGING/previous-data" ]]; then
         if ! rm -rf "$ROLLBACK_DATA_DIR" || ! cp -a "$STAGING/previous-data" "$ROLLBACK_DATA_DIR"; then recovery_failed=1; fi
+      fi
+      if [[ -n "$ROLLBACK_DB" ]]; then
+        local suffix
+        for suffix in '' -wal -shm -journal; do
+          if [[ -f "$STAGING/previous-db$suffix" ]]; then
+            cp -a "$STAGING/previous-db$suffix" "$ROLLBACK_DB$suffix" || recovery_failed=1
+          else
+            rm -f "$ROLLBACK_DB$suffix" || recovery_failed=1
+          fi
+        done
       fi
       for i in "${!BACKUP_FILES[@]}"; do
         if [[ -f "$STAGING/previous-file-$i" ]]; then
@@ -830,6 +841,24 @@ if (( UPGRADE_EXISTING == 1 )) && [[ -d "$APP_DIR" ]]; then
   ROLLBACK_DATA_DIR="$(read_env_value "$ENV_PATH" SEM_DATA_DIR || true)"
   ROLLBACK_DATA_DIR="${ROLLBACK_DATA_DIR:-$DATA_DIR}"
   [[ ! -d "$ROLLBACK_DATA_DIR" ]] || cp -a "$ROLLBACK_DATA_DIR" "$STAGING/previous-data"
+  local_db=""
+  if [[ -f "$ENV_PATH" ]]; then
+    local_db="$(cd "$APP_DIR" && . "$ENV_PATH" && printf '%s' "${SEM_DATABASE_URL:-}")"
+  fi
+  local_db="${local_db#sqlite:///}"
+  if [[ -n "$local_db" && "$local_db" != ':memory:' ]]; then
+    [[ "$local_db" = /* ]] || local_db="$APP_DIR/$local_db"
+    if [[ -L "$local_db" ]]; then
+      fail "$EXIT_SERVICE_FAILED" 'Resolve the SQLite symlink to a regular database path before upgrading.'
+    fi
+    local_db="$(cd "$(dirname "$local_db")" && pwd -P)/$(basename "$local_db")"
+    if [[ "$local_db" != "$(cd "$ROLLBACK_DATA_DIR" 2>/dev/null && pwd -P)/"* ]]; then
+      ROLLBACK_DB="$local_db"
+      for suffix in '' -wal -shm -journal; do
+        [[ ! -e "$ROLLBACK_DB$suffix" ]] || cp -a "$ROLLBACK_DB$suffix" "$STAGING/previous-db$suffix"
+      done
+    fi
+  fi
   for i in "${!BACKUP_FILES[@]}"; do
     [[ ! -f "${BACKUP_FILES[$i]}" ]] || cp -a "${BACKUP_FILES[$i]}" "$STAGING/previous-file-$i"
   done
@@ -1025,17 +1054,17 @@ UNIT
 
 # Create the account before enabling or opening the network listener.
 ACCOUNT_CREATED=0
-if (( UPGRADE_EXISTING == 0 )) && [[ -n "$USERNAME" ]]; then
+EXISTING_USERS="$(cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a && "$MANAGER_BIN" users)"
+if [[ -z "$EXISTING_USERS" ]]; then
+  [[ -n "$USERNAME" && -n "$PASSWORD" ]] ||
+    fail "$EXIT_SERVICE_FAILED" 'No administrator exists; provide --username and --password-stdin before starting the service.'
   step "Creating the operator account"
-  EXISTING_USERS="$(cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a && "$MANAGER_BIN" users)"
-  if [[ -n "$EXISTING_USERS" ]]; then
-    warn "An account already exists; its password was kept."
-  else
-    (cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a &&
-      printf '%s' "$PASSWORD" | "$MANAGER_BIN" password --username "$USERNAME" --password-stdin) >/dev/null ||
-      fail "$EXIT_SERVICE_FAILED" "Could not create the operator account; the panel was not started."
-    ACCOUNT_CREATED=1
-  fi
+  (cd "$APP_DIR" && set -a && . "$ENV_PATH" && set +a &&
+    printf '%s' "$PASSWORD" | "$MANAGER_BIN" password --username "$USERNAME" --password-stdin) >/dev/null ||
+    fail "$EXIT_SERVICE_FAILED" "Could not create the operator account; the panel was not started."
+  ACCOUNT_CREATED=1
+elif (( UPGRADE_EXISTING == 0 )); then
+  warn "An account already exists; its password was kept."
 fi
 
 systemctl daemon-reload
@@ -1054,9 +1083,11 @@ step "Waiting for the panel to answer"
 READY=0
 for _ in $(seq 1 60); do
   if [[ "$DOWNLOADER" == "curl" ]]; then
-    if curl -fsS --max-time 3 "$HEALTH_URL" >/dev/null 2>&1; then READY=1; break; fi
+    reply="$(curl -fsS --max-time 3 -w '\n%{http_code}' "$HEALTH_URL" 2>/dev/null)" || reply=''
+    if [[ "$reply" == "$(printf '{"ok":true,"version":"%s"}\n\n200' "$INSTALLED_VERSION")" ]]; then READY=1; break; fi
   else
-    if wget -q --timeout=3 -O /dev/null "$HEALTH_URL" 2>/dev/null; then READY=1; break; fi
+    reply="$(wget -q --timeout=3 --max-redirect=0 -O - "$HEALTH_URL")" || reply=''
+    if [[ "$reply" == "$(printf '{"ok":true,"version":"%s"}' "$INSTALLED_VERSION")" ]]; then READY=1; break; fi
   fi
   sleep 1
 done

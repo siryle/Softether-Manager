@@ -64,6 +64,7 @@ export interface BackupSettings {
   configured_dir: string;
   retention_count: number;
   last_run: string;
+  last_error: string;
 }
 
 export class ApiError extends Error {
@@ -78,8 +79,8 @@ export class ApiError extends Error {
 
 export type Wire = Record<string, any>;
 
-async function request<T = Wire>(method: string, path: string, body?: unknown, serverId = getStoredServerId()): Promise<T> {
-  const scoped = !path.startsWith("/auth/") && !path.startsWith("/system/") && !path.startsWith("/servers");
+async function request<T = Wire>(method: string, path: string, body?: unknown, binary = false, serverId = getStoredServerId()): Promise<T> {
+  const scoped = path === "/system/domain/push-cert" || (!path.startsWith("/auth/") && !path.startsWith("/system/") && !path.startsWith("/servers"));
   const assertServer = () => {
     if (scoped && (serverId === null || serverId !== getStoredServerId())) throw new DOMException("Server changed", "AbortError");
   };
@@ -95,6 +96,11 @@ async function request<T = Wire>(method: string, path: string, body?: unknown, s
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
+  if (binary && res.ok) {
+    const blob = await res.blob();
+    assertServer();
+    return blob as T;
+  }
   const text = await res.text();
   assertServer();
 
@@ -282,6 +288,8 @@ export interface DomainStatus {
   cf_dns_token?: string;
   cert_key_type?: "rsa2048" | "ecdsa";
   cert_auto_push?: boolean;
+  cert_push_server_id?: number;
+  deployment_error?: string;
   cert_renew_hook?: string;
   vpn_public_host?: string;
   vpn_public_port?: number;
@@ -299,14 +307,15 @@ export interface DomainIn {
   cf_dns_token?: string;
   cert_key_type?: "rsa2048" | "ecdsa";
   cert_auto_push?: boolean;
+  cert_push_server_id?: number;
   cert_renew_hook?: string;
 }
 
 const hubPath = (hub: string) => `/hubs/${encodeURIComponent(hub)}`;
 
 export function createServerApi(serverId: number | null) {
-  const request = <T = Wire>(method: string, path: string, body?: unknown) =>
-    sendRequest<T>(method, path, body, serverId);
+  const request = <T = Wire>(method: string, path: string, body?: unknown, binary = false) =>
+    sendRequest<T>(method, path, body, binary, serverId);
   return apiMethods(request);
 }
 
@@ -394,7 +403,6 @@ function apiMethods(request: typeof sendRequest) {
   azure: () => request("GET", "/server/azure"),
   setAzure: (enabled: boolean) => request("PUT", "/server/azure", { IsEnabled_bool: enabled }),
   ddns: () => request("GET", "/server/ddns"),
-  setDdnsEnabled: (enabled: boolean) => request("PUT", "/server/ddns", { enabled, confirm_restart: true }),
   setDdnsHostname: (hostname: string) => request("PUT", "/server/ddns/hostname", { hostname }),
   ddnsProxy: () => request("GET", "/server/ddns/proxy"),
   setDdnsProxy: (body: Wire) => request("PUT", "/server/ddns/proxy", body),
@@ -453,6 +461,7 @@ function apiMethods(request: typeof sendRequest) {
   setConfig: (config_base64: string) => request("PUT", "/server/config", { config_base64 }),
   getBackups: () => request<{ backups: BackupInfo[] }>("GET", "/server/backups"),
   createBackup: () => request<BackupInfo>("POST", "/server/backups"),
+  downloadBackup: (filename: string) => request<Blob>("GET", `/server/backups/${encodeURIComponent(filename)}/download`, undefined, true),
   restoreBackup: (filename: string) => request("POST", `/server/backups/${encodeURIComponent(filename)}/restore`),
   deleteBackup: (filename: string) => request("DELETE", `/server/backups/${encodeURIComponent(filename)}`),
   getBackupSettings: () => request<BackupSettings>("GET", "/server/backup-settings"),

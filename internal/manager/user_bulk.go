@@ -27,7 +27,7 @@ var userAuthTypes = map[string]int{
 	"signedcertificate": 3, "signed": 3, "radius": 4, "nt": 5, "ntdomain": 5,
 }
 
-var userExpiryLayouts = []string{time.RFC3339, "2006-01-02T15:04", "2006-01-02 15:04", "2006-01-02"}
+var userExpiryLayouts = []string{time.RFC3339, "2006-01-02T15:04:05.999999999", "2006-01-02T15:04", "2006-01-02 15:04", "2006-01-02"}
 
 // recoverAsError turns one row's RPC failure into that row's error, so a bad
 // line cannot abort the whole import.
@@ -43,31 +43,30 @@ func recoverAsError(fn func() error) (err error) {
 func (a *App) registerUserBulk() {
 	a.endpoint("GET /hubs/{hub}/users/export", func(_ http.ResponseWriter, r *http.Request, u M) any {
 		hub := r.PathValue("hub")
-		serverID := a.serverIDFromContext(r.Context())
 		out := a.rpc(r.Context(), "EnumUser", M{"HubName_str": hub})
-		list, _ := out["UserList"].([]any)
+		users := list(out["UserList"])
 
 		var buf strings.Builder
 		w := csv.NewWriter(&buf)
 		check(w.Write(userCSVHeader))
-		for _, item := range list {
-			row, ok := item.(map[string]any)
-			if !ok {
-				continue
-			}
+		for _, row := range users {
 			expires := ""
 			if boolean(row["IsExpiresFilled_bool"]) {
 				expires = str(row["Expires_dt"])
 			}
+			name, auth := str(row["Name_str"]), integer(row["AuthType_u32"])
+			if auth != 0 && auth != 1 {
+				fail(409, "CSV cannot preserve the authentication settings for "+name+". Use a configuration backup instead.")
+			}
+			current := a.rpc(r.Context(), "GetUser", M{"HubName_str": hub, "Name_str": name})
+			if integer(current["AuthType_u32"]) != auth || boolean(current["UsePolicy_bool"]) || boolean(row["DenyAccess_bool"]) {
+				fail(409, "CSV cannot preserve the current access settings for "+name+". Use a configuration backup instead.")
+			}
 			hash := ""
-			if integer(row["AuthType_u32"]) == 1 {
-				// The vault first; otherwise ask the server once and remember.
-				hash = a.storedCredential(serverID, hub, str(row["Name_str"]))
-				if hash == "" {
-					_ = recoverAsError(func() error {
-						hash = a.obtainCredential(r.Context(), serverID, hub, str(row["Name_str"]))
-						return nil
-					})
+			if auth == 1 {
+				hash = str(current["HashedKey_bin"])
+				if !validVPNHash(hash) {
+					fail(409, "SoftEther did not supply a current password hash for "+name+".")
 				}
 			}
 			check(w.Write([]string{
@@ -84,8 +83,8 @@ func (a *App) registerUserBulk() {
 		w.Flush()
 		check(w.Error())
 
-		a.audit(u, "user.exported", "hub", hub, fmt.Sprintf("%d users", len(list)))
-		return M{"filename": hub + "-users.csv", "csv": buf.String(), "count": len(list)}
+		a.audit(u, "user.exported", "hub", hub, fmt.Sprintf("%d users", len(users)))
+		return M{"filename": hub + "-users.csv", "csv": buf.String(), "count": len(users)}
 	})
 
 	a.endpoint("POST /hubs/{hub}/users/import", func(w http.ResponseWriter, r *http.Request, u M) any {
@@ -120,7 +119,7 @@ func (a *App) registerUserBulk() {
 
 		// One read of the hub tells us which names are already taken.
 		existing := map[string]bool{}
-		for _, item := range listOf(a.rpc(r.Context(), "EnumUser", M{"HubName_str": hub})) {
+		for _, item := range list(a.rpc(r.Context(), "EnumUser", M{"HubName_str": hub})["UserList"]) {
 			existing[strings.ToLower(str(item["Name_str"]))] = true
 		}
 
@@ -159,14 +158,17 @@ func (a *App) registerUserBulk() {
 				authType = n
 			}
 
+			if authType != 0 && authType != 1 {
+				failed = append(failed, M{"line": line, "name": name, "error": "CSV supports only anonymous and password authentication"})
+				continue
+			}
 			password, passwordHash := pick(row, "password"), pick(row, "password_hash")
 			if authType == 1 && password == "" {
 				if passwordHash == "" {
 					failed = append(failed, M{"line": line, "name": name, "error": "a password-authenticated user needs password or password_hash"})
 					continue
 				}
-				raw, err := base64.StdEncoding.DecodeString(passwordHash)
-				if err != nil || len(raw) != 20 {
+				if !validVPNHash(passwordHash) {
 					failed = append(failed, M{"line": line, "name": name, "error": "password_hash is not a SoftEther password hash"})
 					continue
 				}
@@ -207,16 +209,14 @@ func (a *App) registerUserBulk() {
 					}
 				}
 				validateWire(payload)
-				a.rpc(r.Context(), "CreateUser", payload)
+				payload["GroupName_str"] = group
+				a.createUser(r.Context(), payload)
 				if authType == 1 {
 					if password != "" {
 						a.saveCredential(serverID, hub, name, hashedPassword(password, name))
 					} else {
 						a.saveCredential(serverID, hub, name, passwordHash)
 					}
-				}
-				if group != "" {
-					return a.assignUserGroup(r.Context(), hub, name, group)
 				}
 				return nil
 			})
@@ -233,25 +233,45 @@ func (a *App) registerUserBulk() {
 	})
 }
 
-// assignUserGroup merges a group into the record the server just created:
-// CreateUser cannot set one, and SetUser replaces the whole user.
-func (a *App) assignUserGroup(ctx context.Context, hub, name, group string) error {
-	fresh, err := a.client(ctx).Call(ctx, "GetUser", M{"HubName_str": hub, "Name_str": name})
-	if err != nil {
-		return err
+func (a *App) createUser(ctx context.Context, payload M) M {
+	group := str(payload["GroupName_str"])
+	if group == "" {
+		return a.rpc(ctx, "CreateUser", payload)
 	}
-	merged := M{}
-	for key, value := range fresh {
-		if strings.HasPrefix(key, "Recv.") || strings.HasPrefix(key, "Send.") || key == "Auth_Password_str" {
-			continue
+	hub, name := str(payload["HubName_str"]), str(payload["Name_str"])
+	a.rpc(ctx, "GetGroup", M{"HubName_str": hub, "Name_str": group})
+	initial := clone(payload)
+	delete(initial, "GroupName_str")
+	// A partially created account must not be able to sign in without the group.
+	initial["UsePolicy_bool"], initial["policy:Access_bool"] = true, false
+	out := a.rpc(ctx, "CreateUser", initial)
+	identity := M{"HubName_str": hub, "Name_str": name}
+	err := recoverAsError(func() error {
+		merged := userWriteBody(a.rpc(ctx, "GetUser", identity))
+		merged["HubName_str"], merged["Name_str"], merged["GroupName_str"] = hub, name, group
+		for k := range merged {
+			if k == "UsePolicy_bool" || strings.HasPrefix(k, "policy:") {
+				delete(merged, k)
+			}
 		}
-		merged[key] = value
+		for k, v := range payload {
+			if k == "UsePolicy_bool" || strings.HasPrefix(k, "policy:") {
+				merged[k] = v
+			}
+		}
+		a.rpc(ctx, "SetUser", merged)
+		return nil
+	})
+	if err == nil {
+		return out
 	}
-	merged["HubName_str"], merged["Name_str"] = hub, name
-	merged["GroupName_str"] = group
-	validateWire(merged)
-	_, err = a.client(ctx).Call(ctx, "SetUser", merged)
-	return err
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	defer cancel()
+	if _, rollbackErr := a.client(cleanup).Call(cleanup, "DeleteUser", identity); rollbackErr != nil && !explicitMissing(rollbackErr) {
+		fail(502, "Group assignment failed and the new account could not be removed; verify its state on SoftEther: "+err.Error())
+	}
+	fail(502, "Group assignment failed; the new account was removed: "+err.Error())
+	return nil
 }
 
 func parseUserExpiry(raw string) (time.Time, error) {
@@ -263,13 +283,7 @@ func parseUserExpiry(raw string) (time.Time, error) {
 	return time.Time{}, errors.New("unreadable date")
 }
 
-func listOf(out M) []M {
-	items, _ := out["UserList"].([]any)
-	list := make([]M, 0, len(items))
-	for _, item := range items {
-		if row, ok := item.(map[string]any); ok {
-			list = append(list, row)
-		}
-	}
-	return list
+func validVPNHash(hash string) bool {
+	raw, err := base64.StdEncoding.DecodeString(hash)
+	return err == nil && len(raw) == 20
 }

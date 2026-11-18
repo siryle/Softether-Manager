@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ConfirmSheet,
   Empty,
@@ -217,6 +217,7 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
   const [downloading, setDownloading] = useState(false);
   const [policy, setPolicy] = useState<Wire | null>(null);
   const [policyDirty, setPolicyDirty] = useState(false);
+  const initialPolicy = useRef<Wire | null>(null);
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [openSession, setOpenSession] = useState<string | null>(null);
   const [openHistory, setOpenHistory] = useState<Wire | null>(null);
@@ -257,15 +258,11 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
   const shownHistory = history ? history.slice(0, historyVisible) : [];
 
   const savePolicy = async () => {
-    if (!user || !policy) return;
+    if (!user || !policy || !initialPolicy.current) return;
     setSavingPolicy(true);
-    const body: Wire = {};
-    for (const [k, v] of Object.entries(user)) {
-      if (k.startsWith("Recv.") || k.startsWith("Send.") || k === "Auth_Password_str") continue;
-      body[k] = v;
-    }
-    Object.assign(body, policy);
-    const ok = await guard(() => api.setUser(hub, name, body), "Policy saved.");
+    const baseline = initialPolicy.current;
+    const body = Object.fromEntries(Object.entries(policy).filter(([key, value]) => value !== baseline[key]));
+    const ok = Object.keys(body).length === 0 || await guard(() => api.setUser(hub, name, body), "Policy saved.");
     setSavingPolicy(false);
     if (ok) {
       setPolicyDirty(false);
@@ -476,6 +473,7 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
               value={policy}
               subject="user"
               onChange={(next) => {
+                if (!policyDirty) initialPolicy.current = policy;
                 setPolicy(next);
                 setPolicyDirty(true);
               }}

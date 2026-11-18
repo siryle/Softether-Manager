@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,16 +25,57 @@ type BackupInfo struct {
 	IsAuto    bool   `json:"is_auto"`
 }
 
-func (a *App) getBackupDir(serverID int64) string {
+func (a *App) backupRoot() string {
 	dir := strings.TrimSpace(str(a.setting("backup_dir")))
 	if dir == "" {
 		dir = filepath.Join(a.cfg.DataDir, "backups")
 	}
+	return dir
+}
+
+func (a *App) getBackupDir(serverID int64) string {
+	dir := a.backupRoot()
 	if serverID > 1 {
 		dir = filepath.Join(dir, fmt.Sprintf("server_%d", serverID))
 	}
-	_ = os.MkdirAll(dir, 0755)
+	_ = os.MkdirAll(dir, 0700)
 	return dir
+}
+
+func (a *App) protectExistingBackups() error {
+	root := a.backupRoot()
+	entries, err := os.ReadDir(root)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	dirs := []string{root}
+	for _, entry := range entries {
+		if id, ok := strings.CutPrefix(entry.Name(), "server_"); ok && entry.IsDir() {
+			if _, err := strconv.ParseUint(id, 10, 64); err == nil {
+				dirs = append(dirs, filepath.Join(root, entry.Name()))
+			}
+		}
+	}
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			if entry.Type().IsRegular() && isSafeBackupFilename(entry.Name()) {
+				if err := os.Chmod(filepath.Join(dir, entry.Name()), 0600); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // rotateAutoBackups keeps only the newest maxKeep automatic backup files.
@@ -73,7 +115,7 @@ func (a *App) createServerBackup(ctx context.Context, serverID int64, isAuto boo
 	}
 
 	dir := a.getBackupDir(serverID)
-	ts := time.Now().Format("20060102_150405")
+	ts := time.Now().UTC().Format("20060102_150405.000000000")
 	kind := "manual"
 	if isAuto {
 		kind = "auto"
@@ -87,7 +129,7 @@ func (a *App) createServerBackup(ctx context.Context, serverID int64, isAuto boo
 	}
 
 	targetPath := filepath.Join(dir, filename)
-	if err := os.WriteFile(targetPath, data, 0644); err != nil {
+	if err := atomicWrite(targetPath, data, 0600); err != nil {
 		return nil, fmt.Errorf("failed to write backup file: %w", err)
 	}
 
@@ -182,41 +224,35 @@ func shouldRunBackup(enabled bool, intervalHours int64, backupTime, lastRunStr s
 }
 
 func (a *App) backupTick(ctx context.Context) {
-	enabled := boolean(a.setting("backup_enabled"))
-	intervalHours := integer(a.setting("backup_interval_hours"))
-	backupTime := str(a.setting("backup_time"))
-	lastRunStr := str(a.setting("backup_last_run"))
-
-	if !shouldRunBackup(enabled, intervalHours, backupTime, lastRunStr, time.Now()) {
+	if !boolean(a.setting("backup_enabled")) {
 		return
 	}
-
-	servers := query(a.db, `SELECT ServerID FROM Server WHERE IsEnabled=1`)
-	if len(servers) == 0 {
-		return
-	}
-
-	ranAny := false
-	for _, s := range servers {
-		serverID := integer(s["ServerID"])
+	interval := integer(a.setting("backup_interval_hours"))
+	target := str(a.setting("backup_time"))
+	for _, s := range query(a.db, `SELECT ServerID FROM Server WHERE IsEnabled=1`) {
+		if ctx.Err() != nil {
+			return
+		}
+		id := integer(s["ServerID"])
 		func() {
-			defer func() {
-				if p := recover(); p != nil {
-					log.Printf("auto backup failed for server %d: %v", serverID, p)
-				}
-			}()
-			info, err := a.createServerBackup(ctx, serverID, true)
-			if err != nil {
-				log.Printf("auto backup error for server %d: %v", serverID, err)
-			} else {
-				ranAny = true
-				log.Printf("auto backup created for server %d: %s (%d bytes)", serverID, info.Filename, info.Size)
+			lock := a.quotaLock(id)
+			lock.Lock()
+			defer lock.Unlock()
+			row := one(a.db, `SELECT BackupLastRun FROM Server WHERE ServerID=? AND IsEnabled=1`, id)
+			if row == nil || !shouldRunBackup(true, interval, target, str(row["BackupLastRun"]), time.Now()) {
+				return
 			}
+			err := recoverAsError(func() error {
+				_, err := a.createServerBackup(ctx, id, true)
+				return err
+			})
+			if err != nil {
+				log.Printf("auto backup failed for server %d: %v", id, err)
+				execute(a.db, `UPDATE Server SET BackupLastError=? WHERE ServerID=?`, err.Error(), id)
+				return
+			}
+			execute(a.db, `UPDATE Server SET BackupLastRun=?,BackupLastError='' WHERE ServerID=?`, now(), id)
 		}()
-	}
-
-	if ranAny {
-		a.set("backup_last_run", time.Now().UTC().Format(time.RFC3339))
 	}
 }
 
@@ -253,6 +289,7 @@ func (a *App) registerBackups() {
 		defer f.Close()
 
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = io.Copy(w, f)
 		return nil
@@ -291,8 +328,8 @@ func (a *App) registerBackups() {
 		return M{"ok": true, "deleted": filename}
 	})
 
-	a.endpoint("GET /server/backup-settings", func(_ http.ResponseWriter, r *http.Request, _ M) any {
-		serverID := a.serverIDFromContext(r.Context())
+	settings := func(serverID int64) M {
+		row := a.serverRow(serverID)
 		return M{
 			"enabled":         boolean(a.setting("backup_enabled")),
 			"interval_hours":  integer(a.setting("backup_interval_hours")),
@@ -300,8 +337,12 @@ func (a *App) registerBackups() {
 			"backup_dir":      a.getBackupDir(serverID),
 			"configured_dir":  str(a.setting("backup_dir")),
 			"retention_count": 15,
-			"last_run":        str(a.setting("backup_last_run")),
+			"last_run":        row["BackupLastRun"],
+			"last_error":      row["BackupLastError"],
 		}
+	}
+	a.endpoint("GET /server/backup-settings", func(_ http.ResponseWriter, r *http.Request, _ M) any {
+		return settings(a.serverIDFromContext(r.Context()))
 	})
 
 	a.endpoint("PUT /server/backup-settings", func(w http.ResponseWriter, r *http.Request, u M) any {
@@ -319,18 +360,10 @@ func (a *App) registerBackups() {
 		}
 		if d, ok := b["backup_dir"].(string); ok {
 			a.set("backup_dir", strings.TrimSpace(d))
+			check(a.protectExistingBackups())
 		}
-		serverID := a.serverIDFromContext(r.Context())
 		a.audit(u, "server.backup_settings_updated", "server", "", "")
-		return M{
-			"enabled":         boolean(a.setting("backup_enabled")),
-			"interval_hours":  integer(a.setting("backup_interval_hours")),
-			"backup_time":     str(a.setting("backup_time")),
-			"backup_dir":      a.getBackupDir(serverID),
-			"configured_dir":  str(a.setting("backup_dir")),
-			"retention_count": 15,
-			"last_run":        str(a.setting("backup_last_run")),
-		}
+		return settings(a.serverIDFromContext(r.Context()))
 	})
 }
 

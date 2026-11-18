@@ -131,7 +131,7 @@ export function UserImportSheet({ hub, onClose, onImported }: { hub: string; onC
           </Field>
           <Field
             label={t("Rows")}
-            hint={t("Columns: name, realname, note, group, auth_type, password, password_hash, expires. Give a password, or the password_hash an export carries — that keeps the original password working. auth_type accepts password, anonymous, certificate, signed, radius, nt — or 0–5. Existing users are skipped.")}
+            hint={t("Columns: name, realname, note, group, auth_type, password, password_hash, expires. CSV supports password or anonymous authentication. Existing users are skipped.")}
           >
             <textarea
               className="input mono"

@@ -84,7 +84,7 @@ export function UserSheet({
   const [quotaLoaded, setQuotaLoaded] = useState(!editing);
   const profile = [realname, note, group, authType, radiusUser, ntUser, commonName, expires];
   const initialProfile = useRef(profile);
-  const profileChanged = Boolean(password || certBase64) || profile.some((value, index) => value !== initialProfile.current[index]);
+  const changed = (index: number) => !editing || profile[index] !== initialProfile.current[index];
   const { push } = useToast();
 
   useEffect(() => {
@@ -129,48 +129,33 @@ export function UserSheet({
     setBusy(true);
     try {
       const body: Wire = {};
-      if (editing) {
-        // Round-trip the server's own record so unsent fields are not wiped.
-        for (const [k, v] of Object.entries(existing ?? {})) {
-          if (k.startsWith("Recv.") || k.startsWith("Send.") || k === "Auth_Password_str") continue;
-          body[k] = v;
-        }
-      }
-      body.Realname_utf = realname;
-      body.Note_utf = note;
-      body.AuthType_u32 = authType;
-      body.ExpireTime_dt = expires ? new Date(expires).toISOString() : "1970-01-01T00:00:00.000";
-      if (editing) body.GroupName_str = group;
+      if (changed(0)) body.Realname_utf = realname;
+      if (changed(1)) body.Note_utf = note;
+      if (changed(2) && editing) body.GroupName_str = group;
+      if (changed(3)) body.AuthType_u32 = authType;
+      if (changed(4) && authType === 4) body.RadiusUsername_utf = radiusUser;
+      if (changed(5) && authType === 5) body.NtUsername_utf = ntUser;
+      if ((changed(3) || changed(6)) && authType === 3) body.CommonName_utf = commonName;
+      if (changed(7)) body.ExpireTime_dt = expires ? new Date(expires).toISOString() : "1970-01-01T00:00:00.000";
       if (authType === 1 && password) body.Auth_Password_str = password;
       if (authType === 2 && certBase64) body.UserX_bin = certBase64;
-      if (authType === 3) body.CommonName_utf = commonName;
-      if (authType === 4) body.RadiusUsername_utf = radiusUser;
-      if (authType === 5) body.NtUsername_utf = ntUser;
 
       const userName = editing ? String(existing?.Name_str) : name.trim();
       // Validated before the first write, so a bad limit cannot leave a user
       // half-configured behind it.
       if (quotaDraft.on) draftAmount(quotaDraft);
       if (editing) {
-        if (profileChanged) await api.setUser(hub, userName, body);
+        if (Object.keys(body).length) await api.setUser(hub, userName, body);
       } else {
         if (authType === 1 && !password) throw new Error("A password-authenticated user needs a password.");
         body.Name_str = userName;
+        if (group) body.GroupName_str = group;
         await api.createUser(hub, body);
-        // CreateUser cannot assign a group; a follow-up SetUser does.
-        if (group) {
-          const fresh = await api.user(hub, userName);
-          const merged: Wire = {};
-          for (const [k, v] of Object.entries(fresh)) {
-            if (k.startsWith("Recv.") || k.startsWith("Send.") || k === "Auth_Password_str") continue;
-            merged[k] = v;
-          }
-          merged.GroupName_str = group;
-          await api.setUser(hub, userName, merged);
-        }
       }
       try {
-        await saveUserQuotaDraft(api, hub, userName, quotaDraft, Boolean(quota));
+        if (!editing || quotaTouched.current || quotaDraft.reset) {
+          await saveUserQuotaDraft(api, hub, userName, quotaDraft, Boolean(quota));
+        }
       } catch (e) {
         setError(
           editing

@@ -174,6 +174,8 @@ func initSchema(db *sql.DB) error {
 		{"SortOrder", "INTEGER NOT NULL DEFAULT 0"},
 		{"CreatedDate", "TEXT NOT NULL DEFAULT ''"},
 		{"UpdatedDate", "TEXT NOT NULL DEFAULT ''"},
+		{"BackupLastRun", "TEXT NOT NULL DEFAULT ''"},
+		{"BackupLastError", "TEXT NOT NULL DEFAULT ''"},
 	} {
 		if !serverCols[col.column] {
 			if _, err = tx.Exec(`ALTER TABLE "Server" ADD COLUMN "` + col.column + `" ` + col.ddl); err != nil {
@@ -382,7 +384,7 @@ func (a *App) defaults() M {
 		"vpn_template": vpnDefaults, "vpn_account_name_template": "{hub} - {username}", "vpn_filename_template": "{hub}-{username}", "vpn_embed_password_default": true,
 		"vpn_public_host": "", "vpn_public_port": 443,
 		"domain": "", "https_port": 443, "acme_email": "", "acme_staging": false, "domain_only": false,
-		"acme_challenge_type": "dns-01", "cf_dns_token": "", "cert_key_type": "rsa2048", "cert_auto_push": true, "cert_renew_hook": "",
+		"acme_challenge_type": "dns-01", "cf_dns_token": "", "cert_key_type": "rsa2048", "cert_auto_push": true, "cert_push_server_id": 0, "cert_renew_hook": "",
 		"backup_enabled": true, "backup_interval_hours": 24, "backup_time": "03:00", "backup_dir": filepath.Join(a.cfg.DataDir, "backups"), "backup_last_run": "",
 	}
 }

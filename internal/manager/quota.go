@@ -58,6 +58,10 @@ func (a *App) requireReleasedQuotas(serverID int64) {
 		fail(409, "Release this server's enforced quotas before changing its address, disabling it, or removing the connection.")
 	}
 }
+func (a *App) resetQuotaBaselines(id int64) {
+	execute(a.db, `UPDATE TrafficQuota SET CycleStartDate='',BaseSendBytes=0,BaseRecvBytes=0,LastSendBytes=0,LastRecvBytes=0,ExceededDate=NULL,UpdatedDate=? WHERE ServerID=?`, now(), id)
+}
+
 func (a *App) quotaLock(serverID int64) *sync.Mutex {
 	a.quotaMu.Lock()
 	defer a.quotaMu.Unlock()
@@ -69,11 +73,17 @@ func (a *App) quotaLock(serverID int64) *sync.Mutex {
 	}
 	return a.quotaLocks[serverID]
 }
-func (a *App) observeQuotaLocked(serverID int64, subject, hub, name string, send, recv int64) {
+func (a *App) observeQuotaLocked(serverID int64, subject, hub, name string, send, recv int64, source ...*RPCClient) {
 	if serverID == 0 {
 		serverID = 1
 	}
-	execute(a.db, `UPDATE TrafficQuota SET BaseSendBytes=CASE WHEN ?<LastSendBytes THEN BaseSendBytes-LastSendBytes ELSE BaseSendBytes END,BaseRecvBytes=CASE WHEN ?<LastRecvBytes THEN BaseRecvBytes-LastRecvBytes ELSE BaseRecvBytes END,LastSendBytes=?,LastRecvBytes=?,UpdatedDate=? WHERE ServerID=? AND SubjectType=? AND HubName=? AND UserKey=?`, send, recv, send, recv, now(), serverID, subject, hub, fold(name))
+	sql := `UPDATE TrafficQuota SET BaseSendBytes=CASE WHEN CycleStartDate='' THEN ? WHEN ?<LastSendBytes THEN BaseSendBytes-LastSendBytes ELSE BaseSendBytes END,BaseRecvBytes=CASE WHEN CycleStartDate='' THEN ? WHEN ?<LastRecvBytes THEN BaseRecvBytes-LastRecvBytes ELSE BaseRecvBytes END,LastSendBytes=?,LastRecvBytes=?,CycleStartDate=CASE WHEN CycleStartDate='' THEN ? ELSE CycleStartDate END,UpdatedDate=? WHERE ServerID=? AND SubjectType=? AND HubName=? AND UserKey=?`
+	args := []any{send, send, recv, recv, send, recv, now(), now(), serverID, subject, hub, fold(name)}
+	if len(source) != 0 {
+		sql += ` AND EXISTS (SELECT 1 FROM Server WHERE ServerID=TrafficQuota.ServerID AND Host=? COLLATE NOCASE AND Port=?)`
+		args = append(args, source[0].host, source[0].port)
+	}
+	execute(a.db, sql, args...)
 }
 func (a *App) refreshQuota(ctx context.Context, serverID int64, subject, hub, name string) error {
 	method := "GetHubStatus"
@@ -82,16 +92,23 @@ func (a *App) refreshQuota(ctx context.Context, serverID int64, subject, hub, na
 		method = "GetUser"
 		params["Name_str"] = name
 	}
-	client, err := a.clientFor(serverID)
-	if err != nil {
-		return err
+	client, _ := ctx.Value(rpcClientKey).(*RPCClient)
+	if client == nil {
+		var err error
+		client, err = a.clientFor(serverID)
+		if err != nil {
+			return err
+		}
 	}
 	out, err := client.Call(ctx, method, params)
 	if err != nil {
 		return err
 	}
-	send, recv := bytesFor(out, "")
-	a.observeQuotaLocked(serverID, subject, hub, name, send, recv)
+	send, recv, valid := sampledTraffic(out, "")
+	if !valid {
+		return httpError{422, "SoftEther returned incomplete traffic counters; previous usage was retained."}
+	}
+	a.observeQuotaLocked(serverID, subject, hub, name, send, recv, client)
 	return nil
 }
 func userWriteBody(row M) M {
@@ -106,6 +123,22 @@ func userWriteBody(row M) M {
 	}
 	return out
 }
+func explicitMissing(err error) bool {
+	e, ok := err.(httpError)
+	return ok && str(object(e.Detail)["se_error"]) == "NotFoundError"
+}
+
+func (a *App) forgetMissingQuota(row M, client *RPCClient) {
+	result, err := a.db.Exec(`DELETE FROM TrafficQuota WHERE TrafficQuotaID=? AND EXISTS (SELECT 1 FROM Server WHERE ServerID=TrafficQuota.ServerID AND Host=? COLLATE NOCASE AND Port=?)`, row["TrafficQuotaID"], client.host, client.port)
+	check(err)
+	removed, err := result.RowsAffected()
+	check(err)
+	if removed == 0 {
+		return
+	}
+	a.audit(nil, "quota.subject_missing", str(row["SubjectType"]), str(row["HubName"]), str(row["UserName"]), integer(row["ServerID"]))
+}
+
 func (a *App) releaseQuota(ctx context.Context, row M) {
 	if str(row["RestoreState"]) == "" {
 		return
@@ -113,9 +146,19 @@ func (a *App) releaseQuota(ctx context.Context, row M) {
 	var restore M
 	check(json.Unmarshal([]byte(str(row["RestoreState"])), &restore))
 	hub, name := str(row["HubName"]), str(row["UserName"])
-	if str(row["SubjectType"]) == "hub" {
+	method, params := "GetHub", M{"HubName_str": hub}
+	if str(row["SubjectType"]) == "user" {
+		method, params["Name_str"] = "GetUser", name
+	}
+	client := a.client(ctx)
+	current, err := client.Call(ctx, method, params)
+	if explicitMissing(err) {
+		a.forgetMissingQuota(row, client)
+		return
+	}
+	check(err)
+	if method == "GetHub" {
 		if boolean(withDefault(restore, "Online_bool", true)) {
-			current := a.rpc(ctx, "GetHub", M{"HubName_str": hub})
 			if !boolean(current["Online_bool"]) {
 				a.rpc(ctx, "SetHubOnline", M{"HubName_str": hub, "Online_bool": true})
 				current = a.rpc(ctx, "GetHub", M{"HubName_str": hub})
@@ -125,8 +168,6 @@ func (a *App) releaseQuota(ctx context.Context, row M) {
 			}
 		}
 	} else {
-		params := M{"HubName_str": hub, "Name_str": name}
-		current := a.rpc(ctx, "GetUser", params)
 		usePolicy := boolean(restore["UsePolicy_bool"])
 		access := boolean(withDefault(restore, "policy:Access_bool", true))
 		matches := func(user M) bool {
@@ -155,13 +196,21 @@ func (a *App) blockQuota(ctx context.Context, row M) {
 		method = "GetUser"
 		params["Name_str"] = name
 	}
+	client := a.client(ctx)
+	ctx = context.WithValue(ctx, rpcClientKey, client)
 	current := a.rpc(ctx, method, params)
 	if str(row["RestoreState"]) == "" {
 		restore := M{"Online_bool": boolean(withDefault(current, "Online_bool", true)), "UsePolicy_bool": boolean(current["UsePolicy_bool"]), "policy:Access_bool": boolean(withDefault(current, "policy:Access_bool", true))}
 		encoded, err := json.Marshal(restore)
 		check(err)
 		// Keep the original state even if the remote reply or final local write is lost.
-		execute(a.db, `UPDATE TrafficQuota SET RestoreState=?,UpdatedDate=? WHERE TrafficQuotaID=?`, string(encoded), now(), row["TrafficQuotaID"])
+		result, err := a.db.Exec(`UPDATE TrafficQuota SET RestoreState=?,UpdatedDate=? WHERE TrafficQuotaID=? AND EXISTS (SELECT 1 FROM Server WHERE ServerID=TrafficQuota.ServerID AND Host=? COLLATE NOCASE AND Port=? AND IsEnabled=1)`, string(encoded), now(), row["TrafficQuotaID"], client.host, client.port)
+		check(err)
+		changed, err := result.RowsAffected()
+		check(err)
+		if changed != 1 {
+			fail(409, "The quota or its server changed before the VPN policy could be applied.")
+		}
 	}
 	if str(row["SubjectType"]) == "hub" {
 		if boolean(current["Online_bool"]) {
@@ -201,6 +250,7 @@ func (a *App) guardHubOnline(ctx context.Context, method string, params M) {
 }
 func (a *App) enforceQuota(ctx context.Context, row M) {
 	if a.quotaOver(row) {
+		ctx = context.WithValue(ctx, rpcClientKey, a.client(ctx))
 		a.blockQuota(ctx, row)
 		if str(row["SubjectType"]) == "user" {
 			a.cutQuotaSessions(ctx, row)
@@ -227,7 +277,14 @@ func (a *App) quotaTick(ctx context.Context) {
 			serverCtx := context.WithValue(ctx, serverIDKey, id)
 			for _, row := range query(a.db, `SELECT * FROM TrafficQuota WHERE ServerID=?`, id) {
 				subject, hub, name := str(row["SubjectType"]), str(row["HubName"]), str(row["UserName"])
-				if err := a.refreshQuota(serverCtx, id, subject, hub, name); err != nil {
+				client, err := a.clientFor(id)
+				check(err)
+				quotaCtx := context.WithValue(serverCtx, rpcClientKey, client)
+				if err := a.refreshQuota(quotaCtx, id, subject, hub, name); err != nil {
+					if explicitMissing(err) {
+						a.forgetMissingQuota(row, client)
+						continue
+					}
 					log.Printf("quota reading %d/%s/%s: %v", id, hub, name, err)
 					if e, ok := err.(httpError); !ok || e.Status >= 500 || e.Status == 409 {
 						break
@@ -240,7 +297,7 @@ func (a *App) quotaTick(ctx context.Context) {
 							log.Printf("quota enforcement: %v", p)
 						}
 					}()
-					a.enforceQuota(serverCtx, a.quotaRow(id, subject, hub, name))
+					a.enforceQuota(quotaCtx, a.quotaRow(id, subject, hub, name))
 				}()
 			}
 		}()

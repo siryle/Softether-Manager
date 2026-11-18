@@ -3,7 +3,7 @@
 import { t } from "../lib/i18n";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { CheckRow, ConfirmSheet, Empty, ErrorAlert, Field, KV, LoadingBlock, PageHead, SectionTitle, usePoll } from "../components/bits";
-import { api, useServerApi, ApiError, type BackupInfo, type BackupSettings, type DomainStatus, type Wire } from "../lib/api";
+import { api, getStoredServerId, useServerApi, ApiError, type BackupInfo, type BackupSettings, type DomainStatus, type Wire } from "../lib/api";
 import { Link } from "../lib/router";
 import { useToast } from "../lib/toast";
 import { downloadBase64, downloadText, fileToBase64, formatBytes, formatDate, timeAgo } from "../lib/util";
@@ -358,48 +358,17 @@ function AzureDdnsCard() {
 
 function DdnsSettings({ ddns, onFresh, children }: { ddns: Wire; onFresh: (fresh: Wire) => void; children: ReactNode }) {
   const api = useServerApi();
-  const [confirming, setConfirming] = useState(false);
   const [ddnsHost, setDdnsHost] = useState("");
   const { guard } = useToast();
   const on = ddns.enabled === true;
-  const toggle = useToggle({
-    value: on,
-    noun: "Dynamic DNS",
-    onWord: "enabled",
-    offWord: "disabled",
-    apply: async (next) => {
-      try {
-        await api.setDdnsEnabled(next);
-      } catch (error) {
-        // SetConfig may restart the server before its response reaches the panel.
-        if (!(error instanceof ApiError) || error.seError !== "TransportError") throw error;
-      }
-      const deadline = Date.now() + 45000;
-      while (Date.now() < deadline) {
-        await new Promise((resolve) => window.setTimeout(resolve, 1000));
-        try {
-          const fresh = await api.ddns();
-          onFresh(fresh);
-          if (fresh.enabled === next) return next;
-        } catch (error) {
-          if (error instanceof ApiError && error.seError !== "TransportError") throw error;
-        }
-      }
-      throw new Error(t("The VPN server has not confirmed the dynamic DNS change. Check its status and retry."));
-    },
-  });
 
   return (
     <>
-      <SwitchRow
-        label="Dynamic DNS"
-        hint={toggle.pending ? "Restarting the VPN server; waiting for dynamic DNS status…" : "Keep a softether.net hostname updated. Changing this setting restarts the VPN service."}
-        on={on}
-        toggle={toggle}
-        onToggle={() => setConfirming(true)}
-        status={<Pill kind={on ? "ok" : "idle"} label={on ? "enabled" : "disabled"} />}
-      />
-      <fieldset disabled={toggle.pending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+      <div className="statrow">
+        <span className="statrow__k">{t("Dynamic DNS")}</span>
+        <Pill kind={on ? "ok" : "idle"} label={on ? "enabled" : "disabled"} />
+      </div>
+      <div>
         {children}
         {on && (
           <>
@@ -423,19 +392,7 @@ function DdnsSettings({ ddns, onFresh, children }: { ddns: Wire; onFresh: (fresh
             </Field>
           </>
         )}
-      </fieldset>
-      {confirming && (
-        <ConfirmSheet
-          title={t(on ? "Disable dynamic DNS and restart?" : "Enable dynamic DNS and restart?")}
-          verb="Apply & restart"
-          body={t("This restarts the VPN service and disconnects all sessions. After dynamic DNS is disabled, enabling it again may assign a new hostname. VPN Azure also relies on dynamic DNS.")}
-          onClose={() => setConfirming(false)}
-          onConfirm={() => {
-            setConfirming(false);
-            void toggle.toggle();
-          }}
-        />
-      )}
+      </div>
     </>
   );
 }
@@ -689,7 +646,7 @@ const issueForm = (s: DomainStatus | null) => ({
   acme_challenge_type: (s?.acme_challenge_type as "dns-01" | "http-01") || "dns-01",
   cf_dns_token: s?.cf_dns_token ?? "",
   cert_key_type: (s?.cert_key_type as "rsa2048" | "ecdsa") || "rsa2048",
-  cert_auto_push: s?.cert_auto_push !== false,
+  cert_auto_push: Boolean(s?.cert_auto_push && s.cert_push_server_id && s.cert_push_server_id === getStoredServerId()),
   cert_renew_hook: s?.cert_renew_hook ?? "",
 });
 
@@ -711,6 +668,8 @@ function CertRow({ label, pill, children, error }: { label: string; pill: ReactN
  * the current server over RPC -- on issue and on every renewal.
  */
 function IssueCertificateSection() {
+  const api = useServerApi();
+  const [serverId] = useState(getStoredServerId);
   const [state, setState] = useState<DomainStatus | null>(null);
   const [form, setForm] = useState(issueForm(null));
   const [dirty, setDirty] = useState(false);
@@ -755,7 +714,8 @@ function IssueCertificateSection() {
         acme_challenge_type: form.acme_challenge_type,
         cf_dns_token: form.cf_dns_token.trim(),
         cert_key_type: form.cert_key_type,
-        cert_auto_push: form.cert_auto_push,
+        cert_auto_push: form.cert_auto_push || Boolean(state?.cert_auto_push && state.cert_push_server_id && state.cert_push_server_id !== serverId),
+        cert_push_server_id: form.cert_auto_push ? serverId ?? undefined : state?.cert_push_server_id === serverId ? 0 : undefined,
         cert_renew_hook: form.cert_renew_hook.trim(),
       });
       setDirty(false);
@@ -805,6 +765,7 @@ function IssueCertificateSection() {
   const attention: string[] = [];
   if (s && s.configured && !busy) {
     if (s.config_error) attention.push(s.config_error);
+    if (s.deployment_error) attention.push(s.deployment_error);
     if (s.dns?.error) attention.push(s.dns.error);
     if (challenge === "http-01" && s.http.error) attention.push(t("Port 80: {error}", { error: s.http.error }));
     const stageError = s.renewal.last_error_type === "dns" || s.renewal.last_error_type === "port80";
@@ -1779,11 +1740,7 @@ function ConfigCard() {
 
   const handleDownloadBackup = async (filename: string) => {
     await guard(async () => {
-      const res = await fetch(`/api/v1/server/backups/${encodeURIComponent(filename)}/download`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error(t("Failed to download backup file."));
-      const blob = await res.blob();
+      const blob = await api.downloadBackup(filename);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -1884,6 +1841,7 @@ function ConfigCard() {
             <div style={{ fontSize: "12px", color: "var(--muted)", lineHeight: 1.5, marginTop: "var(--s1)" }}>
               ℹ️ {t("Automatic backups retain only the 15 most recent versions. Older versions are deleted automatically.")}
               {settings?.last_run ? <> · {t("Last run")}: {formatDate(settings.last_run)}</> : null}
+              {settings?.last_error && <ErrorAlert>{settings.last_error}</ErrorAlert>}
             </div>
 
             <div>

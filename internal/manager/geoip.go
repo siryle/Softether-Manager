@@ -21,15 +21,6 @@ type IPGeoInfo struct {
 	Full     string `json:"full"`
 }
 
-type geoCache struct {
-	mu    sync.RWMutex
-	items map[string]IPGeoInfo
-}
-
-var globalGeoCache = &geoCache{
-	items: make(map[string]IPGeoInfo),
-}
-
 func isPrivateIP(ipStr string) bool {
 	clean := strings.TrimSpace(ipStr)
 	if h, _, err := net.SplitHostPort(clean); err == nil {
@@ -80,42 +71,12 @@ func (a *App) lookupIP(ctx context.Context, ipStr string) IPGeoInfo {
 		}
 	}
 
-	globalGeoCache.mu.RLock()
-	if cached, ok := globalGeoCache.items[ip]; ok {
-		globalGeoCache.mu.RUnlock()
-		return cached
+	row := one(a.db, `SELECT Country, Region, City, ISP, Location, Full, UpdatedDate FROM IPGeoCache WHERE IP=?`, ip)
+	if row != nil && time.Since(parseTime(str(row["UpdatedDate"]))) < 30*24*time.Hour {
+		return IPGeoInfo{IP: ip, Country: str(row["Country"]), Region: str(row["Region"]), City: str(row["City"]), ISP: str(row["ISP"]), Location: str(row["Location"]), Full: str(row["Full"])}
 	}
-	globalGeoCache.mu.RUnlock()
-
-	// Check SQLite
-	if a.db != nil {
-		row := one(a.db, `SELECT Country, Region, City, ISP, Location, Full, UpdatedDate FROM IPGeoCache WHERE IP=?`, ip)
-		if row != nil {
-			info := IPGeoInfo{
-				IP:       ip,
-				Country:  str(row["Country"]),
-				Region:   str(row["Region"]),
-				City:     str(row["City"]),
-				ISP:      str(row["ISP"]),
-				Location: str(row["Location"]),
-				Full:     str(row["Full"]),
-			}
-			globalGeoCache.mu.Lock()
-			globalGeoCache.items[ip] = info
-			globalGeoCache.mu.Unlock()
-			return info
-		}
-	}
-
-	// Fetch from external API
 	info := fetchIPGeo(ctx, ip)
-
-	// Save to in-memory & SQLite
-	globalGeoCache.mu.Lock()
-	globalGeoCache.items[ip] = info
-	globalGeoCache.mu.Unlock()
-
-	if a.db != nil && (info.Location != "" || info.ISP != "") {
+	if info.Location != "" || info.ISP != "" {
 		execute(a.db, `INSERT OR REPLACE INTO IPGeoCache(IP, Country, Region, City, ISP, Location, Full, UpdatedDate) VALUES(?,?,?,?,?,?,?,?)`,
 			info.IP, info.Country, info.Region, info.City, info.ISP, info.Location, info.Full, now())
 	}
@@ -152,8 +113,10 @@ func fetchIPGeo(ctx context.Context, ip string) IPGeoInfo {
 	if err == nil {
 		req.Header.Set("User-Agent", "SoftEther-Manager")
 		resp, err := client.Do(req)
-		if err == nil && resp.StatusCode == 200 {
+		if err == nil {
 			defer resp.Body.Close()
+		}
+		if err == nil && resp.StatusCode == 200 {
 			var res ipwhoisResponse
 			if err := json.NewDecoder(resp.Body).Decode(&res); err == nil && res.Success {
 				locParts := []string{}
@@ -200,8 +163,10 @@ func fetchIPGeo(ctx context.Context, ip string) IPGeoInfo {
 	if err == nil {
 		req2.Header.Set("User-Agent", "SoftEther-Manager")
 		resp, err := client.Do(req2)
-		if err == nil && resp.StatusCode == 200 {
+		if err == nil {
 			defer resp.Body.Close()
+		}
+		if err == nil && resp.StatusCode == 200 {
 			var res ipapiResponse
 			if err := json.NewDecoder(resp.Body).Decode(&res); err == nil && res.Status == "success" {
 				locParts := []string{}
@@ -263,13 +228,6 @@ func (a *App) batchLookupIPs(ctx context.Context, ips []string) map[string]IPGeo
 			out[ip] = IPGeoInfo{IP: ip, Location: "局域网/内网", ISP: "—", Full: "局域网/内网"}
 			continue
 		}
-		globalGeoCache.mu.RLock()
-		if c, ok := globalGeoCache.items[ip]; ok {
-			globalGeoCache.mu.RUnlock()
-			out[ip] = c
-			continue
-		}
-		globalGeoCache.mu.RUnlock()
 		needed = append(needed, ip)
 	}
 

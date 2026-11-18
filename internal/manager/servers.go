@@ -65,6 +65,12 @@ func (a *App) serverInput(existing, body M) M {
 	return row
 }
 
+func (a *App) requireUnassignedCertificateTarget(id int64) {
+	if integer(a.setting("cert_push_server_id")) == id {
+		fail(409, "Remove this server's automatic certificate deployment target before changing its address.")
+	}
+}
+
 func (a *App) registerServers() {
 	a.endpoint("GET /servers", func(_ http.ResponseWriter, _ *http.Request, _ M) any {
 		out := []M{}
@@ -81,14 +87,16 @@ func (a *App) registerServers() {
 		}
 		a.endpoint(method+" "+path, func(w http.ResponseWriter, r *http.Request, u M) any {
 			body := readBody(w, r)
-			a.connectionMu.Lock()
-			defer a.connectionMu.Unlock()
 			existing := M{"Host": "127.0.0.1", "Port": 5555, "AuthType": "", "EncryptedPassword": a.encrypt(""), "IsEnabled": true, "IsDefault": false, "SkipCertCheck": false, "SortOrder": 0}
 			if method == "PUT" {
 				existing = a.serverRow(serverID(r))
 			}
 			row := a.serverInput(existing, body)
-			if method == "PUT" && (!strings.EqualFold(str(existing["Host"]), str(row["Host"])) || integer(existing["Port"]) != integer(row["Port"]) || (boolean(existing["IsEnabled"]) && !boolean(row["IsEnabled"]))) {
+			retargeting := method == "PUT" && (!strings.EqualFold(str(existing["Host"]), str(row["Host"])) || integer(existing["Port"]) != integer(row["Port"]))
+			if retargeting {
+				a.requireUnassignedCertificateTarget(integer(existing["ServerID"]))
+			}
+			if retargeting || (method == "PUT" && boolean(existing["IsEnabled"]) && !boolean(row["IsEnabled"])) {
 				a.requireReleasedQuotas(integer(existing["ServerID"]))
 			}
 			if !boolean(body["skip_test"]) && (method == "POST" || body["host"] != nil || body["port"] != nil || body["password"] != nil || body["auth"] != nil) {
@@ -96,6 +104,18 @@ func (a *App) registerServers() {
 				check(err)
 				out := a.testConnection(r.Context(), str(row["Host"]), int(integer(row["Port"])), pwd, str(row["AuthType"]), boolean(row["SkipCertCheck"]))
 				row["AuthType"] = out["auth"]
+			}
+			a.connectionMu.Lock()
+			defer a.connectionMu.Unlock()
+			// Check again after the network test: another server may now own the address.
+			if one(a.db, `SELECT ServerID FROM Server WHERE lower(Host)=lower(?) AND Port=? AND ServerID!=?`, row["Host"], row["Port"], integer(existing["ServerID"])) != nil {
+				fail(409, "A server with this address and port already exists.")
+			}
+			if method == "PUT" {
+				current := a.serverRow(integer(existing["ServerID"]))
+				if boolean(current["IsDefault"]) != boolean(existing["IsDefault"]) {
+					fail(409, "The default server changed during the connection test. Try again.")
+				}
 			}
 			if str(row["AuthType"]) == "" {
 				row["AuthType"] = "header"
@@ -126,6 +146,10 @@ func (a *App) registerServers() {
 				check(err)
 			}
 			check(tx.Commit())
+			if retargeting {
+				a.resetQuotaBaselines(id)
+				execute(a.db, `UPDATE Server SET BackupLastRun='',BackupLastError='' WHERE ServerID=?`, id)
+			}
 			a.invalidateClientLocked(id)
 			if boolean(row["IsDefault"]) {
 				a.syncDefaultConnection(row)

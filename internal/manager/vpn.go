@@ -253,8 +253,7 @@ func (a *App) migrateCredentials() {
 func (a *App) obtainCredential(ctx context.Context, serverID int64, hub, name string) string {
 	user := a.rpc(ctx, "GetUser", M{"HubName_str": hub, "Name_str": name})
 	hash := str(user["HashedKey_bin"])
-	raw, err := base64.StdEncoding.DecodeString(hash)
-	if integer(user["AuthType_u32"]) != 1 || err != nil || len(raw) != 20 {
+	if !validVPNHash(hash) || integer(user["AuthType_u32"]) != 1 {
 		return ""
 	}
 	a.saveCredential(serverID, hub, name, hash)
@@ -267,14 +266,14 @@ func (a *App) templateState() M {
 		proxy = "{scrambled}"
 	}
 	return M{
-		"options":                 opts,
-		"defaults":                vpnDefaults,
-		"account_name_template":   a.setting("vpn_account_name_template"),
-		"filename_template":       a.setting("vpn_filename_template"),
-		"embed_password_default":  a.setting("vpn_embed_password_default"),
-		"vpn_public_host":         a.setting("vpn_public_host"),
-		"vpn_public_port":         a.setting("vpn_public_port"),
-		"template":                vpnDocument(M{"host": "{host}", "port": "{port}", "hub": "{hub}", "username": "{username}", "account": "{account_name}", "auth_type": "{auth_type}", "hashed": "{hashed_password}", "plain": "{plain_password}", "proxy_password": proxy}, opts),
+		"options":                opts,
+		"defaults":               vpnDefaults,
+		"account_name_template":  a.setting("vpn_account_name_template"),
+		"filename_template":      a.setting("vpn_filename_template"),
+		"embed_password_default": a.setting("vpn_embed_password_default"),
+		"vpn_public_host":        a.setting("vpn_public_host"),
+		"vpn_public_port":        a.setting("vpn_public_port"),
+		"template":               vpnDocument(M{"host": "{host}", "port": "{port}", "hub": "{hub}", "username": "{username}", "account": "{account_name}", "auth_type": "{auth_type}", "hashed": "{hashed_password}", "plain": "{plain_password}", "proxy_password": proxy}, opts),
 	}
 }
 func (a *App) registerVPN() {

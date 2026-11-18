@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 )
@@ -40,6 +39,15 @@ func Run(args []string, stdout, stderr io.Writer) (exit int) {
 		fmt.Fprintln(stdout, cfg.Version)
 		return 0
 	}
+	if action == "healthcheck" {
+		host := cfg.BindHost
+		if host == "" || host == "0.0.0.0" {
+			host = "127.0.0.1"
+		} else if host == "::" {
+			host = "::1"
+		}
+		return probeHealth(host, cfg.BindPort, cfg.Version, stderr)
+	}
 	a, err := New(cfg)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -67,21 +75,6 @@ func Run(args []string, stdout, stderr io.Writer) (exit int) {
 		err := server.ListenAndServe()
 		if err != nil && err != http.ErrServerClosed {
 			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		return 0
-	case "healthcheck":
-		path := strings.Trim(str(a.setting("web_path")), "/")
-		if path != "" {
-			path = "/" + path
-		}
-		res, err := (&http.Client{Timeout: 4 * time.Second}).Get("http://127.0.0.1:" + strconv.Itoa(cfg.BindPort) + path + "/api/v1/system/health")
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		defer res.Body.Close()
-		if res.StatusCode != 200 {
 			return 1
 		}
 		return 0
@@ -185,4 +178,30 @@ func Run(args []string, stdout, stderr io.Writer) (exit int) {
 		fmt.Fprintln(stderr, "Unknown command:", action)
 		return 2
 	}
+}
+
+func probeHealth(host string, port int, version string, stderr io.Writer) int {
+	req, err := http.NewRequest("GET", "http://"+net.JoinHostPort(host, strconv.Itoa(port))+localHealthPath, nil)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	req.Host = "localhost"
+	c := http.Client{Transport: &http.Transport{}, Timeout: 4 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	defer c.CloseIdleConnections()
+	res, err := c.Do(req)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer res.Body.Close()
+	var health struct {
+		OK      bool
+		Version string
+	}
+	if res.StatusCode != 200 || json.NewDecoder(io.LimitReader(res.Body, 4096)).Decode(&health) != nil || !health.OK || health.Version != version {
+		fmt.Fprintln(stderr, "Unexpected panel health response")
+		return 1
+	}
+	return 0
 }

@@ -91,9 +91,9 @@ function Routed() {
   } else if (p[0] === "hub" && p[1]) {
     const hub = p[1];
     if (p[2] === "user" && p[3]) {
-      screen = <UserDetail hub={hub} name={p[3]} />;
+      screen = <UserDetail key={JSON.stringify([hub, p[3]])} hub={hub} name={p[3]} />;
     } else {
-      screen = <HubDetail hub={hub} tab={p[2] ?? "overview"} />;
+      screen = <HubDetail key={hub} hub={hub} tab={p[2] ?? "overview"} />;
     }
   }
 

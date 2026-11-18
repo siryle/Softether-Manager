@@ -41,6 +41,32 @@ func (a *App) endpoint(pattern string, fn func(http.ResponseWriter, *http.Reques
 	parts := strings.SplitN(pattern, " ", 2)
 	a.handle(parts[0]+" /api/v1"+parts[1], false, fn)
 }
+func (a *App) mergeUserUpdate(ctx context.Context, hub, name string, changes M) M {
+	current := userWriteBody(a.rpc(ctx, "GetUser", M{"HubName_str": hub, "Name_str": name}))
+	oldAuth := integer(current["AuthType_u32"])
+	auth := integer(withDefault(changes, "AuthType_u32", oldAuth))
+	if auth != oldAuth {
+		if (auth == 1 && str(changes["Auth_Password_str"]) == "") || (auth == 2 && str(changes["UserX_bin"]) == "") {
+			fail(422, "Changing the authentication type requires a new password or certificate.")
+		}
+		for _, key := range []string{"HashedKey_bin", "NtLmSecureHash_bin", "UserX_bin", "Serial_bin", "CommonName_utf", "RadiusUsername_utf", "NtUsername_utf"} {
+			delete(current, key)
+		}
+	}
+	for key, value := range userWriteBody(changes) {
+		if key != "HashedKey_bin" && key != "NtLmSecureHash_bin" {
+			current[key] = value
+		}
+	}
+	if password, ok := changes["Auth_Password_str"]; ok {
+		if _, valid := password.(string); !valid || str(password) == "" || auth != 1 {
+			fail(422, "A new password must be a non-empty string for a password-authenticated user.")
+		}
+		current["Auth_Password_str"] = password
+	}
+	return current
+}
+
 func (a *App) registerCustomRPC() {
 	a.endpoint("GET /server/overview", func(_ http.ResponseWriter, r *http.Request, _ M) any {
 		out := M{}
@@ -221,7 +247,15 @@ func (a *App) registerCustomRPC() {
 			}
 			body["HubName_str"], body["Name_str"] = hub, name
 			validateWire(body)
-			out := a.rpc(r.Context(), rpcMethod, body)
+			if method == "PUT" {
+				body = a.mergeUserUpdate(r.Context(), hub, name, body)
+			}
+			var out M
+			if method == "POST" {
+				out = a.createUser(r.Context(), body)
+			} else {
+				out = a.rpc(r.Context(), rpcMethod, body)
+			}
 			serverID := a.serverIDFromContext(r.Context())
 			if method == "DELETE" {
 				execute(a.db, `DELETE FROM VpnUserCredential WHERE ServerID=? AND HubName=? AND UserName=?`, serverID, hub, name)

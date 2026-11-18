@@ -123,7 +123,10 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 type contextKey string
 
-const serverIDKey contextKey = "server_id"
+const (
+	serverIDKey  contextKey = "server_id"
+	rpcClientKey contextKey = "rpc_client"
+)
 
 type App struct {
 	cfg                                      Config
@@ -164,6 +167,10 @@ func New(cfg Config) (app *App, err error) {
 		return nil, err
 	}
 	app.initGeoIP()
+	if err = app.protectExistingBackups(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("restrict backup permissions: %w", err)
+	}
 	app.migrateCredentials()
 	// An intentionally empty management password is still a configured connection.
 	if boolean(app.setting("se_configured")) {
@@ -208,6 +215,9 @@ func (a *App) Start(ctx context.Context) {
 	a.startWorkers(ctx)
 	a.tls.start(ctx)
 }
+
+const localHealthPath = "/_sem/health"
+
 func (a *App) Handler() http.Handler {
 	prefix := strings.Trim(str(a.setting("web_path")), "/")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -221,6 +231,10 @@ func (a *App) Handler() http.Handler {
 				}
 			}
 		}()
+		if r.URL.Path == localHealthPath && (r.Method == "GET" || r.Method == "HEAD") && localProbe(r) && hostName(r.Host) == "localhost" {
+			writeJSON(w, 200, M{"ok": true, "version": a.cfg.Version})
+			return
+		}
 		if !a.hostAllowed(r) {
 			writeJSON(w, 404, M{"detail": "Not found."})
 			return
@@ -308,8 +322,24 @@ func (a *App) handle(pattern string, public bool, fn func(http.ResponseWriter, *
 			r = r.WithContext(context.WithValue(r.Context(), serverIDKey, id))
 		}
 		if !public {
-			r = r.WithContext(context.WithValue(r.Context(), serverIDKey, a.serverIDFromContext(r.Context())))
-			user["ServerID"] = a.serverIDFromContext(r.Context())
+			id := a.serverIDFromContext(r.Context())
+			path := strings.TrimPrefix(r.URL.Path, "/api/v1")
+			if r.Method != "GET" && r.Method != "HEAD" {
+				var writeID int64
+				switch {
+				case r.PathValue("id") != "" && strings.HasPrefix(path, "/servers/") && (r.Method == "PUT" || r.Method == "DELETE"):
+					writeID = serverID(r)
+				case strings.HasPrefix(path, "/hubs/") || path == "/hubs" || path == "/rpc/call" || (strings.HasPrefix(path, "/server/") && path != "/server/connection/test" && path != "/server/probe"):
+					writeID = id
+				}
+				if writeID != 0 {
+					lock := a.quotaLock(writeID)
+					lock.Lock()
+					defer lock.Unlock()
+				}
+			}
+			r = r.WithContext(context.WithValue(r.Context(), serverIDKey, id))
+			user["ServerID"] = id
 		}
 		result := fn(w, r, user)
 		if result != nil {
@@ -343,6 +373,16 @@ func loopback(r *http.Request) bool {
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
 }
+func localProbe(r *http.Request) bool {
+	if loopback(r) {
+		return true
+	}
+	// An explicitly bound local address is probed from that same interface.
+	local, _ := r.Context().Value(http.LocalAddrContextKey).(*net.TCPAddr)
+	remote, _, err := net.SplitHostPort(r.RemoteAddr)
+	return err == nil && local != nil && local.IP.Equal(net.ParseIP(remote))
+}
+
 func (a *App) hostAllowed(r *http.Request) bool {
 	domain := str(a.setting("domain"))
 	localHost := hostName(r.Host)
