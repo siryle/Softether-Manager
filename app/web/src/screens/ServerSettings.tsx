@@ -3,12 +3,12 @@
 import { t } from "../lib/i18n";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { CheckRow, ConfirmSheet, Empty, ErrorAlert, Field, KV, LoadingBlock, PageHead, SectionTitle, usePoll } from "../components/bits";
-import { CopyTextButton, WireGuardAddPeerSheet, WireGuardConfigSheet, waitForWireGuardReady } from "../components/WireGuardPeerSheet";
-import { api, getStoredServerId, useServerApi, ApiError, type BackupInfo, type BackupSettings, type DomainStatus, type Wire, type WireGuardPeer, type WireGuardState } from "../lib/api";
+import { CopyTextButton, waitForWireGuardReady } from "../components/WireGuardPeerSheet";
+import { api, getStoredServerId, useServerApi, ApiError, type BackupInfo, type BackupSettings, type DomainStatus, type Wire, type WireGuardState } from "../lib/api";
 import { Link } from "../lib/router";
 import { useToast } from "../lib/toast";
 import { downloadBase64, downloadText, fileToBase64, formatBytes, formatDate, timeAgo } from "../lib/util";
-import { IconDownload, IconKey, IconPlus, IconRefresh, IconTrash, IconUpload } from "../ui/Icon";
+import { IconDownload, IconPlus, IconRefresh, IconTrash, IconUpload } from "../ui/Icon";
 import { Sheet } from "../ui/Sheet";
 import { OnlinePill, Pill } from "../ui/Status";
 import { OutcomeNote, Switch, SwitchRow, useToggle } from "../ui/Switch";
@@ -20,6 +20,42 @@ import { OutcomeNote, Switch, SwitchRow, useToggle } from "../ui/Switch";
  * state; a document lets an operator scan all of it.
  */
 export function ServerSettings({ section }: { section?: string }) {
+  const serverApi = useServerApi();
+  const [wg, setWg] = useState<WireGuardState | null>(null);
+  const [wgError, setWgError] = useState<Error | null>(null);
+  const [publicEndpoint, setPublicEndpoint] = useState<{ host: string; port: number; loaded: boolean }>({
+    host: "",
+    port: 443,
+    loaded: false,
+  });
+
+  const loadWg = useCallback(async () => {
+    try {
+      const fresh = await serverApi.wireguard();
+      setWg(fresh);
+      setWgError(null);
+      return fresh;
+    } catch (error) {
+      setWgError(error instanceof Error ? error : new Error(String(error)));
+      return null;
+    }
+  }, [serverApi]);
+  usePoll(loadWg, "list", []);
+
+  const loadPublicEndpoint = useCallback(async () => {
+    const conn = await api.connection().catch(() => null);
+    if (!conn) return;
+    setPublicEndpoint({
+      host: String(conn.public_host ?? "").trim(),
+      port: Number(conn.public_port) > 0 ? Number(conn.public_port) : 443,
+      loaded: true,
+    });
+  }, []);
+
+  useEffect(() => {
+    void loadPublicEndpoint();
+  }, [loadPublicEndpoint]);
+
   useEffect(() => {
     if (section) {
       requestAnimationFrame(() =>
@@ -32,8 +68,15 @@ export function ServerSettings({ section }: { section?: string }) {
     <div className="page">
       <PageHead title={t("Server settings")} sub={<Link to="/" className="linkish">{t("← dashboard")}</Link>} />
       <div className="setdoc">
-        <ListenersCard />
-        <ProtocolsCard />
+        <PublicEndpointCard
+          endpoint={publicEndpoint}
+          onSaved={(next) => {
+            setPublicEndpoint({ ...next, loaded: true });
+            void loadWg();
+          }}
+        />
+        <ListenersCard wg={wg} onWgFresh={setWg} reloadWg={loadWg} />
+        <ProtocolsCard wg={wg} wgError={wgError} onWgFresh={setWg} publicEndpoint={publicEndpoint} />
         <EncryptionCard />
         <BridgeCard />
         <L3Card />
@@ -47,14 +90,144 @@ export function ServerSettings({ section }: { section?: string }) {
   );
 }
 
+/* ── public domain & port ─────────────────────────────────────────────────── */
+
+function PublicEndpointCard({
+  endpoint,
+  onSaved,
+}: {
+  endpoint: { host: string; port: number; loaded: boolean };
+  onSaved: (next: { host: string; port: number }) => void;
+}) {
+  const [host, setHost] = useState(endpoint.host);
+  const [port, setPort] = useState(String(endpoint.port));
+  const [dirty, setDirty] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { push } = useToast();
+
+  useEffect(() => {
+    if (!endpoint.loaded || dirty) return;
+    setHost(endpoint.host);
+    setPort(String(endpoint.port));
+  }, [endpoint.host, endpoint.port, endpoint.loaded, dirty]);
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmedHost = host.trim();
+    if (/\s/.test(trimmedHost)) {
+      setError(t("Public domain / host cannot contain spaces."));
+      return;
+    }
+    const portNum = Number(port);
+    if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
+      setError(t("The port must be a number between 1 and 65535."));
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const saved = await api.saveConnection({
+        public_host: trimmedHost,
+        public_port: portNum,
+      });
+      const savedHost = String(saved.public_host ?? trimmedHost).trim();
+      const savedPort = Number(saved.public_port) > 0 ? Number(saved.public_port) : portNum;
+      setHost(savedHost);
+      setPort(String(savedPort));
+      setDirty(false);
+      onSaved({ host: savedHost, port: savedPort });
+      push("ok", t("Server public connection info saved."));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section id="ss-public">
+      <SectionTitle>{t("Server public information")}</SectionTitle>
+      <form className="card" style={{ padding: "var(--s4)" }} onSubmit={(e) => void save(e)}>
+        <p className="hint" style={{ marginTop: 0, marginBottom: "var(--s3)" }}>
+          {t("Used as the default server address and port for .ovpn and .vpn downloads. The public domain is also used as the endpoint address in WireGuard client configs.")}
+        </p>
+        {error && <ErrorAlert>{error}</ErrorAlert>}
+        <div className="row2">
+          <Field label="Public domain / host" hint="Used as the default host for .ovpn, .vpn, and WireGuard client configs (e.g. vpn.example.com).">
+            <input
+              className="input mono"
+              value={host}
+              onChange={(e) => { setHost(e.target.value); setDirty(true); setError(null); }}
+              autoCapitalize="none"
+              spellCheck={false}
+              inputMode="url"
+              placeholder="vpn.example.com"
+            />
+          </Field>
+          <Field label="Public port" hint="Default port for .ovpn and .vpn downloads; default 443.">
+            <input
+              className="input mono"
+              type="number"
+              min={1}
+              max={65535}
+              value={port}
+              onChange={(e) => { setPort(e.target.value); setDirty(true); setError(null); }}
+              inputMode="numeric"
+            />
+          </Field>
+        </div>
+        <div style={{ display: "flex", gap: "var(--s2)", marginTop: "var(--s2)", flexWrap: "wrap" }}>
+          <button type="submit" className="btn btn--primary" disabled={!dirty || busy}>
+            {busy && <span className="spin" />} {t("Save server info")}
+          </button>
+          {dirty && (
+            <button
+              type="button"
+              className="btn"
+              disabled={busy}
+              onClick={() => {
+                setHost(endpoint.host);
+                setPort(String(endpoint.port));
+                setDirty(false);
+                setError(null);
+              }}
+            >
+              {t("Discard")}
+            </button>
+          )}
+        </div>
+      </form>
+    </section>
+  );
+}
+
 /* ── listeners ────────────────────────────────────────────────────────────── */
 
-function ListenersCard() {
+function ListenersCard({
+  wg,
+  onWgFresh,
+  reloadWg,
+}: {
+  wg: WireGuardState | null;
+  onWgFresh: (fresh: WireGuardState) => void;
+  reloadWg: () => Promise<WireGuardState | null>;
+}) {
+  const serverApi = useServerApi();
   const [listeners, setListeners] = useState<Wire[] | null>(null);
   const [special, setSpecial] = useState<Wire | null>(null);
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState<null | "tcp" | "udp">(null);
   const [newPort, setNewPort] = useState(5555);
-  const { guard } = useToast();
+  const [udpDraft, setUdpDraft] = useState<number[]>([]);
+  const [udpDirty, setUdpDirty] = useState(false);
+  const [confirmingUdp, setConfirmingUdp] = useState(false);
+  const { guard, push } = useToast();
+
+  useEffect(() => {
+    if (wg?.supported && !udpDirty) {
+      setUdpDraft(wg.udp_ports ?? []);
+    }
+  }, [wg, udpDirty]);
 
   const load = useCallback(async () => {
     const r = await api.listeners().catch(() => null);
@@ -65,19 +238,51 @@ function ListenersCard() {
   }, []);
   usePoll(load, "list", []);
 
+  const addUdpDraftPort = (port: number) => {
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return;
+    setUdpDraft((prev) => (prev.includes(port) ? prev : [...prev, port]));
+    setUdpDirty(true);
+  };
+
+  const removeUdpDraftPort = (port: number) => {
+    setUdpDraft((prev) => prev.filter((p) => p !== port));
+    setUdpDirty(true);
+  };
+
+  const saveUdpPorts = async () => {
+    try {
+      await serverApi.setWireguard({
+        confirm_restart: true,
+        udp_ports: udpDraft,
+      });
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.seError !== "TransportError") throw error;
+    }
+    const fresh = await waitForWireGuardReady(serverApi);
+    onWgFresh(fresh);
+    setUdpDraft(fresh.udp_ports ?? []);
+    setUdpDirty(false);
+    push("ok", t("UDP listening ports saved."));
+    void reloadWg();
+  };
+
+  const totalCount = (listeners?.length ?? 0) + (wg?.supported ? udpDraft.length : 0);
+
   return (
     <section id="ss-listeners">
-      <SectionTitle
-        count={listeners?.length}
-        actions={
-          <button className="btn btn--sm" onClick={() => setAdding(true)}>
-            <IconPlus size={14} /> {t("Add port")}
-          </button>
-        }
-      >
-        {t("TCP listeners")}
+      <SectionTitle count={listeners ? totalCount : undefined}>
+        {t("Listening ports")}
       </SectionTitle>
-      <div className="card listeners-card" style={{ padding: "var(--s3) var(--s4)" }}>
+      <div className="card listeners-card" style={{ padding: "var(--s4)" }}>
+        {/* TCP listeners */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--s2)", marginBottom: "var(--s2)", flexWrap: "wrap" }}>
+          <div className="section__t" style={{ margin: 0 }}>
+            {t("TCP listeners")} {listeners && <span className="section__n">{listeners.length}</span>}
+          </div>
+          <button type="button" className="btn btn--sm" onClick={() => { setNewPort(5555); setAdding("tcp"); }}>
+            <IconPlus size={14} /> {t("Add TCP port")}
+          </button>
+        </div>
         {listeners === null ? (
           <LoadingBlock />
         ) : (
@@ -93,6 +298,7 @@ function ListenersCard() {
                 <span style={{ flex: 1 }} />
                 <ListenerSwitch listener={l} reload={load} />
                 <button
+                  type="button"
                   className="btn btn--sm btn--ghost"
                   onClick={() => void guard(async () => {
                     await api.deleteListener(Number(l.Ports_u32));
@@ -106,8 +312,69 @@ function ListenersCard() {
             ))}
           </div>
         )}
+
+        {/* UDP listeners (SoftEther 5.x PortsUDP) */}
+        {wg?.supported && (
+          <div style={{ borderTop: "1px solid var(--border)", marginTop: "var(--s4)", paddingTop: "var(--s4)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--s2)", marginBottom: "var(--s1)", flexWrap: "wrap" }}>
+              <div className="section__t" style={{ margin: 0 }}>
+                {t("UDP listeners")} <span className="section__n">{udpDraft.length}</span>
+              </div>
+              <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap" }}>
+                {!udpDraft.includes(51820) && (
+                  <button type="button" className="btn btn--sm" onClick={() => addUdpDraftPort(51820)}>
+                    <IconPlus size={14} /> 51820
+                  </button>
+                )}
+                <button type="button" className="btn btn--sm" onClick={() => { setNewPort(51820); setAdding("udp"); }}>
+                  <IconPlus size={14} /> {t("Add UDP port")}
+                </button>
+              </div>
+            </div>
+            <p className="hint" style={{ marginTop: 0, marginBottom: "var(--s2)" }}>
+              {t("Shared UDP ports listened by SoftEther for WireGuard and other native UDP tunnels. Changes apply via SetConfig and restart the service.")}
+            </p>
+            <div className="listener-grid">
+              {udpDraft.map((p) => (
+                <div key={p} className="lrow">
+                  <span className="mono" style={{ fontSize: "var(--t-data)", fontWeight: 600 }}>{p}</span>
+                  <Pill kind="ok" label="UDP" />
+                  <span style={{ flex: 1 }} />
+                  <button
+                    type="button"
+                    className="btn btn--sm btn--ghost"
+                    disabled={udpDraft.length <= 1}
+                    onClick={() => removeUdpDraftPort(p)}
+                    aria-label={t("Delete UDP port")}
+                    title={udpDraft.length <= 1 ? t("At least one UDP port must remain.") : t("Remove UDP port")}
+                  >
+                    <IconTrash size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            {udpDirty && (
+              <div style={{ display: "flex", gap: "var(--s2)", marginTop: "var(--s3)", flexWrap: "wrap" }}>
+                <button type="button" className="btn btn--primary" onClick={() => setConfirmingUdp(true)}>
+                  {t("Save UDP ports & restart")}
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    setUdpDraft(wg.udp_ports ?? []);
+                    setUdpDirty(false);
+                  }}
+                >
+                  {t("Discard")}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         {special && (
-          <div className="row2" style={{ marginTop: "var(--s3)" }}>
+          <div className="row2" style={{ borderTop: "1px solid var(--border)", marginTop: "var(--s4)", paddingTop: "var(--s4)" }}>
             <SpecialListenerSwitch
               special={special}
               field="VpnOverIcmpListener_bool"
@@ -127,28 +394,46 @@ function ListenersCard() {
       </div>
       {adding && (
         <Sheet
-          title={t("New listener")}
-          onClose={() => setAdding(false)}
+          title={t(adding === "tcp" ? "New TCP listener" : "New UDP listener")}
+          onClose={() => setAdding(null)}
           footer={
             <>
-              <button className="btn" onClick={() => setAdding(false)}>{t("Cancel")}</button>
+              <button type="button" className="btn" onClick={() => setAdding(null)}>{t("Cancel")}</button>
               <button
+                type="button"
                 className="btn btn--primary"
-                onClick={() => void guard(async () => {
-                  await api.createListener(newPort, true);
-                  setAdding(false);
-                  await load();
-                }, t("Listening on {port}.", { port: newPort }))}
+                disabled={!Number.isInteger(newPort) || newPort < 1 || newPort > 65535}
+                onClick={() => {
+                  if (adding === "udp") {
+                    addUdpDraftPort(newPort);
+                    setAdding(null);
+                    return;
+                  }
+                  void guard(async () => {
+                    await api.createListener(newPort, true);
+                    setAdding(null);
+                    await load();
+                  }, t("Listening on {port}.", { port: newPort }));
+                }}
               >
                 {t("Add")}
               </button>
             </>
           }
         >
-          <Field label="TCP port">
+          <Field label={adding === "tcp" ? "TCP port" : "UDP port"}>
             <input className="input mono" type="number" min={1} max={65535} value={newPort} onChange={(e) => setNewPort(Number(e.target.value))} inputMode="numeric" />
           </Field>
         </Sheet>
+      )}
+      {confirmingUdp && (
+        <ConfirmSheet
+          title={t("Update UDP listening ports and restart?")}
+          verb="Apply & restart"
+          body={t("This writes vpn_server.config via SetConfig and restarts the SoftEther service, which disconnects all active VPN sessions.")}
+          onClose={() => setConfirmingUdp(false)}
+          onConfirm={() => saveUdpPorts()}
+        />
       )}
     </section>
   );
@@ -438,7 +723,17 @@ function DdnsSettings({ ddns, onFresh }: { ddns: Wire; onFresh: (fresh: Wire) =>
   );
 }
 
-function ProtocolsCard() {
+function ProtocolsCard({
+  wg,
+  wgError,
+  onWgFresh,
+  publicEndpoint,
+}: {
+  wg: WireGuardState | null;
+  wgError: Error | null;
+  onWgFresh: (fresh: WireGuardState) => void;
+  publicEndpoint: { host: string; port: number; loaded: boolean };
+}) {
   const [ipsec, setIpsec] = useState<Wire | null>(null);
   const [openvpn, setOpenvpn] = useState<Wire | null>(null);
   const [hubs, setHubs] = useState<string[]>([]);
@@ -532,19 +827,27 @@ function ProtocolsCard() {
                   </button>
                 )}
                 <button className="btn" disabled={!openvpn.EnableOpenVPN_bool} onClick={() => void guard(async () => {
-                  const r = await api.openvpnSample();
+                  const r = await api.openvpnSample({
+                    host: publicEndpoint.host || undefined,
+                    port: publicEndpoint.port || undefined,
+                  });
                   downloadText(r.filename || "openvpn-client.ovpn", r.config, "application/x-openvpn-profile");
                 }, t("OpenVPN client template downloaded."))}>
                   <IconDownload size={14} /> {t("OpenVPN client template (.ovpn)")}
                 </button>
               </div>
+              <p className="hint" style={{ marginBottom: 0 }}>
+                {publicEndpoint.host
+                  ? t("Default .ovpn endpoint: {endpoint}", { endpoint: `${publicEndpoint.host}:${publicEndpoint.port}` })
+                  : t("Default .ovpn port: {port}. Set a public domain above to override the server address.", { port: publicEndpoint.port })}
+              </p>
             </>
           )}
         </div>
       </div>
 
       <div style={{ marginTop: "var(--s4)" }}>
-        <WireGuardSection openvpn={openvpn} />
+        <WireGuardSection wg={wg} wgError={wgError} onWgFresh={onWgFresh} openvpn={openvpn} publicEndpoint={publicEndpoint} />
       </div>
 
       <div style={{ marginTop: "var(--s4)" }}>
@@ -554,11 +857,20 @@ function ProtocolsCard() {
   );
 }
 
-function WireGuardSection({ openvpn }: { openvpn: Wire | null }) {
+function WireGuardSection({
+  wg,
+  wgError,
+  onWgFresh,
+  openvpn,
+  publicEndpoint,
+}: {
+  wg: WireGuardState | null;
+  wgError: Error | null;
+  onWgFresh: (fresh: WireGuardState) => void;
+  openvpn: Wire | null;
+  publicEndpoint: { host: string; port: number; loaded: boolean };
+}) {
   const api = useServerApi();
-  const [wg, setWg] = useState<WireGuardState | null>(null);
-  const [wgError, setWgError] = useState<Error | null>(null);
-  const [portsText, setPortsText] = useState("");
   const [psk, setPsk] = useState("");
   const [regenPsk, setRegenPsk] = useState(false);
   const [regenPriv, setRegenPriv] = useState(false);
@@ -572,18 +884,13 @@ function WireGuardSection({ openvpn }: { openvpn: Wire | null }) {
     | null
     | { kind: "server" }
     | { kind: "network" }
-    | { kind: "delete-peer"; peer: WireGuardPeer }
   >(null);
-  const [addingPeer, setAddingPeer] = useState(false);
-  const [editingPeer, setEditingPeer] = useState<WireGuardPeer | null>(null);
   const { push } = useToast();
 
   const absorb = useCallback((fresh: WireGuardState, force = false) => {
-    setWg(fresh);
-    setWgError(null);
+    onWgFresh(fresh);
     if (force || !dirty) {
       setEnabledDraft(Boolean(fresh.enabled));
-      setPortsText((fresh.udp_ports ?? []).join(", "));
       setPsk(String(fresh.preshared_key ?? ""));
       setRegenPsk(false);
       setRegenPriv(false);
@@ -602,17 +909,12 @@ function WireGuardSection({ openvpn }: { openvpn: Wire | null }) {
         }
       }
     }
-  }, [dirty, netDirty, selectedHub]);
+  }, [dirty, netDirty, onWgFresh, selectedHub]);
 
-  const load = useCallback(async () => {
-    try {
-      const fresh = await api.wireguard();
-      absorb(fresh);
-    } catch (error) {
-      setWgError(error instanceof Error ? error : new Error(String(error)));
-    }
-  }, [api, absorb]);
-  usePoll(load, "list", []);
+  useEffect(() => {
+    if (wg) absorb(wg);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wg]);
 
   const selectHub = (hubName: string) => {
     setSelectedHub(hubName);
@@ -622,23 +924,19 @@ function WireGuardSection({ openvpn }: { openvpn: Wire | null }) {
     setNetDirty(false);
   };
 
-  const parsedPorts = portsText
-    .split(",")
-    .map((p) => Number(p.trim()))
-    .filter((p) => Number.isInteger(p) && p >= 1 && p <= 65535);
+  const activeUdpPorts = wg?.udp_ports ?? [];
   const ovpnPorts = openvpn?.EnableOpenVPN_bool
     ? String(openvpn.OpenVPNPortList_str ?? "")
         .split(",")
         .map((p) => Number(p.trim()))
         .filter((p) => Number.isInteger(p) && p > 0)
     : [];
-  const overlappingPorts = enabledDraft ? parsedPorts.filter((p) => ovpnPorts.includes(p)) : [];
+  const overlappingPorts = enabledDraft ? activeUdpPorts.filter((p) => ovpnPorts.includes(p)) : [];
 
   const applyServerPatch = async () => {
     const body: Wire = {
       confirm_restart: true,
       enabled: enabledDraft,
-      udp_ports: parsedPorts,
     };
     if (regenPsk) body.regenerate_preshared_key = true;
     else if (psk !== String(wg?.preshared_key ?? "")) body.preshared_key = psk.trim();
@@ -670,22 +968,6 @@ function WireGuardSection({ openvpn }: { openvpn: Wire | null }) {
     push("ok", t("Hub static network saved."));
   };
 
-  const removePeer = async (peer: WireGuardPeer) => {
-    try {
-      await api.deleteWireguardPeer(peer.hub, {
-        public_key: peer.public_key,
-        confirm_restart: true,
-      });
-    } catch (error) {
-      if (!(error instanceof ApiError) || error.seError !== "TransportError") throw error;
-    }
-    const fresh = await waitForWireGuardReady(api, (s) =>
-      !s.peers?.some((p) => p.public_key === peer.public_key),
-    );
-    absorb(fresh, true);
-    push("ok", t("WireGuard peer removed."));
-  };
-
   if (wgError && !wg) {
     return (
       <div className="card" style={{ padding: "var(--s4)" }}>
@@ -715,7 +997,6 @@ function WireGuardSection({ openvpn }: { openvpn: Wire | null }) {
     );
   }
 
-  const peers = wg.peers ?? [];
   const hubNetworks = wg.hub_networks ?? [];
 
   return (
@@ -734,39 +1015,54 @@ function WireGuardSection({ openvpn }: { openvpn: Wire | null }) {
               hint="Accepts WireGuard handshakes on the server's UDP listener ports. Changes apply via SetConfig and restart the service."
             />
             <Field
-              label="Server UDP ports"
+              label="Active UDP listening ports"
               hint={
                 <>
-                  {t("Comma-separated UDP ports listened by SoftEther (e.g. 51820).")}{" "}
-                  {!parsedPorts.includes(51820) && (
-                    <button
-                      type="button"
-                      className="linkish"
-                      onClick={() => {
-                        const next = [...parsedPorts, 51820];
-                        setPortsText(next.join(", "));
-                        setDirty(true);
-                      }}
-                    >
-                      {t("+ Add 51820")}
-                    </button>
+                  {!activeUdpPorts.includes(51820) && (
+                    <>{t("Default WireGuard port 51820 is not in the UDP listeners above.")}{" "}</>
                   )}
+                  <button
+                    type="button"
+                    className="linkish"
+                    onClick={() => document.getElementById("ss-listeners")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  >
+                    {t("Manage in Listening ports ↑")}
+                  </button>
                 </>
               }
             >
-              <input
-                className="input mono"
-                value={portsText}
-                onChange={(e) => { setPortsText(e.target.value); setDirty(true); }}
-                spellCheck={false}
-                inputMode="numeric"
-              />
+              <div style={{ display: "flex", gap: "var(--s1)", flexWrap: "wrap", padding: "var(--s1) 0" }}>
+                {activeUdpPorts.length === 0 ? (
+                  <span className="micro">{t("No UDP ports configured")}</span>
+                ) : (
+                  activeUdpPorts.map((p) => (
+                    <span key={p} className="chip mono"><i>UDP</i>{p}</span>
+                  ))
+                )}
+              </div>
             </Field>
             {overlappingPorts.length > 0 && (
               <div className="hint hint--err" style={{ marginBottom: "var(--s2)" }}>
                 {t("UDP port {ports} is also configured on OpenVPN.", { ports: overlappingPorts.join(", ") })}
               </div>
             )}
+            <Field
+              label="WireGuard client endpoint host"
+              hint={
+                <>
+                  {t("Configured in Server public information; used as the Endpoint address when generating WireGuard configs.")}{" "}
+                  <button
+                    type="button"
+                    className="linkish"
+                    onClick={() => document.getElementById("ss-public")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  >
+                    {t("Edit above ↑")}
+                  </button>
+                </>
+              }
+            >
+              <input className="input mono" value={publicEndpoint.host || wg.default_endpoint_host || ""} readOnly placeholder="vpn.example.com" />
+            </Field>
           </div>
           <div>
             <Field label="Server public key" hint="Derived from the server's WireGuard private key in vpn_server.config.">
@@ -817,7 +1113,6 @@ function WireGuardSection({ openvpn }: { openvpn: Wire | null }) {
             <button
               type="button"
               className="btn btn--primary"
-              disabled={parsedPorts.length === 0}
               onClick={() => setConfirmAction({ kind: "server" })}
             >
               {t("Save & restart")}
@@ -833,17 +1128,17 @@ function WireGuardSection({ openvpn }: { openvpn: Wire | null }) {
         )}
       </div>
 
-      {/* Hub static network + WireGuard peers */}
-      <div className="setgrid">
-        <div className="card" style={{ padding: "var(--s4)" }}>
-          <div className="section__t" style={{ marginBottom: "var(--s2)" }}>{t("Hub static network (WireGuard)")}</div>
-          <p className="hint" style={{ marginTop: 0 }}>
-            {t("WireGuard does not carry DHCP broadcasts, so each Virtual Hub needs a default gateway and subnet mask matching your LAN/SecureNAT segment.")}
-          </p>
-          {hubNetworks.length === 0 ? (
-            <Empty title={t("no hubs")} />
-          ) : (
-            <>
+      {/* Hub static network */}
+      <div className="card" style={{ padding: "var(--s4)" }}>
+        <div className="section__t" style={{ marginBottom: "var(--s2)" }}>{t("Hub static network (WireGuard)")}</div>
+        <p className="hint" style={{ marginTop: 0 }}>
+          {t("WireGuard does not carry DHCP broadcasts, so each Virtual Hub needs a default gateway and subnet mask matching your LAN/SecureNAT segment.")}
+        </p>
+        {hubNetworks.length === 0 ? (
+          <Empty title={t("no hubs")} />
+        ) : (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "var(--s3)" }}>
               <Field label="Virtual Hub">
                 <select className="select" value={selectedHub} onChange={(e) => selectHub(e.target.value)}>
                   {hubNetworks.map((n) => (
@@ -851,88 +1146,32 @@ function WireGuardSection({ openvpn }: { openvpn: Wire | null }) {
                   ))}
                 </select>
               </Field>
-              <div className="row2">
-                <Field label="Default gateway">
-                  <input
-                    className="input mono"
-                    value={gateway}
-                    onChange={(e) => { setGateway(e.target.value); setNetDirty(true); }}
-                    inputMode="decimal"
-                    spellCheck={false}
-                  />
-                </Field>
-                <Field label="Subnet mask">
-                  <input
-                    className="input mono"
-                    value={subnet}
-                    onChange={(e) => { setSubnet(e.target.value); setNetDirty(true); }}
-                    inputMode="decimal"
-                    spellCheck={false}
-                  />
-                </Field>
-              </div>
-              {netDirty && (
-                <button type="button" className="btn btn--primary" onClick={() => setConfirmAction({ kind: "network" })}>
-                  {t("Save network & restart")}
-                </button>
-              )}
-            </>
-          )}
-        </div>
-
-        <div className="card" style={{ padding: "var(--s4)" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--s2)", marginBottom: "var(--s3)" }}>
-            <div className="section__t" style={{ margin: 0 }}>
-              {t("WireGuard peers")} <span className="section__n">{peers.length}</span>
+              <Field label="Default gateway">
+                <input
+                  className="input mono"
+                  value={gateway}
+                  onChange={(e) => { setGateway(e.target.value); setNetDirty(true); }}
+                  inputMode="decimal"
+                  spellCheck={false}
+                />
+              </Field>
+              <Field label="Subnet mask">
+                <input
+                  className="input mono"
+                  value={subnet}
+                  onChange={(e) => { setSubnet(e.target.value); setNetDirty(true); }}
+                  inputMode="decimal"
+                  spellCheck={false}
+                />
+              </Field>
             </div>
-            <button
-              type="button"
-              className="btn btn--sm btn--primary"
-              disabled={hubNetworks.length === 0}
-              onClick={() => setAddingPeer(true)}
-            >
-              <IconPlus size={14} /> {t("Add peer")}
-            </button>
-          </div>
-          {peers.length === 0 ? (
-            <Empty title={t("no WireGuard peers")}>
-              {t("Bind a client X25519 public key to a Virtual Hub user to allow WireGuard connections.")}
-            </Empty>
-          ) : (
-            <div className="rows">
-              {peers.map((peer) => (
-                <div key={peer.public_key} className="row">
-                  <div className="row__main">
-                    <div className="row__name" style={{ display: "flex", alignItems: "center", gap: "var(--s2)", flexWrap: "wrap" }}>
-                      <span className="mono">{peer.user}</span>
-                      {peer.label && <span className="chip">{peer.label}</span>}
-                      {peer.assigned_ip && <span className="chip chip--ok mono">{peer.assigned_ip}/32</span>}
-                    </div>
-                    <div className="spec">
-                      <span className="chip"><i>{t("hub")}</i>{peer.hub}</span>
-                      <span className="chip mono" title={peer.public_key}>
-                        <IconKey size={12} /> {peer.public_key.slice(0, 18)}…
-                      </span>
-                    </div>
-                  </div>
-                  <div className="row__side">
-                    <button type="button" className="btn btn--sm" onClick={() => setEditingPeer(peer)}>
-                      <IconDownload size={13} /> {t(".conf")}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn--sm btn--ghost"
-                      aria-label={t("Delete peer")}
-                      onClick={() => setConfirmAction({ kind: "delete-peer", peer })}
-                    >
-                      <IconTrash size={14} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+            {netDirty && (
+              <button type="button" className="btn btn--primary" onClick={() => setConfirmAction({ kind: "network" })}>
+                {t("Save network & restart")}
+              </button>
+            )}
+          </>
+        )}
       </div>
 
       {confirmAction && (
@@ -940,38 +1179,15 @@ function WireGuardSection({ openvpn }: { openvpn: Wire | null }) {
           title={
             confirmAction.kind === "server"
               ? t("Apply WireGuard settings and restart?")
-              : confirmAction.kind === "network"
-                ? t("Update hub static network and restart?")
-                : t("Remove WireGuard peer and restart?")
+              : t("Update hub static network and restart?")
           }
           verb="Apply & restart"
           body={t("This writes vpn_server.config via SetConfig and restarts the SoftEther service, which disconnects all active VPN sessions.")}
           onClose={() => setConfirmAction(null)}
           onConfirm={() => {
             if (confirmAction.kind === "server") return applyServerPatch();
-            if (confirmAction.kind === "network") return applyHubNetwork();
-            return removePeer(confirmAction.peer);
+            return applyHubNetwork();
           }}
-        />
-      )}
-
-      {addingPeer && (
-        <WireGuardAddPeerSheet
-          state={wg}
-          onClose={() => setAddingPeer(false)}
-          onChanged={(fresh) => {
-            if (fresh) absorb(fresh, true);
-            else void load();
-          }}
-        />
-      )}
-
-      {editingPeer && (
-        <WireGuardConfigSheet
-          state={wg}
-          peer={editingPeer}
-          onClose={() => setEditingPeer(null)}
-          onMetaSaved={() => void load()}
         />
       )}
     </div>

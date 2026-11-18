@@ -129,7 +129,7 @@ export function Connect() {
         </Field>
         <div className="section__t" style={{ margin: "var(--s4) 0 var(--s2)" }}>{t("Server public information")}</div>
         <p className="hint" style={{ marginTop: 0, marginBottom: "var(--s2)" }}>
-          {t("Used as the default server address and port when downloading client .vpn configuration files and requesting SSL certificates.")}
+          {t("Used as the default server address and port for .ovpn and .vpn downloads. The public domain is also used as the endpoint address in WireGuard client configs.")}
         </p>
         <div className="row2">
           <Field label={t("Public domain / host")} hint={t("Public hostname or IP (e.g. vpn.example.com).")}>

@@ -10,7 +10,7 @@ import { useToast } from "../lib/toast";
 import { formatBytes, formatIPLocation, hasIPLocation, timeAgo } from "../lib/util";
 import { IconClose, IconRefresh } from "../ui/Icon";
 import { Pill } from "../ui/Status";
-import { cleanHost, formatTcpConnections, parseClientInfo, SessionSheet } from "./hub/HubSessions";
+import { cleanHost, EndpointCell, formatTcpConnections, parseClientInfo, SessionSheet } from "./hub/HubSessions";
 
 /**
  * Aggregated online clients view across all Virtual Hubs.
@@ -187,39 +187,12 @@ export function AllClients() {
                             </Link>
                           </td>
                           <td className="tmono">
-                            {s.VirtualIP_ip ? (
-                              <div style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                                <span className="chip chip--ok" style={{ padding: "0 5px", fontSize: "10px" }}>
-                                  {t("LAN")}
-                                </span>
-                                <span>{String(s.VirtualIP_ip)}</span>
-                              </div>
-                            ) : null}
-                            {s.ClientIP_ip ? (
-                              <div style={{ marginTop: s.VirtualIP_ip ? 2 : 0 }}>
-                                <span className="tsub">
-                                  {t("WAN")} {String(s.ClientIP_ip)}
-                                </span>
-                                {hasIPLocation(s.IpLocation_str, s.IpIsp_str) ? (
-                                  <span
-                                    className="chip chip--ok"
-                                    style={{
-                                      fontSize: "10px",
-                                      padding: "1px 5px",
-                                      marginLeft: 6,
-                                      fontWeight: "normal",
-                                    }}
-                                  >
-                                    {formatIPLocation(s.IpLocation_str, s.IpIsp_str)}
-                                  </span>
-                                ) : null}
-                              </div>
-                            ) : null}
-                            {cleanHost(s) !== "—" && (
-                              <div className="tsub" style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: 1 }}>
-                                {cleanHost(s)}
-                              </div>
-                            )}
+                            <EndpointCell
+                              virtualIp={s.VirtualIP_ip}
+                              clientIp={s.ClientIP_ip}
+                              location={hasIPLocation(s.IpLocation_str, s.IpIsp_str) ? formatIPLocation(s.IpLocation_str, s.IpIsp_str) : ""}
+                              host={cleanHost(s)}
+                            />
                           </td>
                           <td className="tmono">{formatTcpConnections(s, t)}</td>
                           <td className="tmono">{Number(s.PacketNum_u64 ?? s.NumPacket_u32 ?? 0).toLocaleString()}</td>
@@ -271,8 +244,7 @@ export function AllClients() {
                     ) : null}
                     <div className="spec">
                       {s.VirtualIP_ip ? (
-                        <span className="chip">
-                          <i>{t("LAN")}</i>
+                        <span className="chip mono" style={{ color: "var(--ok)" }}>
                           {String(s.VirtualIP_ip)}
                         </span>
                       ) : null}

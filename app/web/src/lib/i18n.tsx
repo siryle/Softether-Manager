@@ -168,8 +168,22 @@ const zhCN: Record<string, string> = {
     "用作下载客户端 .vpn 配置文件及申请 SSL 证书时的默认服务器地址与端口。",
   "Public domain / host": "公网域名 / 主机",
   "Public hostname or IP (e.g. vpn.example.com).": "服务器公网主机名或 IP（例如 vpn.example.com）。",
-  "Public port": "开放端口",
+  "Public port": "公网端口",
   "Open port for VPN clients; default 443.": "VPN 客户端连接的公网端口；默认 443。",
+  "Used as the default server address and port for .ovpn and .vpn downloads. The public domain is also used as the endpoint address in WireGuard client configs.":
+    "用作下载 .ovpn、.vpn 客户端配置时的默认服务器地址与端口；公网域名同时作为 WireGuard 客户端配置中的服务器地址。",
+  "Used as the default host for .ovpn, .vpn, and WireGuard client configs (e.g. vpn.example.com).":
+    "用作 .ovpn、.vpn 与 WireGuard 客户端配置的默认服务器地址（例如 vpn.example.com）。",
+  "Default port for .ovpn and .vpn downloads; default 443.":
+    "下载 .ovpn、.vpn 配置时的默认端口；默认 443。",
+  "Public domain / host cannot contain spaces.": "公网域名 / 主机不能包含空格。",
+  "Default .ovpn endpoint: {endpoint}": "默认 .ovpn 服务器与端口：{endpoint}",
+  "Default .ovpn port: {port}. Set a public domain above to override the server address.":
+    "默认 .ovpn 端口：{port}；在上方设置公网域名后可自动写入服务器地址。",
+  "WireGuard client endpoint host": "WireGuard 客户端服务器地址",
+  "Configured in Server public information; used as the Endpoint address when generating WireGuard configs.":
+    "读取上方「服务器公网信息」中的公网域名，生成 WireGuard 客户端配置时默认使用该地址。",
+  "Edit above ↑": "前往上方设置 ↑",
   "Save server info": "保存服务器信息",
   "Source & Location": "来源 IP 与归属地",
   "CID / Name": "连接 ID / 名称",
@@ -1836,6 +1850,23 @@ const zhCN: Record<string, string> = {
   "Copy failed": "复制失败",
   "Copy": "复制",
   "— no users —": "— 暂无用户 —",
+  "Listening ports": "监听端口",
+  "Add TCP port": "添加 TCP 端口",
+  "UDP listeners": "UDP 监听端口",
+  "Add UDP port": "添加 UDP 端口",
+  "New TCP listener": "新建 TCP 监听端口",
+  "New UDP listener": "新建 UDP 监听端口",
+  "Shared UDP ports listened by SoftEther for WireGuard and other native UDP tunnels. Changes apply via SetConfig and restart the service.": "SoftEther 用于 WireGuard 等原生 UDP 隧道的共享 UDP 监听端口。修改通过 SetConfig 下发并会重启服务。",
+  "Delete UDP port": "删除 UDP 端口",
+  "Remove UDP port": "移除 UDP 端口",
+  "At least one UDP port must remain.": "至少保留一个 UDP 监听端口。",
+  "Save UDP ports & restart": "保存 UDP 端口并重启",
+  "UDP listening ports saved.": "UDP 监听端口已保存。",
+  "Update UDP listening ports and restart?": "更新 UDP 监听端口并重启？",
+  "Active UDP listening ports": "当前 UDP 监听端口",
+  "Default WireGuard port 51820 is not in the UDP listeners above.": "默认 WireGuard 端口 51820 尚未加入上方的 UDP 监听端口。",
+  "Manage in Listening ports ↑": "前往「监听端口」管理 ↑",
+  "No UDP ports configured": "未配置 UDP 端口",
 };
 
 interface I18nApi {

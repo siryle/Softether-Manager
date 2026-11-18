@@ -242,33 +242,12 @@ export function SessionsTable({
                         <Pill kind={system ? "idle" : "ok"} label={kind} />
                       </td>
                       <td className="tmono">
-                        {s.VirtualIP_ip ? (
-                          <div>
-                            <span className="chip chip--ok" style={{ padding: "0 5px", fontSize: "10px", marginRight: 4 }}>
-                              {t("LAN")}
-                            </span>
-                            <span>{String(s.VirtualIP_ip)}</span>
-                          </div>
-                        ) : null}
-                        {s.ClientIP_ip ? (
-                          <div className={s.VirtualIP_ip ? "tsub" : ""} style={{ marginTop: s.VirtualIP_ip ? 2 : 0 }}>
-                            <span className="chip" style={{ padding: "0 5px", fontSize: "10px", marginRight: 4 }}>
-                              {t("WAN")}
-                            </span>
-                            <span>{String(s.ClientIP_ip)}</span>
-                            {hasIPLocation(s.IpLocation_str, s.IpIsp_str) ? (
-                              <span className="chip chip--ok" style={{ marginLeft: 6, fontSize: "11px", fontWeight: "normal" }}>
-                                {formatIPLocation(s.IpLocation_str, s.IpIsp_str)}
-                              </span>
-                            ) : null}
-                          </div>
-                        ) : null}
-                        {cleanHost(s) !== "—" ? (
-                          <div className="tsub" style={{ marginTop: 2, color: "var(--muted)" }}>
-                            {cleanHost(s)}
-                          </div>
-                        ) : null}
-                        {!s.VirtualIP_ip && !s.ClientIP_ip && !s.Hostname_str ? "—" : null}
+                        <EndpointCell
+                          virtualIp={s.VirtualIP_ip}
+                          clientIp={s.ClientIP_ip}
+                          location={hasIPLocation(s.IpLocation_str, s.IpIsp_str) ? formatIPLocation(s.IpLocation_str, s.IpIsp_str) : ""}
+                          host={cleanHost(s)}
+                        />
                       </td>
                       <td className="tmono">{formatTcpConnections(s, t)}</td>
                       <td className="tmono">{formatCount(Number(s.PacketNum_u64))}</td>
@@ -311,7 +290,7 @@ export function SessionsTable({
                 </div>
                 {s.Note_utf ? <div className="tsub truncate" style={{ fontSize: "12px", color: "var(--muted)", marginBottom: 4 }}>{String(s.Note_utf)}</div> : null}
                 <div className="spec">
-                  {s.VirtualIP_ip ? <span className="chip"><i>{t("LAN")}</i>{String(s.VirtualIP_ip)}</span> : null}
+                  {s.VirtualIP_ip ? <span className="chip mono" style={{ color: "var(--ok)" }}>{String(s.VirtualIP_ip)}</span> : null}
                   {s.ClientIP_ip ? (
                     <span className="chip">
                       <i>{t("WAN")}</i>
@@ -341,6 +320,55 @@ export function SessionsTable({
         })}
       </div>
     </>
+  );
+}
+
+export function EndpointCell({
+  virtualIp,
+  clientIp,
+  location,
+  host,
+}: {
+  virtualIp?: unknown;
+  clientIp?: unknown;
+  location?: string;
+  host?: string;
+}) {
+  const lan = virtualIp ? filterIpv4(virtualIp) || String(virtualIp).trim() : "";
+  const wan = clientIp ? String(clientIp).trim() : "";
+  const cleanHostname = host && host !== "—" ? host.trim() : "";
+  const loc = location ? location.trim() : "";
+
+  if (!lan && !wan && !cleanHostname) return <>—</>;
+
+  const showPrimaryRow = Boolean(lan || (cleanHostname && !wan));
+  return (
+    <div className="endpoint">
+      {showPrimaryRow ? (
+        <div className="endpoint__row">
+          {lan ? <span className="endpoint__lan">{lan}</span> : null}
+          {lan && cleanHostname ? <span className="endpoint__sep" aria-hidden="true">·</span> : null}
+          {cleanHostname ? (
+            <span className="endpoint__host" title={cleanHostname}>
+              {cleanHostname}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      {wan ? (
+        <div className="endpoint__row">
+          <span className={lan ? "endpoint__wan" : "endpoint__wan--solo"}>{wan}</span>
+          {loc ? <span className="endpoint__loc">{loc}</span> : null}
+        </div>
+      ) : null}
+      {!lan && wan && cleanHostname ? (
+        <div className="endpoint__row">
+          <span className="endpoint__host" title={cleanHostname}>
+            {cleanHostname}
+          </span>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -395,8 +423,8 @@ export function SessionSheet({ hub,
                     <div className="mono" style={{ fontSize: "var(--t-data)" }}>
                       {String(detail.Client_Ip_Address_ip || "—")}
                       {hasIPLocation(detail.IpLocation_str, detail.IpIsp_str) ? (
-                        <div style={{ marginTop: 2 }}>
-                          <span className="chip chip--ok" style={{ fontSize: "10px", padding: "1px 5px", fontWeight: "normal" }}>
+                        <div style={{ marginTop: 3 }}>
+                          <span className="endpoint__loc">
                             {formatIPLocation(detail.IpLocation_str, detail.IpIsp_str)}
                           </span>
                         </div>
@@ -406,12 +434,7 @@ export function SessionSheet({ hub,
                   <div>
                     <div className="micro">{t("virtual IP")}</div>
                     <div className="mono" style={{ fontSize: "var(--t-data)", color: "var(--ok)" }}>
-                      {detail.VirtualIP_ip ? (
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                          <span className="chip chip--ok" style={{ padding: "0 5px", fontSize: "10px" }}>{t("LAN")}</span>
-                          {filterIpv4(detail.VirtualIP_ip)}
-                        </span>
-                      ) : "—"}
+                      {detail.VirtualIP_ip ? filterIpv4(detail.VirtualIP_ip) || "—" : "—"}
                     </div>
                   </div>
                   <div>

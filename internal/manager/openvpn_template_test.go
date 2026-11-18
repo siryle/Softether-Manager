@@ -55,3 +55,22 @@ func TestOpenVPNTemplateRejectsAnArchiveWithoutConfigs(t *testing.T) {
 		t.Fatal("accepted a non-archive")
 	}
 }
+
+func TestApplyOpenVPNEndpointRewritesRemoteLines(t *testing.T) {
+	in := "#remote commented.example 1194\r\n;remote semi.example 1194\r\nremote vpn123.softether.net 1194 udp\r\nproto udp\r\n"
+	got := applyOpenVPNEndpoint(in, "vpn.example.com", 443)
+	want := "#remote commented.example 1194\r\n;remote semi.example 1194\r\nremote vpn.example.com 443 udp\r\nproto udp\r\n"
+	if got != want {
+		t.Fatalf("got:\n%q\nwant:\n%q", got, want)
+	}
+}
+
+func TestApplyOpenVPNEndpointPortOnlyAndValidation(t *testing.T) {
+	in := "client\nremote auto.softether.net 1194\n"
+	if got := applyOpenVPNEndpoint(in, "", 8443); got != "client\nremote auto.softether.net 8443\n" {
+		t.Fatalf("port-only rewrite mismatch: %q", got)
+	}
+	if got := applyOpenVPNEndpoint(in, "bad host", 0); got != in {
+		t.Fatalf("expected invalid host/port to leave template unchanged, got %q", got)
+	}
+}

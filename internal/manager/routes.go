@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -177,7 +178,27 @@ func (a *App) registerCustomRPC() {
 		out := a.rpc(r.Context(), "GetConfig", nil)
 		return M{"filename": withDefault(out, "FileName_str", "vpn_server.config"), "config_base64": withDefault(out, "FileData_bin", "")}
 	})
-	a.endpoint("POST /server/openvpn/sample-config", func(_ http.ResponseWriter, r *http.Request, _ M) any {
+	a.endpoint("POST /server/openvpn/sample-config", func(w http.ResponseWriter, r *http.Request, _ M) any {
+		var body M
+		if r.Body != nil {
+			rawBody, err := io.ReadAll(io.LimitReader(wMaxBytes(w, r), 64<<10))
+			check(err)
+			if len(bytes.TrimSpace(rawBody)) > 0 {
+				d := json.NewDecoder(bytes.NewReader(rawBody))
+				d.UseNumber()
+				if err := d.Decode(&body); err != nil || body == nil {
+					fail(422, "A JSON object body is required.")
+				}
+			}
+		}
+		host := strings.TrimSpace(str(body["host"]))
+		if host == "" {
+			host = strings.TrimSpace(str(a.setting("vpn_public_host")))
+		}
+		port := int(integer(body["port"]))
+		if port <= 0 || port > 65535 {
+			port = int(integer(a.setting("vpn_public_port")))
+		}
 		out := a.rpc(r.Context(), "MakeOpenVpnConfigFile", nil)
 		raw, err := base64.StdEncoding.DecodeString(str(out["Buffer_bin"]))
 		check(err)
@@ -185,6 +206,7 @@ func (a *App) registerCustomRPC() {
 		if err != nil {
 			fail(502, "SoftEther returned no OpenVPN template: "+err.Error())
 		}
+		config = applyOpenVPNEndpoint(config, host, port)
 		return M{"filename": name, "config": config}
 	})
 	a.endpoint("GET /server/default-hub-admin-options", func(_ http.ResponseWriter, r *http.Request, _ M) any {
@@ -614,4 +636,59 @@ func openvpnTemplate(buf []byte) (string, string, error) {
 		return "", "", err
 	}
 	return path.Base(chosen.Name), strings.ToValidUTF8(string(data), ""), nil
+}
+
+func wMaxBytes(w http.ResponseWriter, r *http.Request) io.Reader {
+	return http.MaxBytesReader(w, r.Body, 64<<10)
+}
+
+// applyOpenVPNEndpoint rewrites active `remote <host> <port> ...` lines in a
+// SoftEther .ovpn template when a public domain and/or port is configured,
+// leaving commented examples and trailing protocol tokens intact.
+func applyOpenVPNEndpoint(config, host string, port int) string {
+	host = strings.TrimSpace(host)
+	if strings.ContainsAny(host, " \t\r\n") {
+		host = ""
+	}
+	hasPort := port >= 1 && port <= 65535
+	if host == "" && !hasPort {
+		return config
+	}
+	lines := strings.Split(config, "\n")
+	for i, line := range lines {
+		cr := ""
+		if strings.HasSuffix(line, "\r") {
+			cr = "\r"
+			line = strings.TrimSuffix(line, "\r")
+		}
+		trimmed := strings.TrimLeft(line, " \t")
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, ";") {
+			continue
+		}
+		fields := strings.Fields(trimmed)
+		if len(fields) < 2 || !strings.EqualFold(fields[0], "remote") {
+			continue
+		}
+		lead := line[:len(line)-len(trimmed)]
+		nextHost := fields[1]
+		if host != "" {
+			nextHost = host
+		}
+		nextPort := ""
+		if len(fields) >= 3 {
+			nextPort = fields[2]
+		}
+		if hasPort {
+			nextPort = strconv.Itoa(port)
+		}
+		parts := []string{fields[0], nextHost}
+		if nextPort != "" {
+			parts = append(parts, nextPort)
+		}
+		if len(fields) > 3 {
+			parts = append(parts, fields[3:]...)
+		}
+		lines[i] = lead + strings.Join(parts, " ") + cr
+	}
+	return strings.Join(lines, "\n")
 }

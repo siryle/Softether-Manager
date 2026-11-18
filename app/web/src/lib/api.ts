@@ -426,8 +426,8 @@ function apiMethods(request: typeof sendRequest) {
   setIpsec: (body: Wire) => request("PUT", "/server/ipsec", body),
   openvpn: () => request("GET", "/server/openvpn"),
   setOpenvpn: (body: Wire) => request("PUT", "/server/openvpn", body),
-  openvpnSample: () =>
-    request<{ filename: string; config: string }>("POST", "/server/openvpn/sample-config"),
+  openvpnSample: (body?: { host?: string; port?: number }) =>
+    request<{ filename: string; config: string }>("POST", "/server/openvpn/sample-config", body),
   wireguard: () => request<WireGuardState>("GET", "/server/wireguard"),
   setWireguard: (body: Wire) => request<{ restarting: boolean }>("PUT", "/server/wireguard", body),
   setWireguardHubNetwork: (hub: string, body: { gateway: string; subnet: string; confirm_restart: boolean }) =>

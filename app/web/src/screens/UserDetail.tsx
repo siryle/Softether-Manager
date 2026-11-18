@@ -17,7 +17,7 @@ import { QuotaEnforceSwitch, QuotaSummary, netBytes } from "../components/QuotaC
 import { RangeSeg, TrafficChart, useTrafficUsage } from "../components/TrafficChart";
 import { UserSheet } from "../components/UserSheet";
 import { VpnFileSheet } from "../components/VpnFileSheet";
-import { WireGuardAddPeerSheet, WireGuardConfigSheet, waitForWireGuardReady } from "../components/WireGuardPeerSheet";
+import { CopyTextButton, WireGuardAddPeerSheet, WireGuardConfigSheet, waitForWireGuardReady } from "../components/WireGuardPeerSheet";
 import { ApiError, api, useServerApi, type Quota, type Usage, type Wire, type WireGuardPeer, type WireGuardState } from "../lib/api";
 import { Sheet } from "../ui/Sheet";
 import { Spark } from "../components/ResourceCards";
@@ -26,10 +26,10 @@ import { AUTH_TYPES, isNever, userBytes, SESSION_TYPE } from "../lib/se";
 import { useToast } from "../lib/toast";
 import { useI18n, t } from "../lib/i18n";
 import { formatBytes, formatCount, formatDate, formatDuration, formatIPLocation, hasIPLocation, timeAgo } from "../lib/util";
-import { BrandMark, IconDownload, IconKey, IconPlus, IconTrash } from "../ui/Icon";
+import { BrandMark, IconDownload, IconPlus, IconTrash } from "../ui/Icon";
 import { Pill } from "../ui/Status";
 import { UserStatePill } from "./hub/HubUsers";
-import { SessionSheet, SessionsTable } from "./hub/HubSessions";
+import { EndpointCell, SessionSheet, SessionsTable } from "./hub/HubSessions";
 
 /** Sessions with no client transport of their own -- SecureNAT and the like
  *  -- move bytes that SoftEther reports without a direction split. One line
@@ -132,12 +132,9 @@ function SessionUsageSheet({ hub, row, onClose }: { hub: string; row: Wire; onCl
               <div>
                 <div className="micro">{t("virtual IP")}</div>
                 <div className="mono" style={{ fontSize: "var(--t-data)", color: "var(--ok)" }}>
-                  {(row.virtual_ip || usage?.session?.virtual_ip) ? (
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                      <span className="chip chip--ok" style={{ padding: "0 5px", fontSize: "10px" }}>{t("LAN")}</span>
-                      {filterIpv4(row.virtual_ip || usage?.session?.virtual_ip)}
-                    </span>
-                  ) : "—"}
+                  {(row.virtual_ip || usage?.session?.virtual_ip)
+                    ? filterIpv4(row.virtual_ip || usage?.session?.virtual_ip) || "—"
+                    : "—"}
                 </div>
               </div>
               <div>
@@ -392,35 +389,54 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
                 {t("Bind a WireGuard public key to let this user connect with a standard WireGuard client.")}
               </Empty>
             ) : (
-              <div className="rows">
-                {userPeers.map((peer) => (
-                  <div key={peer.public_key} className="row">
-                    <div className="row__main">
-                      <div className="row__name" style={{ display: "flex", alignItems: "center", gap: "var(--s2)", flexWrap: "wrap" }}>
-                        <span className="mono">{peer.label || t("WireGuard peer")}</span>
-                        {peer.assigned_ip && <span className="chip chip--ok mono">{peer.assigned_ip}/32</span>}
-                      </div>
-                      <div className="spec">
-                        <span className="chip mono" title={peer.public_key}>
-                          <IconKey size={12} /> {peer.public_key}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="row__side">
-                      <button type="button" className="btn btn--sm" onClick={() => setEditingWg(peer)}>
-                        <IconDownload size={13} /> {t(".conf")}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn--sm btn--ghost"
-                        aria-label={t("Delete peer")}
-                        onClick={() => setDeletingWg(peer)}
-                      >
-                        <IconTrash size={14} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+              <div className="card tcard">
+                <div className="tscroll">
+                  <table className="dtable">
+                    <thead>
+                      <tr>
+                        <th scope="col">{t("Device")}</th>
+                        <th scope="col">{t("Tunnel IPv4")}</th>
+                        <th scope="col">{t("Client public key")}</th>
+                        <th scope="col" className="tact" aria-label={t("Actions")} />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {userPeers.map((peer) => (
+                        <tr key={peer.public_key}>
+                          <td className="tname mono">{peer.label || t("WireGuard peer")}</td>
+                          <td>
+                            {peer.assigned_ip ? (
+                              <span className="chip chip--ok mono">{peer.assigned_ip}/32</span>
+                            ) : (
+                              <span className="micro">—</span>
+                            )}
+                          </td>
+                          <td>
+                            <div style={{ display: "inline-flex", alignItems: "center", gap: "var(--s2)", whiteSpace: "nowrap" }}>
+                              <span className="mono" title={peer.public_key}>{peer.public_key}</span>
+                              <CopyTextButton text={peer.public_key} ariaLabel="Copy client public key" />
+                            </div>
+                          </td>
+                          <td className="tact">
+                            <div style={{ display: "inline-flex", alignItems: "center", gap: "var(--s1)", whiteSpace: "nowrap" }}>
+                              <button type="button" className="btn btn--sm" onClick={() => setEditingWg(peer)}>
+                                <IconDownload size={13} /> {t(".conf")}
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn--sm btn--ghost"
+                                aria-label={t("Delete peer")}
+                                onClick={() => setDeletingWg(peer)}
+                              >
+                                <IconTrash size={14} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </>
@@ -492,25 +508,12 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
                       <td className="tmono">{h.ended_date ? formatDate(String(h.ended_date)) : <Pill kind="ok" label="connected" />}</td>
                       <td className="tmono">{formatDuration(duration)}</td>
                       <td className="tmono">
-                        {h.client_ip ? (
-                          <div>
-                            <span className="chip" style={{ padding: "0 5px", fontSize: "10px", marginRight: 4 }}>
-                              {t("WAN")}
-                            </span>
-                            <span>{String(h.client_ip)}</span>
-                            {hasIPLocation(h.ip_location, h.ip_isp) ? (
-                              <span className="chip chip--ok" style={{ marginLeft: 6, fontSize: "11px", fontWeight: "normal" }}>
-                                {formatIPLocation(h.ip_location, h.ip_isp)}
-                              </span>
-                            ) : null}
-                          </div>
-                        ) : null}
-                        {host !== "—" ? (
-                          <div className="tsub" style={{ marginTop: 2, color: "var(--muted)" }}>
-                            {host}
-                          </div>
-                        ) : null}
-                        {!h.client_ip && host === "—" ? "—" : null}
+                        <EndpointCell
+                          virtualIp={v4}
+                          clientIp={h.client_ip}
+                          location={hasIPLocation(h.ip_location, h.ip_isp) ? formatIPLocation(h.ip_location, h.ip_isp) : ""}
+                          host={host}
+                        />
                       </td>
                       <td className="tmono" title={`↓ ${formatBytes(Number(h.download_bytes))} · ↑ ${formatBytes(Number(h.upload_bytes))}`}>
                         {formatBytes(Number(h.bytes_total))}
