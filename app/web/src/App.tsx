@@ -13,6 +13,7 @@ import { Dashboard } from "./screens/Dashboard";
 import { AllUsers } from "./screens/AllUsers";
 import { Connect } from "./screens/Connect";
 import { ServerSettings } from "./screens/ServerSettings";
+import { AllClients } from "./screens/AllClients";
 import { Connections } from "./screens/Connections";
 import { Logs } from "./screens/Logs";
 import { HubDetail } from "./screens/HubDetail";
@@ -83,8 +84,8 @@ function Routed() {
     screen = <Settings section={p[1]} />;
   } else if (p[0] === "server-settings") {
     screen = <ServerSettings section={p[1]} />;
-  } else if (p[0] === "connections") {
-    screen = <Connections />;
+  } else if (p[0] === "clients" || p[0] === "connections") {
+    screen = <AllClients />;
   } else if (p[0] === "logs") {
     screen = <Logs />;
 

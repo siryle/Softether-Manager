@@ -326,7 +326,7 @@ func (a *App) handle(pattern string, public bool, fn func(http.ResponseWriter, *
 			}
 			// Panel and connection-list endpoints must remain usable after a saved server is removed.
 			path := strings.TrimPrefix(r.URL.Path, "/api/v1")
-			scoped := strings.HasPrefix(path, "/server/") || strings.HasPrefix(path, "/hubs") || path == "/users" || strings.HasPrefix(path, "/quotas") || path == "/rpc/call"
+			scoped := strings.HasPrefix(path, "/server/") || strings.HasPrefix(path, "/hubs") || path == "/users" || path == "/clients" || strings.HasPrefix(path, "/quotas") || path == "/rpc/call"
 			if scoped {
 				a.serverRow(id)
 			}

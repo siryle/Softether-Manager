@@ -87,7 +87,7 @@ export function AllUsers() {
         title={t("All Users")}
         sub={data ? t("{users} across {hubs} hubs", { users: data.users.length, hubs: data.hubs.length }) : t("Every user on this server.")}
         actions={
-          <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap" }}>
+          <div className="users-toolbar">
             <SearchBox value={query} onChange={setQuery} placeholder={t("name, hub, group, note…")} />
             <button
               className="btn btn--primary"
@@ -97,7 +97,7 @@ export function AllUsers() {
               }}
               disabled={!data || data.hubs.length === 0}
             >
-              <IconPlus size={15} /> {t("New user")}
+              <IconPlus size={15} /> <span className="btn__label">{t("New user")}</span>
             </button>
           </div>
         }

@@ -84,10 +84,7 @@ export function Dashboard() {
   const totalUsers = Number(status?.NumUsers_u32) || 0;
   const rxTotal = (Number(status?.["Recv.UnicastBytes_u64"]) || 0) + (Number(status?.["Recv.BroadcastBytes_u64"]) || 0);
   const txTotal = (Number(status?.["Send.UnicastBytes_u64"]) || 0) + (Number(status?.["Send.BroadcastBytes_u64"]) || 0);
-  const sessionsUrl =
-    hubs && hubs.length === 1
-      ? `/hub/${seg(String(hubs[0].HubName_str))}/sessions`
-      : "/connections";
+  const sessionsUrl = "/clients";
 
   return (
     <div className="dash-view space-y-6">
@@ -115,7 +112,7 @@ export function Dashboard() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Link to={sessionsUrl} className="stat-card stat-card--clickable">
           <div className="stat-card__l flex items-center justify-between">
-            <span>{t("Active sessions")}</span>
+            <span>{t("Online clients")}</span>
             <IconChevron size={12} className="stat-card__chevron" />
           </div>
           <div className="stat-card__v">{formatCount(activeSessions)}</div>

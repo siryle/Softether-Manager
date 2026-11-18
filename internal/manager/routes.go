@@ -405,6 +405,34 @@ func (a *App) registerCustomRPC() {
 		}
 		return M{"hubs": hubs, "users": users, "errors": errors}
 	})
+	a.endpoint("GET /clients", func(_ http.ResponseWriter, r *http.Request, _ M) any {
+		hubs, clients, errors := []string{}, []M{}, []M{}
+		for _, h := range list(a.rpc(r.Context(), "EnumHub", nil)["HubList"]) {
+			hub := str(h["HubName_str"])
+			if hub == "" {
+				continue
+			}
+			hubs = append(hubs, hub)
+			func() {
+				defer func() {
+					if p := recover(); p != nil {
+						errors = append(errors, M{"hub": hub, "error": fmtError(p)})
+					}
+				}()
+				sessList := list(a.rpc(r.Context(), "EnumSession", M{"HubName_str": hub})["SessionList"])
+				clientSess := []M{}
+				for _, s := range sessList {
+					if !boolean(s["LinkMode_bool"]) && !boolean(s["SecureNATMode_bool"]) && !boolean(s["BridgeMode_bool"]) && !boolean(s["Layer3Mode_bool"]) {
+						s["HubName_str"] = hub
+						clientSess = append(clientSess, s)
+					}
+				}
+				enriched := a.enrichSessions(r.Context(), hub, clientSess)
+				clients = append(clients, enriched...)
+			}()
+		}
+		return M{"hubs": hubs, "clients": clients, "errors": errors}
+	})
 	a.endpoint("GET /rpc/methods", func(_ http.ResponseWriter, _ *http.Request, _ M) any { return documentedMethods() })
 	a.endpoint("POST /rpc/call", func(w http.ResponseWriter, r *http.Request, u M) any {
 		b := readBody(w, r)

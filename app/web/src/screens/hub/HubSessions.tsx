@@ -22,14 +22,14 @@ function isIp(val?: string): boolean {
   return /^(\d{1,3}\.){3}\d{1,3}$/.test(val.trim()) || val.includes(":");
 }
 
-function filterIpv4(ipStr?: any): string {
+export function filterIpv4(ipStr?: any): string {
   if (!ipStr) return "";
   const parts = String(ipStr).split(/[\s,]+/);
   const v4 = parts.filter((p) => /^(\d{1,3}\.){3}\d{1,3}$/.test(p.trim()));
   return v4.join(", ");
 }
 
-function cleanHost(d: Wire): string {
+export function cleanHost(d: Wire): string {
   const serverName = String(d.ServerName_str || d.RemoteHostname_str || "").trim().toLowerCase();
   const clientReported = String(d.ClientHostname_str || "").trim();
   if (clientReported && !isIp(clientReported) && (!serverName || clientReported.toLowerCase() !== serverName)) {
@@ -49,7 +49,7 @@ function cleanHost(d: Wire): string {
   return h;
 }
 
-function formatTcpConnections(d: Wire, t: (s: string) => string): string {
+export function formatTcpConnections(d: Wire, t: (s: string) => string): string {
   const proto = String(d.UnderlayProtocol_str || d.Name_str || "");
   const isUdp = proto.includes("L2TP") || proto.includes("UDP") || proto.includes("IPsec");
   if (isUdp) {
@@ -64,7 +64,7 @@ function formatTcpConnections(d: Wire, t: (s: string) => string): string {
   return `${num} / ${max}`;
 }
 
-function parseClientInfo(d: Wire) {
+export function parseClientInfo(d: Wire) {
   const prod = String(d.ClientProductName_str || "").trim();
   const isDull = (s: string) => !s || /^[-—\s]+$/.test(s) || s.toLowerCase() === "unknown" || s.toLowerCase() === "none";
 
@@ -114,7 +114,8 @@ export function HubSessions({ hub }: { hub: string }) {
       for (const s of list) {
         s.VirtualIP_ip = filterIpv4(s.VirtualIP_ip) || ipMap.get(String(s.Name_str)) || "";
       }
-      setSessions(list);
+      const clientList = list.filter((s) => SESSION_TYPE(s) === "client");
+      setSessions(clientList);
     } catch {
       setSessions([]);
     }
@@ -136,14 +137,16 @@ export function HubSessions({ hub }: { hub: string }) {
         count={sessions?.length}
         actions={<SearchBox value={query} onChange={setQuery} placeholder={t("user, host, IP…")} />}
       >
-        {t("Sessions")}
+        {t("Online clients")}
       </SectionTitle>
 
       {filtered == null ? (
         <LoadingBlock label="loading sessions" />
       ) : filtered.length === 0 ? (
         <Empty title={q ? "nothing matches" : "nobody is connected"}>
-          {q ? "No session matches that search." : "Sessions appear here live as clients connect."}
+          {q
+            ? "No client, host or IP matches that search."
+            : "No clients are connected right now."}
         </Empty>
       ) : (
         <SessionsTable

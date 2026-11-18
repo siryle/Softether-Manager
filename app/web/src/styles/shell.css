@@ -708,6 +708,7 @@
 .page__actions {
   display: flex;
   gap: var(--s2);
+  align-items: center;
   flex-wrap: wrap;
 }
 

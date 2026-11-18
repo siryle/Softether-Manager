@@ -478,6 +478,39 @@ function apiMethods(request: typeof sendRequest) {
       "/users",
     ),
 
+  // -- every online client across all hubs -----------------------------------------
+  allClients: async (): Promise<{ hubs: string[]; clients: Wire[]; errors: { hub: string; error: string }[] }> => {
+    try {
+      const res = await request<{ hubs: string[]; clients: Wire[]; errors: { hub: string; error: string }[] }>("GET", "/clients");
+      if (res && Array.isArray(res.clients)) return res;
+    } catch {}
+
+    const hubListRes = await api.hubs().catch(() => null);
+    const hubList = (hubListRes?.HubList as Wire[]) ?? [];
+    const hubs = hubList.map((h) => String(h.HubName_str)).filter(Boolean);
+    const clients: Wire[] = [];
+    const errors: { hub: string; error: string }[] = [];
+
+    await Promise.all(
+      hubs.map(async (hub) => {
+        try {
+          const r = await api.sessions(hub).catch(() => null);
+          const list = (r?.SessionList as Wire[]) ?? [];
+          for (const s of list) {
+            const isSystem = Boolean(s.LinkMode_bool || s.SecureNATMode_bool || s.BridgeMode_bool || s.Layer3Mode_bool);
+            if (!isSystem) {
+              s.HubName_str = hub;
+              clients.push(s);
+            }
+          }
+        } catch (e) {
+          errors.push({ hub, error: String(e) });
+        }
+      }),
+    );
+    return { hubs, clients, errors };
+  },
+
   // -- hubs -------------------------------------------------------------------------
   hubs: () => request("GET", "/hubs"),
   createHub: (body: Wire) => request("POST", "/hubs", body),

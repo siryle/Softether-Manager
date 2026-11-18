@@ -357,9 +357,21 @@
 .row2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--s3);
+  gap: var(--s2) var(--s3);
+  margin-bottom: var(--s2);
 }
-.row2 > .checkrow {
+.row2:has(> .field) {
+  gap: var(--s3);
+  margin-bottom: var(--s4);
+}
+.row2:last-child {
+  margin-bottom: 0;
+}
+.row2 > .field {
+  margin-bottom: 0;
+}
+.row2 > .checkrow,
+.row2 > .switchrow {
   margin-bottom: 0;
   height: 100%;
 }

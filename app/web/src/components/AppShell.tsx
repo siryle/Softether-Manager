@@ -84,33 +84,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", focusSearch);
   }, []);
 
-  // Poll panel host resources for live topbar telemetry.
-  useEffect(() => {
-    let unmounted = false;
-    const fetchRes = async () => {
-      try {
-        const data = await api.resources();
-        if (!unmounted && data) setResources(data);
-      } catch {}
-    };
-    fetchRes();
-    const timer = setInterval(fetchRes, 5000);
-    return () => {
-      unmounted = true;
-      clearInterval(timer);
-    };
-  }, []);
-
-  const net = (resources?.network as Wire) ?? {};
-  const rxRate = Number(net.rx_bytes_per_second) || 0;
-  const txRate = Number(net.tx_bytes_per_second) || 0;
   // Total session and user counts from hubs
   const totalSessions = hubs?.reduce((acc, h) => acc + (Number(h.NumSessions_u32) || 0), 0) ?? 0;
   const totalUsers = hubs?.reduce((acc, h) => acc + (Number(h.NumUsers_u32) || 0), 0) ?? 0;
 
   const navLink = (to: string, label: string, icon: React.ReactNode, count?: React.ReactNode) => {
     const target = to.slice(1);
-    const on = target === "" ? active === "" || active === "connect" : target === "hubs" ? active === "hubs" || active === "hub" : active === target;
+    const on = target === "" ? active === "" || active === "connect" : target === "hubs" ? active === "hubs" || active === "hub" : target === "clients" ? active === "clients" || active === "connections" : active === target;
     return <Link to={to} className={`side__item${on ? " on" : ""}`} aria-current={on ? "page" : undefined} title={collapsed ? t(label) : undefined}>
       <span className="side__item-left">{icon}<span className="side__item-label">{t(label)}</span></span>
       {count !== undefined && <span className="side__count">{count}</span>}
@@ -152,18 +132,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        {/* Right: Live Telemetry + Controls */}
+        {/* Right: Controls */}
         <div className="topbar__right">
-          <div className="topbar__telemetry mono" title={t("Panel host resources")}><span className="topbar__host-label">{t("Panel host")}</span>
-            <span className="topbar__rx">
-              <span className="topbar__rx-lbl">↓ RX</span> {formatBytes(rxRate)}/s
-            </span>
-            <span style={{ color: "var(--text-muted)" }}>·</span>
-            <span className="topbar__tx">
-              <span className="topbar__tx-lbl">↑ TX</span> {formatBytes(txRate)}/s
-            </span>
-          </div>
-
           <LanguageButton />
           <ThemeToggle />
 
@@ -198,7 +168,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 {navLink("/", "Console overview", <IconPanels size={18} />)}
                 {navLink("/hubs", "Virtual Hubs", <IconHub size={18} />, hubs?.length ?? "—")}
                 {navLink("/users", "Users", <IconUsers size={18} />, hubs ? totalUsers : "—")}
-                {navLink("/connections", "Active sessions", <IconPulse size={18} />, hubs ? totalSessions : "—")}
+                {navLink("/clients", "Online clients", <IconPulse size={18} />, hubs ? totalSessions : "—")}
               </nav>
             </div>
             <div className="side__section">
@@ -313,7 +283,7 @@ function TabBar() {
       {tab((p) => p === "servers", "/servers", "Servers", <IconNode size={18} />)}
       {tab((p) => p === "hubs" || p === "hub", "/hubs", "Virtual Hubs", <IconHub size={18} />)}
       {tab((p) => p === "users", "/users", "Users", <IconUsers size={18} />)}
-      {tab((p) => p === "connections", "/connections", "Sessions", <IconPulse size={18} />)}
+      {tab((p) => p === "clients" || p === "connections", "/clients", "Online clients", <IconPulse size={18} />)}
       {tab((p) => p === "settings", "/settings", "Settings", <IconSettings size={18} />)}
     </nav>
   );
