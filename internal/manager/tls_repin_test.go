@@ -101,3 +101,19 @@ func TestFingerprintOfPEMMatchesObservedCertificate(t *testing.T) {
 		t.Fatal("garbage produced a fingerprint")
 	}
 }
+
+func TestInspectCertificateSurfacesConnectionError(t *testing.T) {
+	a := testApp(t)
+	token := admin(t, a)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	u, _ := url.Parse(server.URL)
+	host, portText, _ := strings.Cut(u.Host, ":")
+	port := int(integer(portText))
+	server.Close()
+	a.saveConnection(host, port, ptr("secret"), "header")
+
+	status, out, _ := call(t, a, "GET", "/api/v1/servers/1/certificate", nil, token)
+	if status != 502 || !strings.Contains(str(out["detail"]), "Cannot inspect SoftEther certificate:") {
+		t.Fatalf("expected 502 with transport detail, got %d %v", status, out)
+	}
+}

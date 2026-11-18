@@ -83,7 +83,9 @@ func (a *App) registerRPCTrust() {
 		ctx, cancel := context.WithTimeout(r.Context(), rpcTrustTimeout)
 		defer cancel()
 		fingerprint, err := remoteFingerprint(ctx, str(row["Host"]), int(integer(row["Port"])))
-		check(err)
+		if err != nil {
+			fail(502, "Cannot inspect SoftEther certificate: "+err.Error())
+		}
 		pin := one(a.db, `SELECT Fingerprint FROM RPCTrust WHERE Host=? AND Port=?`, row["Host"], row["Port"])
 		return M{"fingerprint": fingerprint, "pinned": str(pin["Fingerprint"])}
 	})
@@ -99,7 +101,9 @@ func (a *App) registerRPCTrust() {
 		ctx, cancel := context.WithTimeout(r.Context(), rpcTrustTimeout)
 		defer cancel()
 		fingerprint, err := remoteFingerprint(ctx, str(row["Host"]), int(integer(row["Port"])))
-		check(err)
+		if err != nil {
+			fail(502, "Cannot inspect SoftEther certificate: "+err.Error())
+		}
 		if fingerprint != expected {
 			fail(409, "The certificate changed again; inspect it before confirming.")
 		}
