@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -199,6 +200,18 @@ func (a *App) sampleTraffic(ctx context.Context) {
 					log.Printf("traffic sample server %d: %v", serverID, p)
 				}
 			}()
+			type hubSampleRow struct {
+				hub            string
+				send, recv     int64
+				sessions, users int64
+			}
+			type userSampleRow struct {
+				hub, name  string
+				send, recv int64
+				numLogin   int64
+			}
+			var hubSamples []hubSampleRow
+			var userSamples []userSampleRow
 			for _, h := range list(a.rpc(serverCtx, "EnumHub", nil)["HubList"]) {
 				hub := str(h["HubName_str"])
 				if hub == "" {
@@ -212,7 +225,13 @@ func (a *App) sampleTraffic(ctx context.Context) {
 					}()
 					status := a.rpc(serverCtx, "GetHubStatus", M{"HubName_str": hub})
 					if send, recv, valid := sampledTraffic(status, ""); valid {
-						execute(a.db, `INSERT INTO HubTrafficSample(ServerID,HubName,SendBytes,RecvBytes,NumSessions,NumUsers,SampledDate) VALUES(?,?,?,?,?,?,?)`, serverID, hub, send, recv, integer(status["NumSessions_u32"]), integer(status["NumUsers_u32"]), stamp)
+						hubSamples = append(hubSamples, hubSampleRow{
+							hub:      hub,
+							send:     send,
+							recv:     recv,
+							sessions: integer(status["NumSessions_u32"]),
+							users:    integer(status["NumUsers_u32"]),
+						})
 					} else {
 						log.Printf("traffic sample %d/%s: missing or invalid hub counters", serverID, hub)
 					}
@@ -223,10 +242,44 @@ func (a *App) sampleTraffic(ctx context.Context) {
 							log.Printf("traffic sample %d/%s/%s: missing or invalid user counters", serverID, hub, name)
 							continue
 						}
-						execute(a.db, `INSERT INTO UserTrafficSample(ServerID,HubName,UserName,SendBytes,RecvBytes,NumLogin,SampledDate) VALUES(?,?,?,?,?,?,?)`, serverID, hub, name, sBytes, rBytes, integer(u["NumLogin_u32"]), stamp)
+						userSamples = append(userSamples, userSampleRow{
+							hub:      hub,
+							name:     name,
+							send:     sBytes,
+							recv:     rBytes,
+							numLogin: integer(u["NumLogin_u32"]),
+						})
 					}
 				}()
 			}
+			if len(hubSamples) == 0 && len(userSamples) == 0 {
+				return
+			}
+			tx, err := a.db.Begin()
+			if err != nil {
+				log.Printf("traffic sample begin tx %d: %v", serverID, err)
+				return
+			}
+			defer tx.Rollback()
+			if len(hubSamples) > 0 {
+				hubStmt, err := tx.Prepare(`INSERT INTO HubTrafficSample(ServerID,HubName,SendBytes,RecvBytes,NumSessions,NumUsers,SampledDate) VALUES(?,?,?,?,?,?,?)`)
+				check(err)
+				defer hubStmt.Close()
+				for _, hs := range hubSamples {
+					_, err = hubStmt.Exec(serverID, hs.hub, hs.send, hs.recv, hs.sessions, hs.users, stamp)
+					check(err)
+				}
+			}
+			if len(userSamples) > 0 {
+				userStmt, err := tx.Prepare(`INSERT INTO UserTrafficSample(ServerID,HubName,UserName,SendBytes,RecvBytes,NumLogin,SampledDate) VALUES(?,?,?,?,?,?,?)`)
+				check(err)
+				defer userStmt.Close()
+				for _, us := range userSamples {
+					_, err = userStmt.Exec(serverID, us.hub, us.name, us.send, us.recv, us.numLogin, stamp)
+					check(err)
+				}
+			}
+			check(tx.Commit())
 		}()
 	}
 }
@@ -269,52 +322,55 @@ type liveSessionData struct {
 
 func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string) {
 	live := list(a.rpc(ctx, "EnumSession", M{"HubName_str": hub})["SessionList"])
-	var toWrite []liveSessionData
 	seen := map[string]bool{}
 	stamp := now()
 	series := boolean(a.setting("session_traffic_enabled"))
+	sessionIPs, ipToDhcpHost := a.collectSessionNetMaps(ctx, hub)
 
-	var ipTable []M
-	func() {
-		defer func() { _ = recover() }()
-		out := a.rpc(ctx, "EnumIpTable", M{"HubName_str": hub})
-		ipTable = list(out["IpTable"])
-	}()
-
-	var dhcpTable []M
-	func() {
-		defer func() { _ = recover() }()
-		out := a.rpc(ctx, "EnumDHCP", M{"HubName_str": hub})
-		dhcpTable = list(out["DhcpTable"])
-	}()
-
-	sessionIPs := make(map[string][]string)
-	for _, entry := range ipTable {
-		sessName := str(entry["SessionName_str"])
-		ip := strings.TrimSpace(str(entry["IpAddress_ip"]))
-		if sessName != "" && ip != "" && isIPv4(ip) {
-			found := false
-			for _, existing := range sessionIPs[sessName] {
-				if existing == ip {
-					found = true
-					break
+	type sessDetail struct {
+		down, up   int64
+		sampled    bool
+		clientHost string
+	}
+	details := make(map[string]sessDetail)
+	if series && len(live) > 0 {
+		var mu sync.Mutex
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, 8)
+		for _, s := range live {
+			key := str(s["UniqueId_bin"])
+			sessName := str(s["Name_str"])
+			clientIP := strings.TrimSpace(str(s["ClientIP_ip"]))
+			if key == "" || sessName == "" {
+				continue
+			}
+			wg.Add(1)
+			go func(k, sn, cIP string) {
+				defer wg.Done()
+				defer func() {
+					if p := recover(); p != nil {
+						log.Printf("session traffic %d/%s/%s: %v", serverID, hub, k, p)
+					}
+				}()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+				status := a.rpc(ctx, "GetSessionStatus", M{"HubName_str": hub, "Name_str": sn})
+				down, up := bytesFor(status, "")
+				var chHost string
+				cH := strings.TrimSpace(str(status["ClientHostname_str"]))
+				sN := strings.TrimSpace(str(status["ServerName_str"]))
+				if cH != "" && !isIP(cH) && cH != cIP && !strings.EqualFold(cH, sN) {
+					chHost = cH
 				}
-			}
-			if !found {
-				sessionIPs[sessName] = append(sessionIPs[sessName], ip)
-			}
+				mu.Lock()
+				details[k] = sessDetail{down: down, up: up, sampled: true, clientHost: chHost}
+				mu.Unlock()
+			}(key, sessName, clientIP)
 		}
+		wg.Wait()
 	}
 
-	ipToDhcpHost := make(map[string]string)
-	for _, entry := range dhcpTable {
-		ip := strings.TrimSpace(str(entry["IpAddress_ip"]))
-		h := strings.TrimSpace(str(entry["Hostname_str"]))
-		if ip != "" && h != "" && !isIP(h) {
-			ipToDhcpHost[ip] = h
-		}
-	}
-
+	toWrite := make([]liveSessionData, 0, len(live))
 	for _, s := range live {
 		key := str(s["UniqueId_bin"])
 		if key == "" {
@@ -330,34 +386,10 @@ func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string)
 			virtualIP = strings.Join(ips, ", ")
 		}
 
-		var clientHost string
-		if ips, ok := sessionIPs[sessName]; ok {
-			for _, ip := range ips {
-				if dhcpH := ipToDhcpHost[ip]; dhcpH != "" && !strings.EqualFold(dhcpH, remoteHost) {
-					clientHost = dhcpH
-					break
-				}
-			}
-		}
-
-		var down, up int64
-		sampled := false
-		if series {
-			func() {
-				defer func() {
-					if p := recover(); p != nil {
-						log.Printf("session traffic %d/%s/%s: %v", serverID, hub, key, p)
-					}
-				}()
-				status := a.rpc(ctx, "GetSessionStatus", M{"HubName_str": hub, "Name_str": s["Name_str"]})
-				down, up = bytesFor(status, "")
-				sampled = true
-				cH := strings.TrimSpace(str(status["ClientHostname_str"]))
-				sN := strings.TrimSpace(str(status["ServerName_str"]))
-				if cH != "" && !isIP(cH) && cH != clientIP && !strings.EqualFold(cH, sN) {
-					clientHost = cH
-				}
-			}()
+		d := details[key]
+		clientHost := d.clientHost
+		if clientHost == "" {
+			clientHost = firstDHCPHost(sessionIPs[sessName], ipToDhcpHost, remoteHost)
 		}
 		if clientHost == "" {
 			h := strings.TrimSpace(str(s["Hostname_str"]))
@@ -379,9 +411,9 @@ func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string)
 			started:    started,
 			packetSize: integer(s["PacketSize_u64"]),
 			packetNum:  integer(s["PacketNum_u64"]),
-			down:       down,
-			up:         up,
-			sampled:    sampled,
+			down:       d.down,
+			up:         d.up,
+			sampled:    d.sampled,
 		})
 	}
 

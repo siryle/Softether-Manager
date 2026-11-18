@@ -21,18 +21,12 @@ import { CreateHubSheet, HubList } from "./Hubs";
  * 4. Bottom 12-Col Split (7 + 5): Virtual Hub Topology & Listening Ports / Protocols matrix.
  */
 export function Dashboard() {
-  const { probe, health, refresh, currentServer, clientCount } = useServer();
+  const { probe, health, refresh, currentServer, clientCount, resources } = useServer();
   const { t } = useI18n();
-  const [resources, setResources] = useState<Wire | null>(null);
   const [overview, setOverview] = useState<Wire | null>(null);
   const [wg, setWg] = useState<WireGuardState | null>(null);
   const [trafficHours, setTrafficHours] = useState(24);
   const [creatingHub, setCreatingHub] = useState(false);
-
-  const loadResources = useCallback(async () => {
-    setResources(await api.resources().catch(() => null));
-  }, []);
-  usePoll(loadResources, "live", []);
 
   const loadOverview = useCallback(async () => {
     if (health === "online") setOverview(await api.overview().catch(() => null));
@@ -182,7 +176,7 @@ export function Dashboard() {
         </Link>
 
         <div className="stat-card">
-          <div className="stat-card__l flex items-center justify-between gap-2">
+          <div className="stat-card__l flex items-center justify-between flex-wrap gap-2">
             <span>{t("Cumulative inbound (RX)")}</span>
             {net && <span className="stat-card__badge stat-card__badge--rx">↓ {formatBytes(netRx)}/s</span>}
           </div>
@@ -193,7 +187,7 @@ export function Dashboard() {
         </div>
 
         <div className="stat-card">
-          <div className="stat-card__l flex items-center justify-between gap-2">
+          <div className="stat-card__l flex items-center justify-between flex-wrap gap-2">
             <span>{t("Cumulative outbound (TX)")}</span>
             {net && <span className="stat-card__badge stat-card__badge--tx">↑ {formatBytes(netTx)}/s</span>}
           </div>

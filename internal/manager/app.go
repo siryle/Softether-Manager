@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/lionsoul2014/ip2region/binding/golang/xdb"
 )
@@ -147,6 +148,8 @@ type App struct {
 	geoMu                                    sync.RWMutex
 	xdb                                      *xdb.Searcher
 	xdbPath                                  string
+	geoNegMu                                 sync.Mutex
+	geoNegCache                              map[string]time.Time
 }
 
 func New(cfg Config) (app *App, err error) {
@@ -326,7 +329,7 @@ func (a *App) handle(pattern string, public bool, fn func(http.ResponseWriter, *
 			}
 			// Panel and connection-list endpoints must remain usable after a saved server is removed.
 			path := strings.TrimPrefix(r.URL.Path, "/api/v1")
-			scoped := strings.HasPrefix(path, "/server/") || strings.HasPrefix(path, "/hubs") || path == "/users" || path == "/clients" || strings.HasPrefix(path, "/quotas") || path == "/rpc/call"
+			scoped := strings.HasPrefix(path, "/server/") || strings.HasPrefix(path, "/hubs") || path == "/users" || path == "/clients" || strings.HasPrefix(path, "/quotas")
 			if scoped {
 				a.serverRow(id)
 			}
@@ -340,7 +343,7 @@ func (a *App) handle(pattern string, public bool, fn func(http.ResponseWriter, *
 				switch {
 				case r.PathValue("id") != "" && strings.HasPrefix(path, "/servers/") && (r.Method == "PUT" || r.Method == "DELETE"):
 					writeID = serverID(r)
-				case strings.HasPrefix(path, "/hubs/") || path == "/hubs" || path == "/rpc/call" || (strings.HasPrefix(path, "/server/") && path != "/server/connection/test" && path != "/server/probe"):
+				case strings.HasPrefix(path, "/hubs/") || path == "/hubs" || (strings.HasPrefix(path, "/server/") && path != "/server/connection/test" && path != "/server/probe"):
 					writeID = id
 				}
 				if writeID != 0 {

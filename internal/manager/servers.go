@@ -27,7 +27,11 @@ func (a *App) serverRow(id int64) M {
 }
 
 func publicServer(row M) M {
-	return M{"id": row["ServerID"], "name": row["Name"], "host": row["Host"], "port": row["Port"], "auth": row["AuthType"], "is_enabled": boolean(row["IsEnabled"]), "is_default": boolean(row["IsDefault"]), "skip_cert_check": boolean(row["SkipCertCheck"]), "sort_order": row["SortOrder"], "configured": str(row["EncryptedPassword"]) != "", "created_date": row["CreatedDate"], "updated_date": row["UpdatedDate"]}
+	pubPort := integer(row["PublicPort"])
+	if pubPort <= 0 {
+		pubPort = 443
+	}
+	return M{"id": row["ServerID"], "name": row["Name"], "host": row["Host"], "port": row["Port"], "auth": row["AuthType"], "is_enabled": boolean(row["IsEnabled"]), "is_default": boolean(row["IsDefault"]), "skip_cert_check": boolean(row["SkipCertCheck"]), "sort_order": row["SortOrder"], "public_host": str(row["PublicHost"]), "public_port": pubPort, "configured": str(row["EncryptedPassword"]) != "", "created_date": row["CreatedDate"], "updated_date": row["UpdatedDate"]}
 }
 
 func (a *App) serverInput(existing, body M) M {

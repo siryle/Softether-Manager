@@ -10,8 +10,8 @@ import (
 )
 
 func (a *App) quotaRow(serverID int64, subject, hub, name string) M {
-	if serverID == 0 {
-		serverID = 1
+	if serverID <= 0 {
+		return nil
 	}
 	return one(a.db, `SELECT * FROM TrafficQuota WHERE ServerID=? AND SubjectType=? AND HubName=? AND UserKey=?`, serverID, subject, hub, fold(name))
 }
@@ -45,8 +45,8 @@ func quotaPublic(row M) M {
 	return M{"subject": row["SubjectType"], "hub": row["HubName"], "username": row["UserName"], "has_limit": limit > 0, "limit_bytes": limit, "limit": math.Round(amount*100) / 100, "unit": unit, "metric": row["Metric"], "enabled": boolean(row["IsEnabled"]), "upload_bytes": up, "download_bytes": down, "base_send_bytes": row["BaseSendBytes"], "base_recv_bytes": row["BaseRecvBytes"], "used_bytes": used, "remaining_bytes": remaining, "percent": percent, "exceeded": str(row["ExceededDate"]) != "", "exceeded_date": row["ExceededDate"], "blocked": str(row["EnforcedDate"]) != "", "blocked_date": row["EnforcedDate"], "cycle_start": row["CycleStartDate"], "updated_date": row["UpdatedDate"]}
 }
 func (a *App) saveQuota(serverID int64, subject, hub, name string, limit int64, metric string, enabled bool) {
-	if serverID == 0 {
-		serverID = 1
+	if serverID <= 0 {
+		fail(422, "A valid server id is required.")
 	}
 	if metric != "total" && metric != "upload" && metric != "download" {
 		fail(422, "Metric must be total, upload or download.")
@@ -74,8 +74,8 @@ func (a *App) quotaLock(serverID int64) *sync.Mutex {
 	return a.quotaLocks[serverID]
 }
 func (a *App) observeQuotaLocked(serverID int64, subject, hub, name string, send, recv int64, source ...*RPCClient) {
-	if serverID == 0 {
-		serverID = 1
+	if serverID <= 0 {
+		return
 	}
 	sql := `UPDATE TrafficQuota SET BaseSendBytes=CASE WHEN CycleStartDate='' THEN ? WHEN ?<LastSendBytes THEN BaseSendBytes-LastSendBytes ELSE BaseSendBytes END,BaseRecvBytes=CASE WHEN CycleStartDate='' THEN ? WHEN ?<LastRecvBytes THEN BaseRecvBytes-LastRecvBytes ELSE BaseRecvBytes END,LastSendBytes=?,LastRecvBytes=?,CycleStartDate=CASE WHEN CycleStartDate='' THEN ? ELSE CycleStartDate END,UpdatedDate=? WHERE ServerID=? AND SubjectType=? AND HubName=? AND UserKey=?`
 	args := []any{send, send, recv, recv, send, recv, now(), now(), serverID, subject, hub, fold(name)}
@@ -85,13 +85,24 @@ func (a *App) observeQuotaLocked(serverID int64, subject, hub, name string, send
 	}
 	execute(a.db, sql, args...)
 }
-func (a *App) refreshQuota(ctx context.Context, serverID int64, subject, hub, name string) error {
+func (a *App) fetchQuotaCounters(ctx context.Context, client *RPCClient, subject, hub, name string) (int64, int64, error) {
 	method := "GetHubStatus"
 	params := M{"HubName_str": hub}
 	if subject == "user" {
 		method = "GetUser"
 		params["Name_str"] = name
 	}
+	out, err := client.Call(ctx, method, params)
+	if err != nil {
+		return 0, 0, err
+	}
+	send, recv, valid := sampledTraffic(out, "")
+	if !valid {
+		return 0, 0, httpError{422, "SoftEther returned incomplete traffic counters; previous usage was retained."}
+	}
+	return send, recv, nil
+}
+func (a *App) refreshQuota(ctx context.Context, serverID int64, subject, hub, name string) error {
 	client, _ := ctx.Value(rpcClientKey).(*RPCClient)
 	if client == nil {
 		var err error
@@ -100,13 +111,9 @@ func (a *App) refreshQuota(ctx context.Context, serverID int64, subject, hub, na
 			return err
 		}
 	}
-	out, err := client.Call(ctx, method, params)
+	send, recv, err := a.fetchQuotaCounters(ctx, client, subject, hub, name)
 	if err != nil {
 		return err
-	}
-	send, recv, valid := sampledTraffic(out, "")
-	if !valid {
-		return httpError{422, "SoftEther returned incomplete traffic counters; previous usage was retained."}
 	}
 	a.observeQuotaLocked(serverID, subject, hub, name, send, recv, client)
 	return nil
@@ -271,16 +278,14 @@ func (a *App) quotaTick(ctx context.Context) {
 					log.Printf("quota server %d: %v", id, p)
 				}
 			}()
-			lock := a.quotaLock(id)
-			lock.Lock()
-			defer lock.Unlock()
+			client, err := a.clientFor(id)
+			check(err)
 			serverCtx := context.WithValue(ctx, serverIDKey, id)
+			quotaCtx := context.WithValue(serverCtx, rpcClientKey, client)
 			for _, row := range query(a.db, `SELECT * FROM TrafficQuota WHERE ServerID=?`, id) {
 				subject, hub, name := str(row["SubjectType"]), str(row["HubName"]), str(row["UserName"])
-				client, err := a.clientFor(id)
-				check(err)
-				quotaCtx := context.WithValue(serverCtx, rpcClientKey, client)
-				if err := a.refreshQuota(quotaCtx, id, subject, hub, name); err != nil {
+				send, recv, err := a.fetchQuotaCounters(quotaCtx, client, subject, hub, name)
+				if err != nil {
 					if explicitMissing(err) {
 						a.forgetMissingQuota(row, client)
 						continue
@@ -292,12 +297,19 @@ func (a *App) quotaTick(ctx context.Context) {
 					continue
 				}
 				func() {
+					lock := a.quotaLock(id)
+					lock.Lock()
+					defer lock.Unlock()
 					defer func() {
 						if p := recover(); p != nil {
 							log.Printf("quota enforcement: %v", p)
 						}
 					}()
-					a.enforceQuota(quotaCtx, a.quotaRow(id, subject, hub, name))
+					a.observeQuotaLocked(id, subject, hub, name, send, recv, client)
+					current := a.quotaRow(id, subject, hub, name)
+					if current != nil && (a.quotaOver(current) || str(current["RestoreState"]) != "") {
+						a.enforceQuota(quotaCtx, current)
+					}
 				}()
 			}
 		}()

@@ -35,8 +35,11 @@ function scrollSettingsSection(id: string) {
 }
 
 export function Settings({ section }: { section?: string }) {
+  const [activeSec, setActiveSec] = useState(section || "account");
+
   useEffect(() => {
     if (!section) return;
+    setActiveSec(section);
     // Some sections mount after their settings have loaded.
     const observer = new MutationObserver(() => {
       if (scrollSettingsSection(section)) observer.disconnect();
@@ -54,17 +57,44 @@ export function Settings({ section }: { section?: string }) {
   }, [section]);
 
   const { t } = useI18n();
+  const sections = [
+    { id: "account", label: "Account" },
+    { id: "panel", label: "Panel" },
+    { id: "monitoring", label: "Monitoring" },
+    { id: "vpnfile", label: "Connection files (.vpn)" },
+    { id: "audit", label: "Audit log" },
+    { id: "about", label: "About" },
+  ];
+
+  const jumpTo = (id: string) => {
+    setActiveSec(id);
+    scrollSettingsSection(id);
+  };
 
   return (
     <div className="page settings-page">
       <PageHead title={t("Settings")} sub={t("The panel itself: account, address, sampling and updates. The VPN server and its certificate are handled under Server settings.")} />
-      <div className="setdoc">
-        <AccountCard />
-        <PanelCard />
-        <MonitoringCard />
-        <VpnFileTemplateCard />
-        <AuditCard />
-        <AboutCard />
+      <div className="doclayout">
+        <nav className="docnav" aria-label={t("Settings")}>
+          {sections.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className={`docnav__item${activeSec === s.id ? " on" : ""}`}
+              onClick={() => jumpTo(s.id)}
+            >
+              {t(s.label)}
+            </button>
+          ))}
+        </nav>
+        <div className="setdoc docmain">
+          <AccountCard />
+          <PanelCard />
+          <MonitoringCard />
+          <VpnFileTemplateCard />
+          <AuditCard />
+          <AboutCard />
+        </div>
       </div>
     </div>
   );

@@ -57,9 +57,9 @@ jobs:
 
       - name: Lint the shell scripts
         run: |
-          bash -n .githooks/* scripts/*.sh scripts/sem docker/docker-entrypoint.sh docker/sem
+          bash -n .githooks/* scripts/*.sh scripts/sem docker/docker-entrypoint.sh
           if command -v shellcheck >/dev/null 2>&1; then
-            shellcheck --severity=warning .githooks/* scripts/*.sh scripts/sem docker/docker-entrypoint.sh docker/sem || true
+            shellcheck --severity=warning .githooks/* scripts/*.sh scripts/sem docker/docker-entrypoint.sh || true
           fi
 
       - name: Test installer security

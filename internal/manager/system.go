@@ -102,9 +102,6 @@ func (a *App) registerSystem() {
 		if v, ok := body["domain"]; ok && v != nil {
 			domain = normalizeDomain(str(v))
 		}
-		if domain == "" && str(a.setting("vpn_public_host")) != "" {
-			domain = normalizeDomain(str(a.setting("vpn_public_host")))
-		}
 		if v, ok := body["https_port"]; ok && v != nil {
 			port := integer(v)
 			if port < 1 || port > 65535 || port == 80 || port == int64(a.cfg.BindPort) {
@@ -143,8 +140,19 @@ func (a *App) registerSystem() {
 		}
 		for _, key := range []string{"https_port", "acme_email", "acme_staging", "domain_only", "acme_challenge_type", "cf_dns_token", "cert_key_type", "cert_auto_push", "cert_renew_hook"} {
 			if v, ok := body[key]; ok && v != nil {
-				if key == "acme_email" || key == "cf_dns_token" || key == "cert_renew_hook" {
+				if key == "acme_email" {
 					v = strings.TrimSpace(str(v))
+				}
+				if key == "cf_dns_token" {
+					a.setSecretSetting("cf_dns_token", str(v))
+					changed = append(changed, key)
+					continue
+				}
+				if key == "cert_renew_hook" {
+					hook := validateCertRenewHook(a.cfg.Root, a.cfg.DataDir, str(v))
+					a.set("cert_renew_hook", hook)
+					changed = append(changed, key)
+					continue
 				}
 				if domain == "" && key == "domain_only" && boolean(v) {
 					fail(422, "Set a domain first.")
@@ -181,13 +189,7 @@ func (a *App) registerSystem() {
 	a.endpoint("POST /system/domain/issue", func(_ http.ResponseWriter, r *http.Request, u M) any {
 		domain := str(a.setting("domain"))
 		if domain == "" {
-			domain = str(a.setting("vpn_public_host"))
-		}
-		if domain == "" {
-			fail(422, "Set a domain or server public host first.")
-		}
-		if str(a.setting("domain")) == "" {
-			a.set("domain", domain)
+			fail(422, "Set a certificate domain first.")
 		}
 		func() {
 			a.tls.mu.Lock()

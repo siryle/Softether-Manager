@@ -1,30 +1,5 @@
 /* SOFT DECK — SoftEther Manager screen components. */
 
-/* ── the dashboard deck ───────────────────────────────────────────────────── */
-/* Main column + a narrow auxiliary column, the reference dashboard shape. */
-.dash {
-  display: grid;
-  gap: var(--s4);
-  align-items: start;
-}
-@media (min-width: 1100px) {
-  .dash {
-    grid-template-columns: minmax(0, 1fr) 340px;
-  }
-}
-.dash__main {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s4);
-  min-width: 0;
-}
-.dash__side {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s4);
-  min-width: 0;
-}
-
 /* KPI cards — one figure each */
 .kpis {
   display: grid;
@@ -65,67 +40,6 @@
   margin-top: 6px;
   font-size: var(--t-micro);
   color: var(--text-faint);
-}
-
-/* the hero — the one light card on the deck */
-.hero {
-  padding: var(--s5);
-  display: flex;
-  flex-direction: column;
-  gap: var(--s2);
-}
-.hero__k {
-  font-size: var(--t-micro);
-  font-weight: 700;
-  color: var(--inverse-muted);
-}
-.hero__name {
-  font-size: var(--t-section);
-  font-weight: 800;
-  letter-spacing: -0.01em;
-}
-.hero__v {
-  font-size: 34px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  line-height: 1.05;
-}
-.hero__s {
-  font-size: var(--t-micro);
-  color: var(--inverse-muted);
-}
-.hero__actions {
-  display: flex;
-  gap: var(--s2);
-  flex-wrap: wrap;
-  margin-top: var(--s3);
-}
-/* Buttons on the inverse card take their finish from the card, not the deck.
- * The card flips with the theme -- pale in the dark theme, dark in the light
- * one -- so both fills are expressed in the --inverse-* tokens, which flip
- * with it. A blanket `.hero .btn` background override would repaint the
- * ghost too and leave its text on its own colour, which is how it went
- * invisible once already. */
-.hero .btn {
-  background: var(--inverse-btn);
-  color: var(--inverse-btn-ink);
-  box-shadow: 0 6px 16px rgb(0 0 0 / 0.18);
-}
-.hero .btn--ghost {
-  background: var(--inverse-btn-ghost);
-  color: var(--inverse-text);
-  box-shadow: none;
-}
-@media (hover: hover) and (pointer: fine) {
-  .hero .btn:hover {
-    color: var(--inverse-btn-ink);
-    filter: brightness(1.04);
-  }
-  .hero .btn--ghost:hover {
-    color: var(--inverse-text);
-    background: var(--inverse-btn-ghost-hi);
-    filter: none;
-  }
 }
 
 /* a titled panel card — hubs, protocols, feeds */
@@ -581,17 +495,26 @@
 }
 .idcard {
   position: relative;
-  border-radius: var(--r-lg);
-  padding: var(--s5) var(--s6);
-  background: var(--inverse-grad);
-  color: var(--inverse-text);
-  box-shadow: var(--nm-raise);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border-radius: var(--r-card);
+  padding: var(--s5);
+  background: var(--card-grad);
+  color: var(--text);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--card-sheen), var(--nm-raise-sm);
   overflow: hidden;
 }
-.idcard .micro,
-.idcard__hub,
-.idcard__real {
-  color: var(--inverse-muted);
+.idcard--online {
+  border-color: var(--brand-line);
+}
+.idcard__hub {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--t-micro);
+  color: var(--text-muted);
 }
 .idcard__head {
   position: relative;
@@ -599,29 +522,38 @@
   align-items: center;
   gap: var(--s2);
 }
-.idcard__hub {
-  flex: 1;
-  min-width: 0;
-  overflow-wrap: anywhere;
-  font-size: var(--t-small);
+.idcard__ava {
+  width: 42px;
+  height: 42px;
+  border-radius: var(--r-ctl);
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 700;
+  background: var(--glass-lo);
+  border: 1px solid var(--glass-line-hi);
+  color: var(--text);
+  flex: none;
 }
 .idcard__name {
   position: relative;
   margin-top: var(--s4);
-  font-size: 26px;
-  font-weight: 800;
+  font-size: 22px;
+  font-weight: 700;
   letter-spacing: -0.015em;
   overflow-wrap: anywhere;
 }
 .idcard__real {
   margin-top: 2px;
   font-size: var(--t-small);
+  color: var(--text-muted);
 }
 .idcard__meta {
   display: flex;
   gap: var(--s2);
   flex-wrap: wrap;
-  margin-top: var(--s3);
+  margin-top: var(--s4);
 }
 .idcard__meta .chip {
   max-width: 100%;
@@ -629,6 +561,17 @@
   min-height: 24px;
   flex-wrap: wrap;
   overflow-wrap: anywhere;
+}
+.user-midgrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s5);
+  align-items: start;
+}
+@media (min-width: 1024px) {
+  .user-midgrid {
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  }
 }
 .user-summary {
   container: user-summary / inline-size;
@@ -765,41 +708,102 @@
   }
 }
 
-/* ── logs split view ──────────────────────────────────────────────────────── */
-.logsplit {
+/* ── logs master-detail workbench ─────────────────────────────────────────── */
+.logbench {
   display: grid;
-  gap: var(--s4);
   grid-template-columns: minmax(0, 1fr);
+  overflow: hidden;
 }
-.logsplit > * {
+.logbench > * {
   min-width: 0;
 }
-.logsplit .row {
+.lograil {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: var(--s3);
+  background: var(--glass-lo);
+  border-bottom: 1px solid var(--glass-line);
+}
+.lograil__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.lograil__item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--r-ctl);
+  border: 1px solid transparent;
   text-align: start;
+  cursor: pointer;
+  transition: background var(--d-fast) ease, border-color var(--d-fast) ease;
 }
-.logsplit .row__name {
-  flex-wrap: nowrap;
+.lograil__item:hover {
+  background: var(--glass-hi);
 }
-.logsplit .row__name svg {
-  flex: none;
+.lograil__item.on {
+  background: var(--bg-card);
+  border-color: var(--accent-line);
+  box-shadow: var(--card-sheen);
+}
+.lograil__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+.lograil__path {
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.logbench__view {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.logbench__view .term {
+  flex: 1;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.logbench__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s3) var(--s4);
+  background: var(--glass-lo);
+  border-top: 1px solid var(--glass-line);
 }
 @media (min-width: 960px) {
-  .logsplit {
-    grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
-    align-items: start;
+  .logbench {
+    grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+    min-height: 540px;
   }
-  .logsplit__view .term {
-    min-height: 480px;
+  .lograil {
+    border-bottom: 0;
+    border-inline-end: 1px solid var(--glass-line);
   }
-  .logsplit__view .term__body {
+  .lograil__list {
+    max-height: 62vh;
+  }
+  .logbench__view .term__body {
     max-height: 60vh;
   }
-}
-.row--on {
-  box-shadow:
-    var(--nm-raise-sm),
-    0 0 0 2px var(--accent-line);
 }
 
 /* ── hub configuration ─────────────────────────────────────────────────────── */

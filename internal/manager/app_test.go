@@ -225,7 +225,7 @@ func TestEntireRESTContractRegistered(t *testing.T) {
 			t.Errorf("missing legacy route: %s %s (%s)", route.Method, route.Path, pattern)
 		}
 	}
-	if len(routes) != 183 {
+	if len(routes) != 181 {
 		t.Fatalf("unexpected contract count %d", len(routes))
 	}
 }
@@ -548,10 +548,6 @@ func TestRPCGatewayAndEncodedPaths(t *testing.T) {
 	status, out, _ = call(t, a, "POST", "/api/v1/hubs/"+hub+"/users/Alice/vpn-file", M{"host": "vpn.example.com", "port": 443, "embed_password": true}, token)
 	if status != 200 || !strings.Contains(str(out["content"]), hashedPassword("secret", "Alice")) {
 		t.Fatal("cached VPN credential export")
-	}
-	status, _, _ = call(t, a, "POST", "/api/v1/rpc/call", M{"method": "ArbitraryUnknown"}, token)
-	if status != 422 {
-		t.Fatal("undocumented RPC accepted")
 	}
 	fake.mu.Lock()
 	defer fake.mu.Unlock()

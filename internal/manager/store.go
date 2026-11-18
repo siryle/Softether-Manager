@@ -176,6 +176,8 @@ func initSchema(db *sql.DB) error {
 		{"UpdatedDate", "TEXT NOT NULL DEFAULT ''"},
 		{"BackupLastRun", "TEXT NOT NULL DEFAULT ''"},
 		{"BackupLastError", "TEXT NOT NULL DEFAULT ''"},
+		{"PublicHost", "TEXT NOT NULL DEFAULT ''"},
+		{"PublicPort", "INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if !serverCols[col.column] {
 			if _, err = tx.Exec(`ALTER TABLE "Server" ADD COLUMN "` + col.column + `" ` + col.ddl); err != nil {
@@ -236,6 +238,24 @@ func initSchema(db *sql.DB) error {
 	}
 	if _, err = tx.Exec(`UPDATE Server SET IsDefault=CASE WHEN ServerID=? THEN 1 ELSE 0 END`, defaultID); err != nil {
 		return err
+	}
+
+	// Migrate legacy global vpn_public_host/port to the default server if not yet populated.
+	var pubHostRaw, pubPortRaw string
+	_ = tx.QueryRow(`SELECT SettingValue FROM Setting WHERE SettingKey='vpn_public_host'`).Scan(&pubHostRaw)
+	_ = tx.QueryRow(`SELECT SettingValue FROM Setting WHERE SettingKey='vpn_public_port'`).Scan(&pubPortRaw)
+	var legacyPubHost string
+	var legacyPubPort int
+	if pubHostRaw != "" {
+		_ = json.Unmarshal([]byte(pubHostRaw), &legacyPubHost)
+	}
+	if pubPortRaw != "" {
+		_ = json.Unmarshal([]byte(pubPortRaw), &legacyPubPort)
+	}
+	if legacyPubHost != "" || legacyPubPort > 0 {
+		if _, err = tx.Exec(`UPDATE Server SET PublicHost=CASE WHEN PublicHost='' THEN ? ELSE PublicHost END,PublicPort=CASE WHEN PublicPort=0 THEN ? ELSE PublicPort END WHERE ServerID=?`, legacyPubHost, legacyPubPort, defaultID); err != nil {
+			return err
+		}
 	}
 
 	// 4. Ensure all existing tables have ServerID and required migration columns
@@ -385,8 +405,28 @@ func (a *App) defaults() M {
 		"vpn_public_host": "", "vpn_public_port": 443, "wireguard_ports": M{}, "openvpn_ports": M{},
 		"domain": "", "https_port": 443, "acme_email": "", "acme_staging": false, "domain_only": false,
 		"acme_challenge_type": "dns-01", "cf_dns_token": "", "cert_key_type": "rsa2048", "cert_auto_push": true, "cert_push_server_id": 0, "cert_renew_hook": "",
-		"backup_enabled": true, "backup_interval_hours": 24, "backup_time": "03:00", "backup_dir": filepath.Join(a.cfg.DataDir, "backups"), "backup_last_run": "",
+		"backup_enabled": true, "backup_interval_hours": 24, "backup_time": "03:00", "backup_dir": filepath.Join(a.cfg.DataDir, "backups"), "backup_retention_count": 15, "backup_last_run": "",
 	}
+}
+func (a *App) secretSetting(key string) string {
+	raw := strings.TrimSpace(str(a.setting(key)))
+	if raw == "" {
+		return ""
+	}
+	if plain, err := a.decrypt(raw); err == nil {
+		return plain
+	}
+	// Legacy plaintext token stored before encryption was added: migrate in place.
+	a.set(key, a.encrypt(raw))
+	return raw
+}
+func (a *App) setSecretSetting(key, plain string) {
+	trimmed := strings.TrimSpace(plain)
+	if trimmed == "" {
+		a.set(key, "")
+		return
+	}
+	a.set(key, a.encrypt(trimmed))
 }
 func (a *App) setting(key string) any {
 	row := one(a.db, `SELECT SettingValue FROM Setting WHERE SettingKey=?`, key)
@@ -407,14 +447,25 @@ func (a *App) set(key string, value any) {
 }
 func (a *App) settings() M {
 	out := a.defaults()
+	hasCFToken := false
 	for _, row := range query(a.db, `SELECT SettingKey,SettingValue FROM Setting`) {
 		key := str(row["SettingKey"])
 		if _, ok := out[key]; ok {
 			var v any
 			check(json.Unmarshal([]byte(str(row["SettingValue"])), &v))
+			if key == "cf_dns_token" {
+				hasCFToken = strings.TrimSpace(str(v)) != ""
+				out[key] = ""
+				continue
+			}
+			if key == "se_password" {
+				out[key] = ""
+				continue
+			}
 			out[key] = v
 		}
 	}
+	out["has_cf_dns_token"] = hasCFToken
 	return out
 }
 func (a *App) audit(user M, action, target, key, detail string, serverIDs ...int64) {

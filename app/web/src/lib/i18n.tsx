@@ -123,6 +123,14 @@ const zhCN: Record<string, string> = {
   "Pages": "页面导航",
   "No matching results": "没有匹配的结果",
   "View all": "全部",
+  "All": "全部",
+  "Quota alert": "配额告警",
+  "Expired": "已过期",
+  "Filter log files...": "过滤日志文件名…",
+  "Connection guide": "连接引导",
+  "Management RPC & client endpoints": "管理 RPC 端口与公网接入配置",
+  "Management ports": "管理端口说明",
+  "Public endpoint": "公网入口地址",
   "Theme": "外观主题",
   "Light": "浅色",
   "Dark": "深色",
@@ -639,6 +647,7 @@ const zhCN: Record<string, string> = {
   "ECDSA P-256": "ECDSA P-256",
   "Cloudflare API Token": "Cloudflare API Token",
   "Cloudflare DNS API Token": "Cloudflare DNS API Token",
+  "Configured (leave blank to keep)": "已配置（留空则保留原密钥）",
   "API token with Zone:Read and DNS:Edit permissions for the domain on Cloudflare.": "在 Cloudflare 创建的 API Token，需具备 Zone:Read 和 DNS:Edit 权限。",
   "Auto push certificate to SoftEther VPN server": "证书更新后自动推送到 SoftEther VPN 服务器",
   "When the certificate is issued or renewed, automatically update the VPN server certificate via RPC.": "证书签发或续期成功后，通过 RPC 自动更新 SoftEther VPN 服务端证书与私钥。",
@@ -1192,6 +1201,8 @@ const zhCN: Record<string, string> = {
     "为下面的域名申请证书并安装到这台服务器。Cloudflare DNS-01 无需开放端口；HTTP-01 使用面板的 80 端口。",
   "A public hostname that resolves to this server, e.g. vpn.example.com. Empty means no certificate.":
     "解析到本服务器的公网域名，例如 vpn.example.com。留空表示不申请证书。",
+  "A public hostname resolving to the certificate subject, e.g. vpn.example.com. Leave empty if no Let's Encrypt certificate is needed.":
+    "解析到证书主体的公网域名，例如 vpn.example.com。若不需要 Let's Encrypt 证书请留空。",
   "No certificate yet: enter the name this server should answer for and save.":
     "尚未申请证书：填写这台服务器对外使用的域名并保存即可。",
   "The panel itself: account, address, sampling and updates. The VPN server and its certificate are handled under Server settings.":
@@ -1520,8 +1531,6 @@ const zhCN: Record<string, string> = {
   "Time range": "时间范围",
   "Traffic over the last {hours} hours: {down} downloaded, {up} uploaded.": "最近 {hours} 小时：下载 {down}，上传 {up}。",
   "Hub {name} created.": "虚拟 HUB {name} 已创建。",
-  "{method} answered.": "{method} 已应答。",
-  "The parameters are not valid JSON.": "参数不是合法的 JSON。",
   "Delete {name}?": "删除 {name}？",
   "{name} deleted.": "{name} 已删除。",
   "Policy saved.": "策略已保存。",
@@ -1683,7 +1692,6 @@ const zhCN: Record<string, string> = {
   "Where this user lives.": "此用户所在的虚拟 HUB。",
   "will stop authenticating.": "将无法再通过认证。",
   "{amount} of {limit} {metric}": "{metric} {amount} / {limit}",
-  "{name} answered.": "{name} 已响应。",
   "{n} line": "{n} 行",
   "{n} lines": "{n} 行",
   "{proto}{v6} from {src} to {dst}{ports}": "{proto}{v6}，从 {src} 到 {dst}{ports}",

@@ -805,7 +805,7 @@
 /* the KPI strip — big soft cards, one figure each */
 .fleet {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--s3);
   margin-bottom: var(--s5);
 }
@@ -813,24 +813,27 @@
   padding: var(--s4) var(--s5);
   border-radius: var(--r-card);
   background: var(--card-grad);
-  box-shadow: var(--nm-raise-sm);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--card-sheen), var(--nm-raise-sm);
 }
 .fleet__n {
   font-size: var(--t-kpi);
-  font-weight: 800;
+  font-weight: 700;
+  font-family: var(--font-mono);
   letter-spacing: -0.025em;
   line-height: 1.1;
   color: var(--n, var(--text));
 }
 @media (min-width: 720px) {
   .fleet {
+    grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
     gap: var(--s4);
   }
   .fleet__n {
-    font-size: 32px;
+    font-size: 28px;
   }
   .fleet__cell {
-    padding: var(--s5) var(--s6);
+    padding: var(--s4) var(--s5);
   }
 }
 
@@ -1377,6 +1380,8 @@
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .stat-card__badge--rx {
   background: var(--ok-soft);

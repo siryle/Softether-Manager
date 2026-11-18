@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"time"
@@ -15,9 +16,13 @@ func (a *App) SetPassword(username, password string) {
 	check(err)
 	execute(a.db, `INSERT INTO PanelUser(Username,PasswordHash,CreatedDate,UpdatedDate) VALUES(?,?,?,?) ON CONFLICT(Username) DO UPDATE SET PasswordHash=excluded.PasswordHash,SessionVersion=PanelUser.SessionVersion+1,IsDeleted=0,UpdatedDate=excluded.UpdatedDate`, username, hash, now(), now())
 }
+func isHTTPSRequest(r *http.Request) bool {
+	return r.TLS != nil || (loopback(r) && strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https"))
+}
+
 func (a *App) issue(w http.ResponseWriter, r *http.Request, user M) M {
 	token := a.token(integer(user["UserID"]), str(user["Username"]), integer(user["SessionVersion"]))
-	http.SetCookie(w, &http.Cookie{Name: "sem_session", Value: token, Path: "/", MaxAge: a.cfg.SessionMinutes * 60, HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteLaxMode})
+	http.SetCookie(w, &http.Cookie{Name: "sem_session", Value: token, Path: "/", MaxAge: a.cfg.SessionMinutes * 60, HttpOnly: true, Secure: isHTTPSRequest(r), SameSite: http.SameSiteLaxMode})
 	return M{"username": user["Username"]}
 }
 func (a *App) registerAuth() {
@@ -90,6 +95,41 @@ func connectionInput(body M) (string, int, string) {
 	}
 	return host, port, auth
 }
+func (a *App) savePublicEndpoint(ctx context.Context, body M) {
+	id := a.serverIDFromContext(ctx)
+	row := a.serverRow(id)
+	host := str(row["PublicHost"])
+	port := integer(row["PublicPort"])
+	changed := false
+	for _, key := range []string{"vpn_public_host", "public_host"} {
+		if v, ok := body[key]; ok && v != nil {
+			host = strings.TrimSpace(str(v))
+			changed = true
+			break
+		}
+	}
+	for _, key := range []string{"vpn_public_port", "public_port"} {
+		if v, ok := body[key]; ok && v != nil {
+			p := integer(v)
+			if p >= 1 && p <= 65535 {
+				port = p
+				changed = true
+			}
+			break
+		}
+	}
+	if !changed {
+		return
+	}
+	execute(a.db, `UPDATE Server SET PublicHost=?,PublicPort=?,UpdatedDate=? WHERE ServerID=?`, host, port, now(), id)
+	if boolean(row["IsDefault"]) {
+		a.set("vpn_public_host", host)
+		if port > 0 {
+			a.set("vpn_public_port", port)
+		}
+	}
+}
+
 func (a *App) registerConnection() {
 	a.handle("GET /api/v1/server/connection", false, func(_ http.ResponseWriter, r *http.Request, _ M) any { return a.connection(r.Context()) })
 	for _, action := range []string{"save", "test"} {
@@ -100,19 +140,7 @@ func (a *App) registerConnection() {
 		a.handle(pattern, false, func(w http.ResponseWriter, r *http.Request, user M) any {
 			body := readBody(w, r)
 			if action == "save" && body["host"] == nil {
-				if v, ok := body["public_host"]; ok && v != nil {
-					h := strings.TrimSpace(str(v))
-					a.set("vpn_public_host", h)
-					if str(a.setting("domain")) == "" && h != "" {
-						a.set("domain", h)
-					}
-				}
-				if v, ok := body["public_port"]; ok && v != nil {
-					p := integer(v)
-					if p >= 1 && p <= 65535 {
-						a.set("vpn_public_port", p)
-					}
-				}
+				a.savePublicEndpoint(r.Context(), body)
 				a.audit(user, "connection.updated", "server", "", "public_info")
 				return a.connection(r.Context())
 			}
@@ -135,19 +163,7 @@ func (a *App) registerConnection() {
 				out := a.testConnection(r.Context(), host, port, password, auth, boolean(row["SkipCertCheck"]))
 				auth = str(out["auth"])
 			}
-			if v, ok := body["public_host"]; ok && v != nil {
-				h := strings.TrimSpace(str(v))
-				a.set("vpn_public_host", h)
-				if str(a.setting("domain")) == "" && h != "" {
-					a.set("domain", h)
-				}
-			}
-			if v, ok := body["public_port"]; ok && v != nil {
-				p := integer(v)
-				if p >= 1 && p <= 65535 {
-					a.set("vpn_public_port", p)
-				}
-			}
+			a.savePublicEndpoint(r.Context(), body)
 			a.saveConnection(host, port, pwd, auth, r.Context())
 			a.audit(user, "connection.updated", "server", "", host)
 			return a.connection(r.Context())

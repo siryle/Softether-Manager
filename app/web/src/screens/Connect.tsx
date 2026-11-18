@@ -104,20 +104,21 @@ export function Connect() {
         title={t("Connect to SoftEther")}
         sub={t("The management port and administrator password of the instance on this machine.")}
       />
-      <div className="card" style={{ padding: "var(--s5)", maxWidth: 560 }}>
-        {error && <ErrorAlert>{error}</ErrorAlert>}
-        {testResult && (
-          <div className="alert alert--ok">
-            <IconCheck size={14} /> {testResult}
-          </div>
-        )}
-        <div className="row2">
-          <Field label={t("Host")} hint={t("127.0.0.1 for local, or LAN IP (e.g. 192.168.1.x) / hostname.")}>
-            <input className="input mono" value={host} onChange={(e) => setHost(e.target.value)}
-              autoCapitalize="none" spellCheck={false} inputMode="url" />
-          </Field>
-          <Field label={t("Management port")} hint={t("5555 on a stock install; 443 and 992 also answer.")}>
-            <input className="input mono" type="number" min={1} max={65535} value={port}
+      <div className="connect-grid">
+        <div className="card" style={{ padding: "var(--s5)" }}>
+          {error && <ErrorAlert>{error}</ErrorAlert>}
+          {testResult && (
+            <div className="alert alert--ok">
+              <IconCheck size={14} /> {testResult}
+            </div>
+          )}
+          <div className="row2">
+            <Field label={t("Host")} hint={t("127.0.0.1 for local, or LAN IP (e.g. 192.168.1.x) / hostname.")}>
+              <input className="input mono" value={host} onChange={(e) => setHost(e.target.value)}
+                autoCapitalize="none" spellCheck={false} inputMode="url" />
+            </Field>
+            <Field label={t("Management port")} hint={t("5555 on a stock install; 443 and 992 also answer.")}>
+              <input className="input mono" type="number" min={1} max={65535} value={port}
               onChange={(e) => setPort(Number(e.target.value))} inputMode="numeric" />
           </Field>
         </div>
@@ -155,6 +156,28 @@ export function Connect() {
         <p className="hint" style={{ marginTop: "var(--s3)" }}>
           {t("No SoftEther on this machine yet? Install it first — the panel manages an existing instance; it does not install one.")}
         </p>
+        </div>
+
+        <aside className="panel-card space-y-4">
+          <div>
+            <h2 className="panel-card__t">{t("Connection guide")}</h2>
+            <p className="panel-card__s">{t("Management RPC & client endpoints")}</p>
+          </div>
+          <div className="space-y-3 text-xs">
+            <div className="p-3 rounded-md bg-raised border border-hairline space-y-1">
+              <div className="font-semibold text-primary">{t("Management ports")}</div>
+              <p className="text-muted leading-relaxed">
+                {t("5555 on a stock install; 443 and 992 also answer.")}
+              </p>
+            </div>
+            <div className="p-3 rounded-md bg-raised border border-hairline space-y-1">
+              <div className="font-semibold text-primary">{t("Public endpoint")}</div>
+              <p className="text-muted leading-relaxed">
+                {t("The public domain is used as the default server address for .vpn, .ovpn, and WireGuard client configs; the public port is used as the default port for .vpn downloads.")}
+              </p>
+            </div>
+          </div>
+        </aside>
       </div>
     </div>
   );

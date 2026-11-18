@@ -39,6 +39,8 @@ export function AllUsers() {
   const { t } = useI18n();
   const [data, setData] = useState<{ hubs: string[]; users: Wire[]; errors: { hub: string; error: string }[] } | null>(null);
   const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "online" | "warn" | "expired">("all");
+  const [hubFilter, setHubFilter] = useState<string>("ALL");
   const [creating, setCreating] = useState(false);
   const [createHub, setCreateHub] = useState("");
   const [vpnFor, setVpnFor] = useState<{ hub: string; name: string } | null>(null);
@@ -49,22 +51,50 @@ export function AllUsers() {
   // Transfer is the lifetime counter less whatever a reset put behind us, so
   // the column and the meter next to it are the same number.
   const movedBy = (u: Wire) => netBytes(userBytes(u), quotaOf(u));
+  const isExpired = (u: Wire) => {
+    const expires = u.Expires_dt ?? u.ExpireTime_dt;
+    return !isNever(expires as string) && new Date(expires as string).getTime() < Date.now();
+  };
+  const isQuotaWarn = (u: Wire) => {
+    const q = quotaOf(u);
+    if (!q?.has_limit) return false;
+    if (q.blocked) return true;
+    const used = meteredBytes(movedBy(u), q.metric);
+    return q.limit_bytes > 0 && used >= q.limit_bytes * 0.85;
+  };
 
   const load = useCallback(async () => {
     setData(await api.allUsers().catch(() => null));
   }, []);
   usePoll(load, "list", []);
 
+  const counts = useMemo(() => {
+    if (!data) return { all: 0, online: 0, warn: 0, expired: 0 };
+    let online = 0;
+    let warn = 0;
+    let expired = 0;
+    for (const u of data.users) {
+      if (Boolean(u.Online_bool) && !u.DenyAccess_bool && !isExpired(u)) online++;
+      if (isQuotaWarn(u)) warn++;
+      if (isExpired(u)) expired++;
+    }
+    return { all: data.users.length, online, warn, expired };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, quotas]);
+
   const filtered = useMemo(() => {
     if (!data) return null;
     const q = query.trim().toLowerCase();
-    const matched = !q
-      ? data.users
-      : data.users.filter((u) =>
-          [u.Name_str, u.Realname_utf, u.GroupName_str, u.Note_utf, u.HubName_str]
-            .filter(Boolean)
-            .some((v) => String(v).toLowerCase().includes(q)),
-        );
+    const matched = data.users.filter((u) => {
+      if (hubFilter !== "ALL" && String(u.HubName_str) !== hubFilter) return false;
+      if (statusFilter === "online" && !(Boolean(u.Online_bool) && !u.DenyAccess_bool && !isExpired(u))) return false;
+      if (statusFilter === "warn" && !isQuotaWarn(u)) return false;
+      if (statusFilter === "expired" && !isExpired(u)) return false;
+      if (!q) return true;
+      return [u.Name_str, u.Realname_utf, u.GroupName_str, u.Note_utf, u.HubName_str]
+        .filter(Boolean)
+        .some((v) => String(v).toLowerCase().includes(q));
+    });
     // Sorting is applied after the poll refreshes the list, so a chosen order
     // survives every refresh rather than snapping back to the server's.
     return sortRows(matched, sort, (u, key) => {
@@ -77,7 +107,7 @@ export function AllUsers() {
       return userSortValue(u, key);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, query, sort, quotas]);
+  }, [data, query, statusFilter, hubFilter, sort, quotas]);
 
   const open = (u: Wire) => navigate(`/hub/${seg(String(u.HubName_str))}/user/${seg(String(u.Name_str))}`);
 
@@ -102,6 +132,54 @@ export function AllUsers() {
           </div>
         }
       />
+
+      {data && data.users.length > 0 && (
+        <div className="filterbar">
+          <div className="filterseg" role="tablist" aria-label={t("Status")}>
+            {([
+              { key: "all", label: "All", count: counts.all },
+              { key: "online", label: "Online", count: counts.online, dot: "var(--brand-fg)" },
+              { key: "warn", label: "Quota alert", count: counts.warn, dot: "var(--warn)" },
+              { key: "expired", label: "Expired", count: counts.expired, dot: "var(--err)" },
+            ] as const).map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                role="tab"
+                aria-selected={statusFilter === item.key}
+                className={`filterseg__btn${statusFilter === item.key ? " on" : ""}`}
+                onClick={() => setStatusFilter(item.key)}
+              >
+                {"dot" in item && <span className="filterseg__dot" style={{ background: item.dot }} />}
+                <span>{t(item.label)}</span>
+                <span className="filterseg__n">{item.count}</span>
+              </button>
+            ))}
+          </div>
+
+          {data.hubs.length > 1 && (
+            <div className="filterhubs">
+              <button
+                type="button"
+                className={`filterhubs__pill${hubFilter === "ALL" ? " on" : ""}`}
+                onClick={() => setHubFilter("ALL")}
+              >
+                {t("All")}
+              </button>
+              {data.hubs.map((h) => (
+                <button
+                  key={h}
+                  type="button"
+                  className={`filterhubs__pill${hubFilter === h ? " on" : ""}`}
+                  onClick={() => setHubFilter(h)}
+                >
+                  {h}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {data?.errors.map((e) => (
         <div key={e.hub} className="alert alert--warn">

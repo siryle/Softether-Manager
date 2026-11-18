@@ -26,7 +26,7 @@ import { AUTH_TYPES, isNever, userBytes, SESSION_TYPE } from "../lib/se";
 import { useToast } from "../lib/toast";
 import { useI18n, t } from "../lib/i18n";
 import { formatBytes, formatCount, formatDate, formatDuration, formatIPLocation, hasIPLocation, timeAgo } from "../lib/util";
-import { BrandMark, IconDownload, IconPlus, IconTrash } from "../ui/Icon";
+import { IconDownload, IconPlus, IconTrash } from "../ui/Icon";
 import { Pill } from "../ui/Status";
 import { UserStatePill } from "./hub/HubUsers";
 import { EndpointCell, SessionSheet, SessionsTable } from "./hub/HubSessions";
@@ -315,14 +315,16 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
 
       <div className="usergrid">
         {/* the identity card */}
-        <div className="idcard">
-          <div className="idcard__head">
-            <BrandMark size={28} />
-            <span className="idcard__hub mono">{hub}</span>
-            <UserStatePill user={user} online={(sessions?.length ?? 0) > 0} />
+        <div className={`idcard${(sessions?.length ?? 0) > 0 ? " idcard--online" : ""}`}>
+          <div>
+            <div className="idcard__head">
+              <span className="idcard__ava">{name.slice(0, 2).toUpperCase()}</span>
+              <span className="idcard__hub mono">{hub}</span>
+              <UserStatePill user={user} online={(sessions?.length ?? 0) > 0} />
+            </div>
+            <div className="idcard__name mono">{name}</div>
+            {user.Realname_utf ? <div className="idcard__real">{String(user.Realname_utf)}</div> : null}
           </div>
-          <div className="idcard__name mono">{name}</div>
-          {user.Realname_utf ? <div className="idcard__real">{String(user.Realname_utf)}</div> : null}
           <div className="idcard__meta">
             <span className="chip"><i>{t("auth")}</i>{AUTH_TYPES[Number(user.AuthType_u32)] ? t(AUTH_TYPES[Number(user.AuthType_u32)]) : "?"}</span>
             <span className="chip"><i>{t("group")}</i>{String(user.GroupName_str || "—")}</span>
@@ -368,92 +370,110 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
         </>
       )}
 
-      {wg?.supported && (() => {
+      {wg?.supported ? (() => {
         const userPeers = (wg.peers ?? []).filter(
           (p) => p.hub === hub && p.user.toLowerCase() === name.toLowerCase(),
         );
         return (
-          <>
-            <SectionTitle
-              count={userPeers.length}
-              actions={
-                <button type="button" className="btn btn--sm" onClick={() => setAddingWg(true)}>
-                  <IconPlus size={14} /> {t("Add WireGuard peer")}
-                </button>
-              }
-            >
-              {t("WireGuard")}
-            </SectionTitle>
-            {userPeers.length === 0 ? (
-              <Empty title={t("no WireGuard peers")}>
-                {t("Bind a WireGuard public key to let this user connect with a standard WireGuard client.")}
-              </Empty>
-            ) : (
-              <div className="card tcard">
-                <div className="tscroll">
-                  <table className="dtable">
-                    <thead>
-                      <tr>
-                        <th scope="col">{t("Device")}</th>
-                        <th scope="col">{t("Tunnel IPv4")}</th>
-                        <th scope="col">{t("Client public key")}</th>
-                        <th scope="col" className="tact" aria-label={t("Actions")} />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {userPeers.map((peer) => (
-                        <tr key={peer.public_key}>
-                          <td className="tname mono">{peer.label || t("WireGuard peer")}</td>
-                          <td>
-                            {peer.assigned_ip ? (
-                              <span className="chip chip--ok mono">{peer.assigned_ip}/32</span>
-                            ) : (
-                              <span className="micro">—</span>
-                            )}
-                          </td>
-                          <td>
-                            <div style={{ display: "inline-flex", alignItems: "center", gap: "var(--s2)", whiteSpace: "nowrap" }}>
-                              <span className="mono" title={peer.public_key}>{peer.public_key}</span>
-                              <CopyTextButton text={peer.public_key} ariaLabel="Copy client public key" />
-                            </div>
-                          </td>
-                          <td className="tact">
-                            <div style={{ display: "inline-flex", alignItems: "center", gap: "var(--s1)", whiteSpace: "nowrap" }}>
-                              <button type="button" className="btn btn--sm" onClick={() => setEditingWg(peer)}>
-                                <IconDownload size={13} /> {t(".conf")}
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn--sm btn--ghost"
-                                aria-label={t("Delete peer")}
-                                onClick={() => setDeletingWg(peer)}
-                              >
-                                <IconTrash size={14} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+          <div className="user-midgrid">
+            <div>
+              <SectionTitle actions={<RangeSeg hours={hours} onChange={setHours} />}>{t("Usage")}</SectionTitle>
+              <div className="card" style={{ padding: "var(--s4)" }}>
+                {usage ? (
+                  <TrafficChart
+                    usage={usage}
+                    emptyLabel="No samples in this window — usage builds up as the panel's sampler runs."
+                  />
+                ) : (
+                  <LoadingBlock label="loading usage" />
+                )}
               </div>
-            )}
-          </>
-        );
-      })()}
+            </div>
 
-      <SectionTitle actions={<RangeSeg hours={hours} onChange={setHours} />}>{t("Usage")}</SectionTitle>
-      <div className="card" style={{ padding: "var(--s4)" }}>
-        {usage ? (
-          <TrafficChart
-            usage={usage}
-            emptyLabel="No samples in this window — usage builds up as the panel's sampler runs."
-          />
-        ) : (
-          <LoadingBlock label="loading usage" />
-        )}
-      </div>
+            <div>
+              <SectionTitle
+                count={userPeers.length}
+                actions={
+                  <button type="button" className="btn btn--sm" onClick={() => setAddingWg(true)}>
+                    <IconPlus size={14} /> {t("Add WireGuard peer")}
+                  </button>
+                }
+              >
+                {t("WireGuard")}
+              </SectionTitle>
+              {userPeers.length === 0 ? (
+                <Empty title={t("no WireGuard peers")}>
+                  {t("Bind a WireGuard public key to let this user connect with a standard WireGuard client.")}
+                </Empty>
+              ) : (
+                <div className="card tcard">
+                  <div className="tscroll">
+                    <table className="dtable">
+                      <thead>
+                        <tr>
+                          <th scope="col">{t("Device")}</th>
+                          <th scope="col">{t("Tunnel IPv4")}</th>
+                          <th scope="col">{t("Client public key")}</th>
+                          <th scope="col" className="tact" aria-label={t("Actions")} />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {userPeers.map((peer) => (
+                          <tr key={peer.public_key}>
+                            <td className="tname mono">{peer.label || t("WireGuard peer")}</td>
+                            <td>
+                              {peer.assigned_ip ? (
+                                <span className="chip chip--ok mono">{peer.assigned_ip}/32</span>
+                              ) : (
+                                <span className="micro">—</span>
+                              )}
+                            </td>
+                            <td>
+                              <div style={{ display: "inline-flex", alignItems: "center", gap: "var(--s2)", whiteSpace: "nowrap" }}>
+                                <span className="mono" title={peer.public_key}>{peer.public_key.slice(0, 12)}…</span>
+                                <CopyTextButton text={peer.public_key} ariaLabel="Copy client public key" />
+                              </div>
+                            </td>
+                            <td className="tact">
+                              <div style={{ display: "inline-flex", alignItems: "center", gap: "var(--s1)", whiteSpace: "nowrap" }}>
+                                <button type="button" className="btn btn--sm" onClick={() => setEditingWg(peer)}>
+                                  <IconDownload size={13} /> {t(".conf")}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn--sm btn--ghost"
+                                  aria-label={t("Delete peer")}
+                                  onClick={() => setDeletingWg(peer)}
+                                >
+                                  <IconTrash size={14} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })() : (
+        <>
+          <SectionTitle actions={<RangeSeg hours={hours} onChange={setHours} />}>{t("Usage")}</SectionTitle>
+          <div className="card" style={{ padding: "var(--s4)" }}>
+            {usage ? (
+              <TrafficChart
+                usage={usage}
+                emptyLabel="No samples in this window — usage builds up as the panel's sampler runs."
+              />
+            ) : (
+              <LoadingBlock label="loading usage" />
+            )}
+          </div>
+        </>
+      )}
 
       <SectionTitle count={sessions?.length}>{t("Live sessions")}</SectionTitle>
       {sessions === null ? (

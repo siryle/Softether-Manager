@@ -116,12 +116,6 @@ export const IconChevron = (p: P) => (
   </S>
 );
 
-export const IconBack = (p: P) => (
-  <S {...p}>
-    <path d="m14 5-7 7 7 7" />
-  </S>
-);
-
 export const IconClose = (p: P) => (
   <S {...p}>
     <path d="m5 5 14 14M19 5 5 19" />
@@ -134,46 +128,11 @@ export const IconCheck = (p: P) => (
   </S>
 );
 
-/** Sync — reconcile two sides. */
-export const IconSync = (p: P) => (
-  <S {...p}>
-    <path d="M20 11a8 8 0 0 0-13.7-5.3M4 13a8 8 0 0 0 13.7 5.3" />
-    <path d="M20 4.5V11h-6.5M4 19.5V13h6.5" />
-  </S>
-);
-
-/** Install — current through a wire. */
-export const IconBolt = (p: P) => (
-  <S {...p}>
-    <path d="M13 2.5 4.5 13.5H11l-1 8 8.5-11H12l1-8Z" />
-  </S>
-);
-
-export const IconKey = (p: P) => (
-  <S {...p}>
-    <circle cx="8" cy="8" r="4" />
-    <path d="m11 11 8.5 8.5M16 16l2.5-2.5M18.5 18.5 21 16" />
-  </S>
-);
-
-export const IconTerminal = (p: P) => (
-  <S {...p}>
-    <rect x="2.5" y="4" width="19" height="16" rx="3" />
-    <path d="m6.5 9 3 3-3 3M13 15h4.5" />
-  </S>
-);
-
 export const IconTrash = (p: P) => (
   <S {...p}>
     <path d="M4 6.5h16M9.5 6.5V4h5v2.5" />
     <path d="M6.5 6.5 7.5 20h9l1-13.5" />
     <path d="M10.5 10v6M13.5 10v6" opacity={0.5} />
-  </S>
-);
-
-export const IconMore = (p: P) => (
-  <S {...p} strokeWidth={2.4} strokeLinecap="round">
-    <path d="M12 5.5h.01M12 12h.01M12 18.5h.01" />
   </S>
 );
 
@@ -195,21 +154,6 @@ export const IconDownload = (p: P) => (
   <S {...p}>
     <path d="M12 3.5v12M7 11l5 4.5 5-4.5" />
     <path d="M4 20h16" />
-  </S>
-);
-
-export const IconLink = (p: P) => (
-  <S {...p}>
-    <path d="M14 4.5h5.5V10" />
-    <path d="M19.5 4.5 11 13" />
-    <path d="M18 14v5.5H4.5V6H10" />
-  </S>
-);
-
-export const IconAlert = (p: P) => (
-  <S {...p}>
-    <path d="M12 3.5 22 20H2L12 3.5Z" />
-    <path d="M12 10v4.5M12 17.5h.01" strokeLinecap="round" />
   </S>
 );
 
@@ -274,37 +218,12 @@ export const IconShield = (p: P) => (
   </S>
 );
 
-/** Deploy — an up-and-out arrow leaving a box. */
-export const IconDeploy = (p: P) => (
-  <S {...p}>
-    <path d="M4 14v4.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V14" />
-    <path d="M12 15V4M7.5 8.5 12 4l4.5 4.5" />
-  </S>
-);
-
-/** NAT — packets translated across a boundary. */
-export const IconNat = (p: P) => (
-  <S {...p}>
-    <path d="M12 3.5v17" strokeDasharray="2.4 3" opacity={0.6} />
-    <path d="M3 9h11M11.2 5.8 14.5 9l-3.3 3.2" />
-    <path d="M21 15H10M12.8 18.2 9.5 15l3.3-3.2" />
-  </S>
-);
-
 /** Cascade — two hubs bridged. */
 export const IconCascade = (p: P) => (
   <S {...p}>
     <circle cx="6" cy="7" r="3" />
     <circle cx="18" cy="17" r="3" />
     <path d="M8.3 9.1c2.6 2 5 4 7.4 5.8" />
-  </S>
-);
-
-/** Table — an address table. */
-export const IconTable = (p: P) => (
-  <S {...p}>
-    <rect x="3.5" y="5" width="17" height="14" rx="2" />
-    <path d="M3.5 10h17M9.5 10v9" />
   </S>
 );
 
@@ -324,33 +243,11 @@ export const IconSearch = (p: P) => (
   </S>
 );
 
-/** Play / start. */
-export const IconPlay = (p: P) => (
-  <S {...p}>
-    <path d="M8 5.5v13l10-6.5-10-6.5Z" />
-  </S>
-);
-
-/** Stop. */
-export const IconStop = (p: P) => (
-  <S {...p}>
-    <rect x="6.5" y="6.5" width="11" height="11" rx="2" />
-  </S>
-);
-
 /** Upload — restore a config. */
 export const IconUpload = (p: P) => (
   <S {...p}>
     <path d="M4 14v4.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V14" />
     <path d="M12 4v11M7.5 8.5 12 4l4.5 4.5" />
-  </S>
-);
-
-/** Globe — DDNS, listeners, the network at large. */
-export const IconGlobe = (p: P) => (
-  <S {...p}>
-    <circle cx="12" cy="12" r="8.5" />
-    <path d="M3.5 12h17M12 3.5c-2.4 2.4-3.6 5.2-3.6 8.5s1.2 6.1 3.6 8.5c2.4-2.4 3.6-5.2 3.6-8.5S14.4 5.9 12 3.5Z" />
   </S>
 );
 

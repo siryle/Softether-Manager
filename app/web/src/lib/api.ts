@@ -316,6 +316,7 @@ export interface DomainStatus {
   changed?: string[];
   acme_challenge_type?: "dns-01" | "http-01";
   cf_dns_token?: string;
+  has_cf_dns_token?: boolean;
   cert_key_type?: "rsa2048" | "ecdsa";
   cert_auto_push?: boolean;
   cert_push_server_id?: number;
@@ -335,6 +336,7 @@ export interface DomainIn {
   domain_only?: boolean;
   acme_challenge_type?: "dns-01" | "http-01";
   cf_dns_token?: string;
+  has_cf_dns_token?: boolean;
   cert_key_type?: "rsa2048" | "ecdsa";
   cert_auto_push?: boolean;
   cert_push_server_id?: number;
@@ -465,11 +467,6 @@ function apiMethods(request: typeof sendRequest) {
   regenerateCert: (common_name: string) =>
     request("POST", "/server/cert/regenerate", { common_name }),
   setAdminPassword: (password: string) => request("PUT", "/server/admin-password", { password }),
-  connections: () => request("GET", "/server/connections"),
-  connectionInfo: (name: string) =>
-    request("GET", `/server/connections/${encodeURIComponent(name)}`),
-  disconnectConnection: (name: string) =>
-    request("DELETE", `/server/connections/${encodeURIComponent(name)}`),
   bridges: () => request("GET", "/server/bridges"),
   bridgeSupport: () => request("GET", "/server/bridges/support"),
   bridgeDevices: () => request("GET", "/server/bridges/devices"),
@@ -533,7 +530,9 @@ function apiMethods(request: typeof sendRequest) {
     try {
       const res = await request<{ hubs: string[]; clients: Wire[]; errors: { hub: string; error: string }[] }>("GET", "/clients");
       if (res && Array.isArray(res.clients)) return res;
-    } catch {}
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 404)) throw e;
+    }
 
     const hubListRes = await api.hubs().catch(() => null);
     const hubList = (hubListRes?.HubList as Wire[]) ?? [];

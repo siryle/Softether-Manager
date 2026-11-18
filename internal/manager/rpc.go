@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -14,11 +15,9 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
-
-//go:embed rpc-spec.json
-var rpcSpec []byte
 
 //go:embed routes.json
 var routeSpec []byte
@@ -37,6 +36,30 @@ func NewRPCClient(host string, port int, password, auth string) *RPCClient {
 	return &RPCClient{http: &http.Client{Transport: transport, Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, url: "https://" + net.JoinHostPort(host, strconv.Itoa(port)) + "/api/", password: password, auth: auth, host: host, port: port}
 }
 func (c *RPCClient) Close() { c.http.CloseIdleConnections() }
+func isTransportRestartCandidate(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return false
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) && opErr.Op == "dial" {
+		return false
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return false
+	}
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE)
+}
+
+func isRestartingConfigError(err error) bool {
+	he, ok := err.(httpError)
+	return ok && boolean(object(he.Detail)["restarting_candidate"])
+}
+
 func (c *RPCClient) Call(ctx context.Context, method string, params M) (M, error) {
 	if params == nil {
 		params = M{}
@@ -65,7 +88,7 @@ func (c *RPCClient) Call(ctx context.Context, method string, params M) (M, error
 	}
 	res, err := c.http.Do(req)
 	if err != nil {
-		return nil, httpError{502, M{"message": "Cannot connect to SoftEther: " + err.Error(), "se_error": "TransportError", "se_code": nil}}
+		return nil, httpError{502, M{"message": "Cannot connect to SoftEther: " + err.Error(), "se_error": "TransportError", "se_code": nil, "restarting_candidate": isTransportRestartCandidate(err)}}
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
@@ -135,8 +158,14 @@ func (a *App) connection(ctx ...context.Context) M {
 	row := a.serverRow(a.serverIDFromContext(c))
 	out := publicServer(row)
 	out["server_id"] = row["ServerID"]
-	out["public_host"] = a.setting("vpn_public_host")
-	out["public_port"] = a.setting("vpn_public_port")
+	if str(out["public_host"]) == "" && boolean(row["IsDefault"]) {
+		out["public_host"] = a.setting("vpn_public_host")
+	}
+	if integer(row["PublicPort"]) <= 0 && boolean(row["IsDefault"]) {
+		if legacyPort := integer(a.setting("vpn_public_port")); legacyPort > 0 {
+			out["public_port"] = legacyPort
+		}
+	}
 	return out
 }
 
@@ -209,8 +238,8 @@ func (a *App) rpc(ctx context.Context, method string, params M) M {
 			fail(422, "A non-empty base64 configuration is required.")
 		}
 		out, err := a.client(ctx).Call(ctx, method, params)
-		if status, ok := err.(httpError); err == nil || (ok && str(object(status.Detail)["se_error"]) == "TransportError") {
-			// A restart can close the connection before returning its response.
+		if err == nil || isRestartingConfigError(err) {
+			// A restart can close the connection after receiving the config.
 			a.resetQuotaBaselines(id)
 		}
 		check(err)
@@ -419,12 +448,4 @@ func validateWire(params M) {
 			}
 		}
 	}
-}
-func documentedMethods() []M {
-	var out []M
-	check(json.Unmarshal(rpcSpec, &out))
-	for _, name := range []string{"GetVgsConfig", "SetVgsConfig"} {
-		out = append(out, M{"name": name, "title": name, "desc": "VPN Gate builds only.", "params": []any{}, "input": M{}})
-	}
-	return out
 }

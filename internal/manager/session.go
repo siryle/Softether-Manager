@@ -16,11 +16,8 @@ func isIPv4(s string) bool {
 	return ip != nil && ip.To4() != nil
 }
 
-// enrichSessions supplements session entries with Virtual IP (IPv4 only) and clean client hostname.
-func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M {
-	if len(sessions) == 0 {
-		return sessions
-	}
+// collectSessionNetMaps resolves per-session IPv4 virtual IPs and DHCP hostnames for a hub.
+func (a *App) collectSessionNetMaps(ctx context.Context, hub string) (sessionIPs map[string][]string, ipToDhcpHost map[string]string) {
 	var ipTable []M
 	func() {
 		defer func() { _ = recover() }()
@@ -35,20 +32,7 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 		dhcpTable = list(out["DhcpTable"])
 	}()
 
-	natTcpByIP := make(map[string]int)
-	func() {
-		defer func() { _ = recover() }()
-		out := a.rpc(ctx, "EnumNAT", M{"HubName_str": hub})
-		for _, entry := range list(out["NatTable"]) {
-			if integer(entry["Protocol_u32"]) == 0 {
-				if srcIP := strings.TrimSpace(str(entry["SrcIp_ip"])); srcIP != "" {
-					natTcpByIP[srcIP]++
-				}
-			}
-		}
-	}()
-
-	sessionIPs := make(map[string][]string)
+	sessionIPs = make(map[string][]string)
 	for _, entry := range ipTable {
 		sessName := str(entry["SessionName_str"])
 		ip := strings.TrimSpace(str(entry["IpAddress_ip"]))
@@ -67,7 +51,7 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 		}
 	}
 
-	ipToDhcpHost := make(map[string]string)
+	ipToDhcpHost = make(map[string]string)
 	for _, entry := range dhcpTable {
 		ip := strings.TrimSpace(str(entry["IpAddress_ip"]))
 		h := strings.TrimSpace(str(entry["Hostname_str"]))
@@ -75,6 +59,37 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 			ipToDhcpHost[ip] = h
 		}
 	}
+	return sessionIPs, ipToDhcpHost
+}
+
+func firstDHCPHost(ips []string, ipToDhcpHost map[string]string, remoteHost string) string {
+	for _, ip := range ips {
+		if dhcpH := ipToDhcpHost[ip]; dhcpH != "" && !strings.EqualFold(dhcpH, remoteHost) {
+			return dhcpH
+		}
+	}
+	return ""
+}
+
+// enrichSessions supplements session entries with Virtual IP (IPv4 only) and clean client hostname.
+func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M {
+	if len(sessions) == 0 {
+		return sessions
+	}
+	sessionIPs, ipToDhcpHost := a.collectSessionNetMaps(ctx, hub)
+
+	natTcpByIP := make(map[string]int)
+	func() {
+		defer func() { _ = recover() }()
+		out := a.rpc(ctx, "EnumNAT", M{"HubName_str": hub})
+		for _, entry := range list(out["NatTable"]) {
+			if integer(entry["Protocol_u32"]) == 0 {
+				if srcIP := strings.TrimSpace(str(entry["SrcIp_ip"])); srcIP != "" {
+					natTcpByIP[srcIP]++
+				}
+			}
+		}
+	}()
 
 	type sessStatusRes struct {
 		name       string
@@ -154,13 +169,8 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 		if cH, ok := sessClientHosts[sessName]; ok && cH != "" {
 			realHost = cH
 			s["ClientHostname_str"] = cH
-		} else if ips, ok := sessionIPs[sessName]; ok {
-			for _, ip := range ips {
-				if dhcpH := ipToDhcpHost[ip]; dhcpH != "" && !strings.EqualFold(dhcpH, remoteHost) {
-					realHost = dhcpH
-					break
-				}
-			}
+		} else {
+			realHost = firstDHCPHost(sessionIPs[sessName], ipToDhcpHost, remoteHost)
 		}
 
 		if realHost == "" && host != "" && host != clientIP && !isIP(host) && !strings.EqualFold(host, remoteHost) {

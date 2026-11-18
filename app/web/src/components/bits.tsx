@@ -375,13 +375,23 @@ export function KV({ rows }: { rows: [ReactNode, ReactNode][] }) {
 export function usePoll(load: () => Promise<unknown> | unknown, rate: PollRate, deps: unknown[] = []) {
   const saved = useRef(load);
   saved.current = load;
+  const inFlight = useRef(false);
   const ms = useRate(rate);
   useEffect(() => {
     let stop = false;
-    const tick = () => {
-      if (!stop && document.visibilityState === "visible") void saved.current();
+    const run = async () => {
+      if (stop || inFlight.current) return;
+      inFlight.current = true;
+      try {
+        await saved.current();
+      } finally {
+        inFlight.current = false;
+      }
     };
-    void saved.current();
+    const tick = () => {
+      if (!stop && document.visibilityState === "visible") void run();
+    };
+    void run();
     const timer = window.setInterval(tick, ms);
     return () => {
       stop = true;

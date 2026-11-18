@@ -740,25 +740,36 @@ func (a *App) wireguardPort(serverID int64, state *wgConfigState) int {
 	return pickWireGuardPort(state.UDPPorts)
 }
 
+func cleanConfigLineField(s string) string {
+	s = strings.NewReplacer("\r", "", "\n", "").Replace(strings.TrimSpace(s))
+	return s
+}
+
 func buildWireGuardClientConfig(privateKey, address, dns, serverPub, presharedKey, endpointHost string, endpointPort int, allowedIPs string, keepalive int) string {
-	if strings.TrimSpace(privateKey) == "" {
+	privateKey = cleanConfigLineField(privateKey)
+	if privateKey == "" {
 		privateKey = "<CLIENT_PRIVATE_KEY>"
 	}
-	addr := strings.TrimSpace(address)
+	addr := cleanConfigLineField(address)
 	if addr == "" {
 		addr = "192.168.30.2/32"
 	} else if !strings.Contains(addr, "/") {
 		addr += "/32"
 	}
-	if strings.TrimSpace(endpointHost) == "" {
+	endpointHost = cleanConfigLineField(endpointHost)
+	if endpointHost == "" {
 		endpointHost = "YOUR_SERVER_IP"
 	}
 	if endpointPort <= 0 || endpointPort > 65535 {
 		endpointPort = defaultWireGuardPort
 	}
-	if strings.TrimSpace(allowedIPs) == "" {
+	allowedIPs = cleanConfigLineField(allowedIPs)
+	if allowedIPs == "" {
 		allowedIPs = defaultWireGuardAllowedIPs
 	}
+	dns = cleanConfigLineField(dns)
+	serverPub = cleanConfigLineField(serverPub)
+	presharedKey = cleanConfigLineField(presharedKey)
 	if keepalive < 0 {
 		keepalive = 0
 	}
@@ -767,16 +778,16 @@ func buildWireGuardClientConfig(privateKey, address, dns, serverPub, presharedKe
 	b.WriteString("[Interface]\n")
 	fmt.Fprintf(&b, "PrivateKey = %s\n", privateKey)
 	fmt.Fprintf(&b, "Address = %s\n", addr)
-	if strings.TrimSpace(dns) != "" {
-		fmt.Fprintf(&b, "DNS = %s\n", strings.TrimSpace(dns))
+	if dns != "" {
+		fmt.Fprintf(&b, "DNS = %s\n", dns)
 	}
 	b.WriteString("\n[Peer]\n")
 	fmt.Fprintf(&b, "PublicKey = %s\n", serverPub)
-	if strings.TrimSpace(presharedKey) != "" {
-		fmt.Fprintf(&b, "PresharedKey = %s\n", strings.TrimSpace(presharedKey))
+	if presharedKey != "" {
+		fmt.Fprintf(&b, "PresharedKey = %s\n", presharedKey)
 	}
-	fmt.Fprintf(&b, "Endpoint = %s\n", net.JoinHostPort(strings.TrimSpace(endpointHost), strconv.Itoa(endpointPort)))
-	fmt.Fprintf(&b, "AllowedIPs = %s\n", strings.TrimSpace(allowedIPs))
+	fmt.Fprintf(&b, "Endpoint = %s\n", net.JoinHostPort(endpointHost, strconv.Itoa(endpointPort)))
+	fmt.Fprintf(&b, "AllowedIPs = %s\n", allowedIPs)
 	if keepalive > 0 {
 		fmt.Fprintf(&b, "PersistentKeepalive = %d\n", keepalive)
 	}
@@ -813,11 +824,7 @@ func (a *App) pushWireGuardConfig(ctx context.Context, updated string) (restarti
 	a.requireReleasedQuotas(id)
 	encoded := base64.StdEncoding.EncodeToString([]byte(updated))
 	_, err := a.client(ctx).Call(ctx, "SetConfig", M{"FileData_bin": encoded})
-	if err == nil {
-		a.resetQuotaBaselines(id)
-		return true
-	}
-	if he, ok := err.(httpError); ok && str(object(he.Detail)["se_error"]) == "TransportError" {
+	if err == nil || isRestartingConfigError(err) {
 		a.resetQuotaBaselines(id)
 		return true
 	}

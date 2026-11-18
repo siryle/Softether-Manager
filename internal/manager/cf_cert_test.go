@@ -85,12 +85,15 @@ func TestPublicServerHostSetting(t *testing.T) {
 		t.Errorf("expected 443, got %v", out["vpn_public_port"])
 	}
 
-	// Verify it defaults domain if domain was empty
+	// Verify it keeps panel HTTPS domain empty and decoupled from vpn_public_host
 	domStatus, domOut, _ := call(t, a, "GET", "/api/v1/system/domain", nil, token)
 	if domStatus != 200 {
 		t.Fatalf("expected 200, got %d", domStatus)
 	}
-	if str(domOut["domain"]) != "vpn.example.com" {
-		t.Errorf("expected domain to be vpn.example.com, got %v", domOut["domain"])
+	if str(domOut["domain"]) != "" {
+		t.Errorf("expected empty panel domain, got %v", domOut["domain"])
+	}
+	if str(domOut["vpn_public_host"]) != "vpn.example.com" {
+		t.Errorf("expected vpn_public_host vpn.example.com, got %v", domOut["vpn_public_host"])
 	}
 }

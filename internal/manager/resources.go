@@ -19,6 +19,8 @@ type resourceState struct {
 	at       time.Time
 }
 
+var procRoot = "/proc"
+
 func proc(path string) string { b, err := os.ReadFile(path); check(err); return string(b) }
 func percent(part, total int64) float64 {
 	if total <= 0 {
@@ -28,7 +30,7 @@ func percent(part, total int64) float64 {
 }
 func readCPU() map[string][]int64 {
 	out := map[string][]int64{}
-	for _, line := range strings.Split(proc("/proc/stat"), "\n") {
+	for _, line := range strings.Split(proc(procRoot+"/stat"), "\n") {
 		f := strings.Fields(line)
 		if len(f) < 9 || !strings.HasPrefix(f[0], "cpu") {
 			continue
@@ -43,7 +45,7 @@ func readCPU() map[string][]int64 {
 }
 func readNetwork() map[string][4]int64 {
 	out := map[string][4]int64{}
-	for _, line := range strings.Split(proc("/proc/net/dev"), "\n") {
+	for _, line := range strings.Split(proc(procRoot+"/net/dev"), "\n") {
 		name, data, ok := strings.Cut(line, ":")
 		if !ok {
 			continue
@@ -59,7 +61,7 @@ func readNetwork() map[string][4]int64 {
 }
 func readMemory() (M, M) {
 	m := M{}
-	for _, line := range strings.Split(proc("/proc/meminfo"), "\n") {
+	for _, line := range strings.Split(proc(procRoot+"/meminfo"), "\n") {
 		key, data, ok := strings.Cut(line, ":")
 		f := strings.Fields(data)
 		if ok && len(f) > 0 {
@@ -77,7 +79,7 @@ func readMemory() (M, M) {
 func readDisks() []M {
 	out := []M{}
 	seen := map[string]bool{}
-	for _, line := range strings.Split(proc("/proc/mounts"), "\n") {
+	for _, line := range strings.Split(proc(procRoot+"/mounts"), "\n") {
 		f := strings.Fields(line)
 		if len(f) < 3 || seen[f[0]] {
 			continue
@@ -138,7 +140,7 @@ func (a *App) sampleResources(_ context.Context) {
 	sort.Slice(cores, func(i, j int) bool { return str(cores[i]["name"]) < str(cores[j]["name"]) })
 	mem, swap := readMemory()
 	load := M{}
-	fields := strings.Fields(proc("/proc/loadavg"))
+	fields := strings.Fields(proc(procRoot + "/loadavg"))
 	if len(fields) >= 4 {
 		load["one"], load["five"], load["fifteen"] = number(fields[0]), number(fields[1]), number(fields[2])
 		run, total, _ := strings.Cut(fields[3], "/")

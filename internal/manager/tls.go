@@ -112,11 +112,69 @@ func normalizeDomain(value string) string {
 	return ascii
 }
 func (m *tlsManager) effectiveDomain() string {
-	d := str(m.app.setting("domain"))
-	if d == "" {
-		d = str(m.app.setting("vpn_public_host"))
+	return strings.TrimSpace(str(m.app.setting("domain")))
+}
+
+func certHookAllowedRoots(rootDir, dataDir string) []string {
+	var roots []string
+	for _, base := range []string{rootDir, dataDir} {
+		if strings.TrimSpace(base) == "" {
+			continue
+		}
+		if abs, err := filepath.Abs(filepath.Join(base, "ssl")); err == nil {
+			roots = append(roots, abs)
+		}
 	}
-	return d
+	return roots
+}
+
+func resolveCertHookPath(rootDir, dataDir, candidate string) (string, error) {
+	cleaned := strings.TrimSpace(candidate)
+	if cleaned == "" {
+		return "", nil
+	}
+	if strings.ContainsAny(cleaned, " \t\r\n;|&$`<>\"'\\*?{}[]()!") {
+		return "", httpError{422, "Certificate renewal hook must be a script path under ssl/, not a shell command."}
+	}
+	roots := certHookAllowedRoots(rootDir, dataDir)
+	tryPath := cleaned
+	if !filepath.IsAbs(tryPath) && len(roots) > 0 {
+		// Relative paths like "ssl/hook.sh" or "hook.sh" resolve relative to root/data.
+		if strings.HasPrefix(tryPath, "ssl/") || strings.HasPrefix(tryPath, "ssl\\") {
+			tryPath = filepath.Join(filepath.Dir(roots[0]), tryPath)
+		} else {
+			tryPath = filepath.Join(roots[0], tryPath)
+		}
+	}
+	abs, err := filepath.Abs(filepath.Clean(tryPath))
+	if err != nil {
+		return "", httpError{422, "Invalid certificate renewal hook path."}
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+	for _, r := range roots {
+		base := r
+		if resolvedBase, err := filepath.EvalSymlinks(r); err == nil {
+			base = resolvedBase
+		}
+		rel, err := filepath.Rel(base, abs)
+		if err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return abs, nil
+		}
+	}
+	return "", httpError{422, "Certificate renewal hook path must stay inside the ssl/ directory."}
+}
+
+func validateCertRenewHook(rootDir, dataDir, raw string) string {
+	cleaned := strings.TrimSpace(raw)
+	if cleaned == "" {
+		return ""
+	}
+	if _, err := resolveCertHookPath(rootDir, dataDir, cleaned); err != nil {
+		panic(err)
+	}
+	return cleaned
 }
 
 func fileExists(p string) bool {
@@ -155,11 +213,19 @@ func (m *tlsManager) pushCertToServer(ctx context.Context, domain string, chain,
 		}
 	}
 	if hookCmd != "" {
+		hookPath, err := resolveCertHookPath(m.app.cfg.Root, m.app.cfg.DataDir, hookCmd)
+		if err != nil {
+			return fmt.Errorf("certificate deployment script path: %w", err)
+		}
+		fi, statErr := os.Stat(hookPath)
+		if statErr != nil || fi.IsDir() {
+			return fmt.Errorf("certificate deployment script not found: %s", hookPath)
+		}
 		sslDir := filepath.Join(m.app.cfg.DataDir, "ssl")
 		if err := writeSSLCopy(sslDir, domain, chain, keyPEM); err != nil {
 			return fmt.Errorf("certificate deployment script files: %w", err)
 		}
-		cmd := exec.CommandContext(ctx, "/bin/sh", "-c", hookCmd)
+		cmd := exec.CommandContext(ctx, hookPath)
 		cmd.Env = append(os.Environ(),
 			"CERT_DOMAIN="+domain,
 			"CERT_PEM="+filepath.Join(sslDir, domain+".pem"),
@@ -463,6 +529,39 @@ func (m *tlsManager) checkDNS(ctx context.Context, domain string) M {
 	m.mu.Unlock()
 	return out
 }
+
+func waitForTXTRecord(ctx context.Context, name, expected string) {
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
+		check(ctx.Err())
+	}
+	deadline := time.Now().Add(24 * time.Second)
+	for {
+		lookupCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		records, err := net.DefaultResolver.LookupTXT(lookupCtx, name)
+		cancel()
+		if err == nil {
+			for _, rec := range records {
+				if strings.TrimSpace(rec) == expected {
+					return
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			return
+		}
+		wait := time.NewTimer(2 * time.Second)
+		select {
+		case <-wait.C:
+		case <-ctx.Done():
+			wait.Stop()
+			check(ctx.Err())
+		}
+	}
+}
 func (m *tlsManager) persistLocked() {
 	b, err := json.Marshal(m.state)
 	if err == nil {
@@ -605,7 +704,7 @@ func (m *tlsManager) issue(ctx context.Context, domain string) {
 	defer cancel()
 
 	challengeType := str(m.app.setting("acme_challenge_type"))
-	cfToken := strings.TrimSpace(str(m.app.setting("cf_dns_token")))
+	cfToken := m.app.secretSetting("cf_dns_token")
 	if challengeType == "" {
 		if cfToken != "" {
 			challengeType = "dns-01"
@@ -685,11 +784,7 @@ func (m *tlsManager) issue(ctx context.Context, domain string) {
 			m.mu.Lock()
 			m.step = "waiting for DNS propagation and validation"
 			m.mu.Unlock()
-			select {
-			case <-time.After(10 * time.Second):
-			case <-ctx.Done():
-				check(ctx.Err())
-			}
+			waitForTXTRecord(ctx, "_acme-challenge."+domain, recordVal)
 
 			_, err = client.Accept(ctx, challenge)
 			check(err)
@@ -817,6 +912,7 @@ func (m *tlsManager) status(r *http.Request) M {
 	sslPemExists := domain != "" && fileExists(filepath.Join(sslDir, domain+".pem"))
 	sslKeyExists := domain != "" && fileExists(filepath.Join(sslDir, domain+".key"))
 
+	conn := a.connection(r.Context())
 	return M{
 		"configured":          domain != "",
 		"domain":              domain,
@@ -824,14 +920,15 @@ func (m *tlsManager) status(r *http.Request) M {
 		"acme_email":          a.setting("acme_email"),
 		"acme_staging":        a.setting("acme_staging"),
 		"acme_challenge_type": a.setting("acme_challenge_type"),
-		"cf_dns_token":        a.setting("cf_dns_token"),
+		"cf_dns_token":        "",
+		"has_cf_dns_token":    a.secretSetting("cf_dns_token") != "",
 		"cert_key_type":       a.setting("cert_key_type"),
 		"cert_auto_push":      a.setting("cert_auto_push"),
 		"cert_push_server_id": a.setting("cert_push_server_id"),
 		"deployment_error":    str(m.state["deployment_error"]),
 		"cert_renew_hook":     a.setting("cert_renew_hook"),
-		"vpn_public_host":     a.setting("vpn_public_host"),
-		"vpn_public_port":     a.setting("vpn_public_port"),
+		"vpn_public_host":     conn["public_host"],
+		"vpn_public_port":     conn["public_port"],
 		"ssl_dir":             sslDir,
 		"ssl_files":           M{"pem": sslPemExists, "key": sslKeyExists},
 		"domain_only":         a.setting("domain_only"),

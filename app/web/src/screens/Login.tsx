@@ -116,6 +116,10 @@ export function Login() {
             </button>
           </form>
         </div>
+        <div className="auth__meta">
+          <span>HTTPS / Pinning</span>
+          <span>SoftEther Manager</span>
+        </div>
       </div>
     </div>
   );

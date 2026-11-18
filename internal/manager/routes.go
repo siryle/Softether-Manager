@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 func (a *App) register() {
@@ -71,21 +72,35 @@ func (a *App) mergeUserUpdate(ctx context.Context, hub, name string, changes M) 
 
 func (a *App) registerCustomRPC() {
 	a.endpoint("GET /server/overview", func(_ http.ResponseWriter, r *http.Request, _ M) any {
+		methods := map[string]string{"info": "GetServerInfo", "status": "GetServerStatus", "hubs": "EnumHub", "listeners": "EnumListener", "connections": "EnumConnection", "ipsec": "GetIPsecServices", "openvpn": "GetOpenVpnSstpConfig", "azure": "GetAzureStatus", "ddns": "GetDDnsClientStatus", "bridge_support": "GetBridgeSupport"}
 		out := M{}
-		for key, method := range map[string]string{"info": "GetServerInfo", "status": "GetServerStatus", "hubs": "EnumHub", "listeners": "EnumListener", "connections": "EnumConnection", "ipsec": "GetIPsecServices", "openvpn": "GetOpenVpnSstpConfig", "azure": "GetAzureStatus", "ddns": "GetDDnsClientStatus", "bridge_support": "GetBridgeSupport"} {
-			func() {
-				defer func() {
-					if p := recover(); p != nil {
-						out[key] = M{"ok": false, "error": fmtError(p)}
+		var mu sync.Mutex
+		var wg sync.WaitGroup
+		ctx := r.Context()
+		serverID := a.serverIDFromContext(ctx)
+		for key, method := range methods {
+			wg.Add(1)
+			go func(k, m string) {
+				defer wg.Done()
+				var entry M
+				func() {
+					defer func() {
+						if p := recover(); p != nil {
+							entry = M{"ok": false, "error": fmtError(p)}
+						}
+					}()
+					res := a.rpc(ctx, m, nil)
+					if k == "openvpn" {
+						res = a.enrichOpenVPNConfig(serverID, res)
 					}
+					entry = M{"ok": true, "data": res}
 				}()
-				res := a.rpc(r.Context(), method, nil)
-				if key == "openvpn" {
-					res = a.enrichOpenVPNConfig(a.serverIDFromContext(r.Context()), res)
-				}
-				out[key] = M{"ok": true, "data": res}
-			}()
+				mu.Lock()
+				out[k] = entry
+				mu.Unlock()
+			}(key, method)
 		}
+		wg.Wait()
 		return out
 	})
 	a.endpoint("PUT /server/listeners/{port}", func(w http.ResponseWriter, r *http.Request, u M) any {
@@ -233,7 +248,7 @@ func (a *App) registerCustomRPC() {
 		serverID := a.serverIDFromContext(r.Context())
 		host := strings.TrimSpace(str(body["host"]))
 		if host == "" {
-			host = strings.TrimSpace(str(a.setting("vpn_public_host")))
+			host = strings.TrimSpace(str(a.connection(r.Context())["public_host"]))
 		}
 		port := int(integer(body["port"]))
 		if port < 0 || port > 65535 {
@@ -504,27 +519,6 @@ func (a *App) registerCustomRPC() {
 			}()
 		}
 		return M{"hubs": hubs, "clients": clients, "errors": errors}
-	})
-	a.endpoint("GET /rpc/methods", func(_ http.ResponseWriter, _ *http.Request, _ M) any { return documentedMethods() })
-	a.endpoint("POST /rpc/call", func(w http.ResponseWriter, r *http.Request, u M) any {
-		b := readBody(w, r)
-		method := str(b["method"])
-		found := false
-		for _, m := range documentedMethods() {
-			if str(m["name"]) == method {
-				found = true
-				break
-			}
-		}
-		if !found {
-			fail(422, method+" is not a documented RPC method.")
-		}
-		params := object(b["params"])
-		validateWire(params)
-		a.guardHubOnline(r.Context(), method, params)
-		out := a.rpc(r.Context(), method, params)
-		a.audit(u, "rpc.called", "server", "", method)
-		return out
 	})
 }
 func (a *App) onlineUsers(r *http.Request, hub string) (out map[string]bool) {

@@ -26,7 +26,9 @@ explains a slow VPS nothing else accounts for), memory and swap, every real file
 and live network throughput, each with a few minutes of sparkline history.
 
 **Switches between servers.** Save, edit, test and remove connections from the server
-list. Search and switch from the top bar; each browser tab selects its own target.
+list. Search and switch from the compact 56px top bar or press `⌘K` to open the quick-jump
+command palette for servers, hubs, and pages; each browser tab selects its own target.
+The top bar also displays live host RX/TX throughput alongside server status.
 Traffic, quotas, sessions, VPN credentials and audit records are isolated by server.
 Panel accounts, domain and HTTPS settings are shared. Resource telemetry always
 refers to the panel host. Release any enforced quotas before changing a server's
@@ -40,16 +42,16 @@ live:
 
 | | |
 | --- | --- |
-| **Users** | Create, edit or delete users; manage passwords, certificates, RADIUS and NT authentication, groups, expiry and per-user policies. Search users across hubs, download a `.vpn` connection file, or import and export CSV within a hub for anonymous or password accounts that can be restored without losing settings. |
+| **Users** | Create, edit or delete users; filter by status (All / Online / Quota alert / Expired) or hub; manage passwords, certificates, RADIUS and NT authentication, groups, expiry, WireGuard peer keys, and per-user policies. Search users across hubs, download a `.vpn` connection file, or import and export CSV within a hub for anonymous or password accounts that can be restored without losing settings. |
 | **Traffic limits** | a byte ceiling per config *and* per hub, counting download only, upload only, or both, in MB / GB / TB, measured against the very Transfer figure the tables show — reached, the panel denies the config's access and cuts its sessions (or takes the hub offline), and restores exactly what it found when the limit is raised or the transfer reset. SoftEther cannot zero a counter, so the panel keeps its own zero and every figure it prints subtracts it: **Reset transfer** really does put the column back to 0 B |
 | **Groups** | create, edit, delete; group-wide security policy that members inherit |
-| **Sessions** | live table with client address, protocol, cipher and transfer; per-session detail with the session's own traffic curve; disconnect; and a session log that outlives the connection, so "who was on last night, from where, moving what" is still answerable in the morning |
+| **Sessions & Clients** | aggregated Online Clients across all hubs and per-hub live sessions with client address, IP location/ISP, protocol, cipher, connection count (including active NAT TCP counts for L2TP/UDP sessions) and transfer; per-session detail with the session's own traffic curve; disconnect; and a session log that outlives the connection |
 | **Access control** | the packet filter (priority, protocol, addresses, ports, users, delay/jitter/loss simulation) and the source-IP limit list |
 | **Hub security** | trusted CA certificates, certificate revocation entries, RADIUS delegation, hub password |
 | **SecureNAT** | enable/disable, virtual NAT and DHCP configuration, live NAT and lease tables |
 | **Cascades** | hub-to-hub links to other servers, with live link status |
 | **Switching** | MAC and IP address tables, local bridges, virtual layer-3 switches with interfaces and routes |
-| **Server** | listeners, VPN-over-ICMP/DNS, L2TP/IPsec, OpenVPN and SSTP clones, VPN Azure, dynamic DNS status and hostname (enable or disable during VPN maintenance), cipher, certificate (view / replace / regenerate), clustering, keep-alive, syslog, EtherIP IDs, a paged browser for the server and security logs, config backup and restore |
+| **Server** | sticky section index across listeners, VPN-over-ICMP/DNS, WireGuard, L2TP/IPsec, OpenVPN and SSTP clones, VPN Azure, dynamic DNS status and hostname (enable or disable during VPN maintenance), cipher, certificate (view / replace / regenerate), clustering, keep-alive, syslog, a master-detail logs workbench, config backup and restore |
 | **The panel itself** | a custom domain with a Let's Encrypt certificate the panel obtains and renews on its own, HTTPS on a port of your choosing, and a switch that makes the domain the only way in — a request by IP address gets a bare 404 |
 
 **Draws what the numbers mean.** SoftEther keeps cumulative counters and no history, so

@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS "Server" (
         "IsEnabled"         INTEGER NOT NULL DEFAULT 1,
         "IsDefault"         INTEGER NOT NULL DEFAULT 0,
         "SortOrder"         INTEGER NOT NULL DEFAULT 0,
+        "PublicHost"        TEXT    NOT NULL DEFAULT '',
+        "PublicPort"        INTEGER NOT NULL DEFAULT 0,
         "CreatedDate"       TEXT    NOT NULL,
         "UpdatedDate"       TEXT    NOT NULL
     );

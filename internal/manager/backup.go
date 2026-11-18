@@ -100,6 +100,17 @@ func rotateAutoBackups(dir string, maxKeep int) error {
 }
 
 // createServerBackup fetches current vpn_server.config and saves it to disk.
+func (a *App) backupRetentionCount() int {
+	n := int(integer(a.setting("backup_retention_count")))
+	if n < 1 {
+		return 15
+	}
+	if n > 100 {
+		return 100
+	}
+	return n
+}
+
 func (a *App) createServerBackup(ctx context.Context, serverID int64, isAuto bool) (*BackupInfo, error) {
 	sCtx := context.WithValue(ctx, serverIDKey, serverID)
 	out := a.rpc(sCtx, "GetConfig", nil)
@@ -132,7 +143,7 @@ func (a *App) createServerBackup(ctx context.Context, serverID int64, isAuto boo
 	}
 
 	if isAuto {
-		_ = rotateAutoBackups(dir, 15)
+		_ = rotateAutoBackups(dir, a.backupRetentionCount())
 	}
 
 	return &BackupInfo{
@@ -232,25 +243,20 @@ func (a *App) backupTick(ctx context.Context) {
 			return
 		}
 		id := integer(s["ServerID"])
-		func() {
-			lock := a.quotaLock(id)
-			lock.Lock()
-			defer lock.Unlock()
-			row := one(a.db, `SELECT BackupLastRun FROM Server WHERE ServerID=? AND IsEnabled=1`, id)
-			if row == nil || !shouldRunBackup(true, interval, target, str(row["BackupLastRun"]), time.Now()) {
-				return
-			}
-			err := recoverAsError(func() error {
-				_, err := a.createServerBackup(ctx, id, true)
-				return err
-			})
-			if err != nil {
-				log.Printf("auto backup failed for server %d: %v", id, err)
-				execute(a.db, `UPDATE Server SET BackupLastError=? WHERE ServerID=?`, err.Error(), id)
-				return
-			}
-			execute(a.db, `UPDATE Server SET BackupLastRun=?,BackupLastError='' WHERE ServerID=?`, now(), id)
-		}()
+		row := one(a.db, `SELECT BackupLastRun FROM Server WHERE ServerID=? AND IsEnabled=1`, id)
+		if row == nil || !shouldRunBackup(true, interval, target, str(row["BackupLastRun"]), time.Now()) {
+			continue
+		}
+		err := recoverAsError(func() error {
+			_, err := a.createServerBackup(ctx, id, true)
+			return err
+		})
+		if err != nil {
+			log.Printf("auto backup failed for server %d: %v", id, err)
+			execute(a.db, `UPDATE Server SET BackupLastError=? WHERE ServerID=?`, err.Error(), id)
+			continue
+		}
+		execute(a.db, `UPDATE Server SET BackupLastRun=?,BackupLastError='' WHERE ServerID=?`, now(), id)
 	}
 }
 
@@ -334,7 +340,7 @@ func (a *App) registerBackups() {
 			"backup_time":     str(a.setting("backup_time")),
 			"backup_dir":      a.getBackupDir(serverID),
 			"configured_dir":  str(a.setting("backup_dir")),
-			"retention_count": 15,
+			"retention_count": a.backupRetentionCount(),
 			"last_run":        row["BackupLastRun"],
 			"last_error":      row["BackupLastError"],
 		}
@@ -351,6 +357,11 @@ func (a *App) registerBackups() {
 		if v, exists := b["interval_hours"]; exists {
 			if interval := integer(v); interval >= 1 {
 				a.set("backup_interval_hours", int(interval))
+			}
+		}
+		if v, exists := b["retention_count"]; exists {
+			if keep := integer(v); keep >= 1 && keep <= 100 {
+				a.set("backup_retention_count", int(keep))
 			}
 		}
 		if t, ok := b["backup_time"].(string); ok && t != "" {

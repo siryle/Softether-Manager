@@ -709,14 +709,6 @@
   },
   {
     "method": "GET",
-    "path": "/rpc/methods"
-  },
-  {
-    "method": "POST",
-    "path": "/rpc/call"
-  },
-  {
-    "method": "GET",
     "path": "/server/connection"
   },
   {

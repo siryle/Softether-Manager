@@ -26,6 +26,42 @@ func (e cfErr) String() string {
 	return fmt.Sprintf("[%d] %s", e.Code, e.Message)
 }
 
+var cfAPIBase = "https://api.cloudflare.com/client/v4"
+
+func cfQueryZone(ctx context.Context, client *http.Client, token, candidate string) (string, bool) {
+	url := fmt.Sprintf("%s/zones?name=%s&status=active", cfAPIBase, candidate)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return "", false
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return "", false
+	}
+
+	var res struct {
+		Success bool `json:"success"`
+		Result  []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"result"`
+		Errors []cfErr `json:"errors"`
+	}
+	if err := json.Unmarshal(body, &res); err == nil && res.Success && len(res.Result) > 0 {
+		return res.Result[0].ID, true
+	}
+	return "", false
+}
+
 func cfFindZone(ctx context.Context, token, domain string) (string, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
 	parts := strings.Split(domain, ".")
@@ -35,36 +71,8 @@ func cfFindZone(ctx context.Context, token, domain string) (string, error) {
 
 	// Try sub-zones from longest suffix to shortest (e.g. sub.example.com -> example.com)
 	for i := 0; i <= len(parts)-2; i++ {
-		candidate := strings.Join(parts[i:], ".")
-		url := fmt.Sprintf("https://api.cloudflare.com/client/v4/zones?name=%s&status=active", candidate)
-		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-		if err != nil {
-			return "", err
-		}
-		req.Header.Set("Authorization", "Bearer "+token)
-		req.Header.Set("Content-Type", "application/json")
-
-		resp, err := client.Do(req)
-		if err != nil {
-			continue
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			continue
-		}
-
-		var res struct {
-			Success bool `json:"success"`
-			Result  []struct {
-				ID   string `json:"id"`
-				Name string `json:"name"`
-			} `json:"result"`
-			Errors []cfErr `json:"errors"`
-		}
-		if err := json.Unmarshal(body, &res); err == nil && res.Success && len(res.Result) > 0 {
-			return res.Result[0].ID, nil
+		if id, ok := cfQueryZone(ctx, client, token, strings.Join(parts[i:], ".")); ok {
+			return id, nil
 		}
 	}
 
@@ -73,7 +81,7 @@ func cfFindZone(ctx context.Context, token, domain string) (string, error) {
 
 func cfCreateTXT(ctx context.Context, token, zoneID, name, content string) (string, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
-	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records", zoneID)
+	url := fmt.Sprintf("%s/zones/%s/dns_records", cfAPIBase, zoneID)
 
 	payload := map[string]any{
 		"type":    "TXT",
@@ -127,7 +135,7 @@ func cfCreateTXT(ctx context.Context, token, zoneID, name, content string) (stri
 
 func cfDeleteTXT(ctx context.Context, token, zoneID, recordID string) error {
 	client := &http.Client{Timeout: 15 * time.Second}
-	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records/%s", zoneID, recordID)
+	url := fmt.Sprintf("%s/zones/%s/dns_records/%s", cfAPIBase, zoneID, recordID)
 
 	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
 	if err != nil {

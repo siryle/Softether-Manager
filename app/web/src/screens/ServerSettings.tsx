@@ -56,35 +56,71 @@ export function ServerSettings({ section }: { section?: string }) {
     void loadPublicEndpoint();
   }, [loadPublicEndpoint]);
 
+  const [activeSec, setActiveSec] = useState(section || "public");
+
+  const jumpTo = (id: string) => {
+    setActiveSec(id);
+    document.getElementById(`ss-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   useEffect(() => {
     if (section) {
+      setActiveSec(section);
       requestAnimationFrame(() =>
         document.getElementById(`ss-${section}`)?.scrollIntoView({ behavior: "smooth", block: "start" }),
       );
     }
   }, [section]);
 
+  const sections = [
+    { id: "public", label: "Server public information" },
+    { id: "listeners", label: "Listening ports" },
+    { id: "protocols", label: "Access protocols" },
+    { id: "encryption", label: "Encryption & certificate" },
+    { id: "bridge", label: "Local bridges" },
+    { id: "l3", label: "Virtual layer-3 switches" },
+    { id: "etherip", label: "EtherIP / L2TPv3 client IDs" },
+    { id: "farm", label: "Clustering" },
+    { id: "keep", label: "Keep-alive & syslog" },
+    { id: "config", label: "Configuration file" },
+    { id: "danger", label: "Danger zone" },
+  ];
+
   return (
     <div className="page">
       <PageHead title={t("Server settings")} sub={<Link to="/" className="linkish">{t("← dashboard")}</Link>} />
-      <div className="setdoc">
-        <PublicEndpointCard
-          endpoint={publicEndpoint}
-          onSaved={(next) => {
-            setPublicEndpoint({ ...next, loaded: true });
-            void loadWg();
-          }}
-        />
-        <ListenersCard />
-        <ProtocolsCard wg={wg} wgError={wgError} onWgFresh={setWg} reloadWg={loadWg} publicEndpoint={publicEndpoint} />
-        <EncryptionCard />
-        <BridgeCard />
-        <L3Card />
-        <EtherIpCard />
-        <FarmCard />
-        <KeepSyslogCard />
-        <ConfigCard />
-        <DangerZone />
+      <div className="doclayout">
+        <nav className="docnav" aria-label={t("Server settings")}>
+          {sections.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className={`docnav__item${activeSec === s.id ? " on" : ""}`}
+              onClick={() => jumpTo(s.id)}
+            >
+              {t(s.label)}
+            </button>
+          ))}
+        </nav>
+        <div className="setdoc docmain">
+          <PublicEndpointCard
+            endpoint={publicEndpoint}
+            onSaved={(next) => {
+              setPublicEndpoint({ ...next, loaded: true });
+              void loadWg();
+            }}
+          />
+          <ListenersCard />
+          <ProtocolsCard wg={wg} wgError={wgError} onWgFresh={setWg} reloadWg={loadWg} publicEndpoint={publicEndpoint} />
+          <EncryptionCard />
+          <BridgeCard />
+          <L3Card />
+          <EtherIpCard />
+          <FarmCard />
+          <KeepSyslogCard />
+          <ConfigCard />
+          <DangerZone />
+        </div>
       </div>
     </div>
   );
@@ -1259,11 +1295,11 @@ function CertUpload({ onUpload }: { onUpload: (cert: File, key: File) => Promise
 /* ── Let's Encrypt certificate for this server ────────────────────────────── */
 
 const issueForm = (s: DomainStatus | null) => ({
-  domain: s?.domain ?? (s?.vpn_public_host ?? ""),
+  domain: s?.domain ?? "",
   acme_email: s?.acme_email ?? "",
   acme_staging: Boolean(s?.acme_staging),
   acme_challenge_type: (s?.acme_challenge_type as "dns-01" | "http-01") || "dns-01",
-  cf_dns_token: s?.cf_dns_token ?? "",
+  cf_dns_token: "",
   cert_key_type: (s?.cert_key_type as "rsa2048" | "ecdsa") || "rsa2048",
   cert_auto_push: Boolean(s?.cert_auto_push && s.cert_push_server_id && s.cert_push_server_id === getStoredServerId()),
   cert_renew_hook: s?.cert_renew_hook ?? "",
@@ -1320,23 +1356,26 @@ function IssueCertificateSection() {
   };
 
   const save = async () => {
-    if (form.acme_challenge_type === "dns-01" && !form.cf_dns_token.trim()) {
+    if (form.acme_challenge_type === "dns-01" && !form.cf_dns_token.trim() && !state?.has_cf_dns_token) {
       push("err", t("Cloudflare DNS API Token is required when using DNS-01 verification."));
       return;
     }
     setSaving(true);
     await guard(async () => {
-      const s = await api.saveDomain({
+      const payload: Parameters<typeof api.saveDomain>[0] = {
         domain: form.domain.trim(),
         acme_email: form.acme_email.trim(),
         acme_staging: form.acme_staging,
         acme_challenge_type: form.acme_challenge_type,
-        cf_dns_token: form.cf_dns_token.trim(),
         cert_key_type: form.cert_key_type,
         cert_auto_push: form.cert_auto_push || Boolean(state?.cert_auto_push && state.cert_push_server_id && state.cert_push_server_id !== serverId),
         cert_push_server_id: form.cert_auto_push ? serverId ?? undefined : state?.cert_push_server_id === serverId ? 0 : undefined,
         cert_renew_hook: form.cert_renew_hook.trim(),
-      });
+      };
+      if (form.cf_dns_token.trim()) {
+        payload.cf_dns_token = form.cf_dns_token.trim();
+      }
+      const s = await api.saveDomain(payload);
       setDirty(false);
       setState(s);
       setForm(issueForm(s));
@@ -1406,17 +1445,13 @@ function IssueCertificateSection() {
 
       <Field
         label={t("Certificate domain")}
-        hint={
-          s?.vpn_public_host
-            ? t("Leave empty to use server public domain ({host}).", { host: s.vpn_public_host })
-            : t("A public hostname that resolves to this server, e.g. vpn.example.com. Empty means no certificate.")
-        }
+        hint={t("A public hostname resolving to the certificate subject, e.g. vpn.example.com. Leave empty if no Let's Encrypt certificate is needed.")}
       >
         <input
           className="input mono"
           value={form.domain}
           onChange={(e) => set({ domain: e.target.value })}
-          placeholder={s?.vpn_public_host || "vpn.example.com"}
+          placeholder="vpn.example.com"
           autoCapitalize="none"
           spellCheck={false}
           inputMode="url"
@@ -1445,7 +1480,7 @@ function IssueCertificateSection() {
             type="password"
             value={form.cf_dns_token}
             onChange={(e) => set({ cf_dns_token: e.target.value })}
-            placeholder={t("Cloudflare DNS API Token")}
+            placeholder={s?.has_cf_dns_token ? t("Configured (leave blank to keep)") : t("Cloudflare DNS API Token")}
             autoCapitalize="none"
             spellCheck={false}
           />

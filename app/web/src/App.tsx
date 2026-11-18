@@ -14,7 +14,6 @@ import { AllUsers } from "./screens/AllUsers";
 import { Connect } from "./screens/Connect";
 import { ServerSettings } from "./screens/ServerSettings";
 import { AllClients } from "./screens/AllClients";
-import { Connections } from "./screens/Connections";
 import { Logs } from "./screens/Logs";
 import { HubDetail } from "./screens/HubDetail";
 import { Hubs } from "./screens/Hubs";

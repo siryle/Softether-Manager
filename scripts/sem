@@ -182,40 +182,64 @@ cmd_status() {
 
 # --------------------------------------------------------------- the installer
 
-# The cached copy is preferred over the network: the most likely reason
-# somebody is running this is that something is already wrong, and requiring a
-# download then is unkind. It is refreshed when missing, or when an update is
-# asked for -- an update should install the newest installer too.
+# Prefer the release archive's verified scripts/install.sh (checked with sha256)
+# when refreshing; fall back to the cached copy on offline troubleshooting.
 run_installer() {
   local refresh="$1"
   shift
   local script="$CACHED_INSTALLER"
+  local fresh_dir=""
 
   if [[ "$refresh" == "refresh" || ! -f "$script" ]]; then
-    local fresh
-    fresh="$(mktemp)"
-    if curl -fsSL --connect-timeout 15 --retry 2 -o "$fresh" "$INSTALLER_URL" 2>/dev/null ||
-       wget -q --timeout=15 --tries=3 -O "$fresh" "$INSTALLER_URL" 2>/dev/null ||
-       { command -v gh >/dev/null 2>&1 &&
-         gh api "repos/$RELEASE_REPO/contents/scripts/install.sh" \
-           -H 'Accept: application/vnd.github.raw' > "$fresh" 2>/dev/null && [[ -s "$fresh" ]]; }; then
-      if bash -n "$fresh" 2>/dev/null; then
-        script="$fresh"
-      else
-        rm -f "$fresh"
-        [[ -f "$CACHED_INSTALLER" ]] || die "The installer downloaded from $INSTALLER_URL is not a valid script."
-        warn "The downloaded installer did not parse; using the cached copy."
+    local target_version="latest" arg prev=""
+    for arg in "$@"; do
+      if [[ "$prev" == "--version" && -n "$arg" ]]; then
+        target_version="$arg"
+        break
       fi
+      prev="$arg"
+    done
+    fresh_dir="$(mktemp -d)"
+    local asset="softether-manager.tar.gz" asset_url sum_url expected actual extracted=""
+    if [[ "$target_version" == "latest" && "$RELEASE_BASE" == */releases/download ]]; then
+      asset_url="${RELEASE_BASE%/download}/latest/download/$asset"
+      sum_url="${RELEASE_BASE%/download}/latest/download/$asset.sha256"
     else
-      rm -f "$fresh"
-      [[ -f "$CACHED_INSTALLER" ]] ||
-        die "The installer could not be downloaded from $INSTALLER_URL and there is no cached copy."
-      warn "The installer could not be downloaded; using the cached copy."
+      asset_url="$RELEASE_BASE/$target_version/$asset"
+      sum_url="$RELEASE_BASE/$target_version/$asset.sha256"
+    fi
+    if { curl -fsSL --connect-timeout 15 --retry 2 -o "$fresh_dir/$asset" "$asset_url" 2>/dev/null ||
+         wget -q --timeout=15 --tries=3 -O "$fresh_dir/$asset" "$asset_url" 2>/dev/null; } &&
+       { curl -fsSL --connect-timeout 15 --retry 2 -o "$fresh_dir/$asset.sha256" "$sum_url" 2>/dev/null ||
+         wget -q --timeout=15 --tries=3 -O "$fresh_dir/$asset.sha256" "$sum_url" 2>/dev/null; }; then
+      expected="$(awk '{print $1}' "$fresh_dir/$asset.sha256" | head -n1)"
+      actual="$(sha256sum "$fresh_dir/$asset" | awk '{print $1}')"
+      if [[ -n "$expected" && "$expected" == "$actual" ]]; then
+        mkdir -p "$fresh_dir/tree"
+        if tar -xzf "$fresh_dir/$asset" -C "$fresh_dir/tree" 2>/dev/null; then
+          extracted="$(find "$fresh_dir/tree" -maxdepth 3 -path '*/scripts/install.sh' -type f | head -n1)"
+          if [[ -n "$extracted" ]] && bash -n "$extracted" 2>/dev/null; then
+            script="$extracted"
+          fi
+        fi
+      else
+        warn "Release archive checksum mismatch; falling back to cached installer."
+      fi
+    fi
+    if [[ "$script" == "$CACHED_INSTALLER" ]]; then
+      [[ -f "$CACHED_INSTALLER" ]] || {
+        rm -rf "$fresh_dir"
+        die "The verified installer could not be obtained from $asset_url and there is no cached copy."
+      }
+      warn "Could not fetch verified release installer; using the cached copy."
     fi
   fi
 
+  local rc=0
   bash "$script" --repo "$RELEASE_REPO" --release-base "$RELEASE_BASE" \
-    --installer-url "$INSTALLER_URL" "$@"
+    --installer-url "$INSTALLER_URL" "$@" || rc=$?
+  [[ -z "$fresh_dir" ]] || rm -rf "$fresh_dir"
+  return "$rc"
 }
 
 cmd_update() {

@@ -98,31 +98,6 @@
     display: none;
   }
 }
-.topbar__status {
-  display: none;
-  align-items: center;
-  gap: 6px;
-  padding-inline-start: var(--s4);
-  border-inline-start: 1px solid var(--border-hairline);
-  font-size: var(--t-micro);
-  white-space: nowrap;
-}
-@media (min-width: 768px) {
-  .topbar__status {
-    display: flex;
-  }
-}
-.topbar__led {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-emerald);
-}
-.topbar__endpoint {
-  font-size: var(--t-micro);
-  font-family: var(--font-mono);
-  color: var(--text-secondary);
-}
 
 .topbar__switcher {
   position: relative;
@@ -725,54 +700,9 @@
   height: 20px;
 }
 
-/* ══════════════════════════════════════════════════ header status chips ══ */
-
-.mchip {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  height: 32px;
-  padding: 0 14px;
-  border-radius: var(--r-pill);
-  font-size: var(--t-micro);
-  font-weight: 700;
-  white-space: nowrap;
-  color: var(--text-2);
-  background: var(--card-grad);
-  box-shadow: var(--nm-raise-sm);
-}
-.mchip svg {
-  flex: none;
-}
-.mchip--ok {
-  color: var(--ok);
-}
-.mchip--err {
-  color: var(--err);
-}
-.mchip__dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
-.mchip--live .mchip__dot {
-  animation: live-pulse 1.8s var(--ease-in-out-quart) infinite;
-}
-@keyframes live-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
-}
-
 /* ══════════════════════════════════════════════════════════════════ page ══ */
 
-.page,
-.dash-view {
+.page {
   width: 100%;
   max-width: var(--canvas-max);
   margin: 0 auto;
@@ -857,63 +787,6 @@
   box-shadow: var(--nm-inset-sm);
 }
 
-.verpill {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  height: 32px;
-  padding: 0 14px;
-  border-radius: var(--r-pill);
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  font-weight: 400;
-  color: var(--text-muted);
-  background: var(--card-grad);
-  box-shadow: var(--nm-raise-sm);
-  transition:
-    color var(--d-fast) ease,
-    box-shadow var(--d-fast) ease;
-}
-@media (hover: hover) and (pointer: fine) {
-  .verpill:hover {
-    color: var(--text);
-  }
-}
-.verpill:active {
-  box-shadow: var(--nm-inset-sm);
-}
-.verpill--new {
-  color: var(--accent);
-}
-.verpill__dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-
-/* ═══════════════════════════════════════════════════ the greeting header ══ */
-
-.hello {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--s4);
-  flex-wrap: wrap;
-  margin-bottom: var(--s6);
-}
-.hello__t {
-  font-size: var(--t-page);
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  line-height: 1.15;
-}
-.hello__s {
-  margin-top: 6px;
-  font-size: var(--t-small);
-  color: var(--text-muted);
-}
-
 /* Server connections and the active management target. */
 .topbar__server-name { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .topbar__switcher-btn { min-height: 36px; gap: 10px; }
@@ -933,7 +806,6 @@
 .server-dot--online { background: var(--ok); }
 .server-dot--offline { background: var(--err); }
 .server-dot--probing { background: var(--warn); }
-.topbar__host-label { color: var(--text-muted); font-family: var(--font-ui); }
 .servers-toolbar, .servers-summary, .server-actions, .servers-name, .servers-hint, .servers-scope { display: flex; align-items: center; gap: 12px; }
 .servers-toolbar { justify-content: space-between; margin: 0 0 var(--s4); }
 .servers-search { max-width: 320px; }

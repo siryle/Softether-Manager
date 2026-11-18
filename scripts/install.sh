@@ -738,7 +738,15 @@ esac
 
 # ---------------------------------------------------------------- download
 
-STAGING="$(mktemp -d)"
+STAGING_BASE="${TMPDIR:-}"
+if [[ -z "$STAGING_BASE" ]]; then
+  if [[ -d /var/tmp && -w /var/tmp ]]; then
+    STAGING_BASE="/var/tmp"
+  else
+    STAGING_BASE="/tmp"
+  fi
+fi
+STAGING="$(TMPDIR="$STAGING_BASE" mktemp -d)"
 NEW_APP=""
 PREVIOUS_APP=""
 ROLLBACK=0

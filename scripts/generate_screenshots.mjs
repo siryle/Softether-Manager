@@ -560,6 +560,13 @@ function createMockServer() {
       if (apiPath === "/users") {
         return res.end(JSON.stringify({ hubs: ["DEFAULT", "OFFICE"], errors: [], users: mockUsers }));
       }
+      if (apiPath === "/clients") {
+        return res.end(JSON.stringify({
+          hubs: ["DEFAULT", "OFFICE"],
+          errors: [],
+          clients: mockSessions.map((s) => ({ ...s, HubName_str: "DEFAULT" })),
+        }));
+      }
       if (apiPath === "/quotas") {
         return res.end(JSON.stringify(mockQuotas));
       }
@@ -725,10 +732,10 @@ function createMockServer() {
       if (apiPath === "/server/listeners") {
         return res.end(JSON.stringify({
           ListenerList: [
-            { Port_u32: 443, Enables_bool: true, Active_bool: true },
-            { Port_u32: 992, Enables_bool: true, Active_bool: true },
-            { Port_u32: 1194, Enables_bool: true, Active_bool: true },
-            { Port_u32: 5555, Enables_bool: true, Active_bool: true },
+            { Ports_u32: 443, Enables_bool: true, Active_bool: true },
+            { Ports_u32: 992, Enables_bool: true, Active_bool: true },
+            { Ports_u32: 1194, Enables_bool: true, Active_bool: true },
+            { Ports_u32: 5555, Enables_bool: true, Active_bool: true },
           ],
         }));
       }
@@ -737,6 +744,25 @@ function createMockServer() {
         return res.end(JSON.stringify({ L2TP_Raw_bool: true, L2TP_IPsec_bool: true, IPsec_Secret_str: "vpn", L2TP_DefaultHub_str: "DEFAULT", EtherIP_IPsec_bool: false }));
       }
       if (apiPath === "/server/openvpn") return res.end(JSON.stringify({ EnableOpenVPN_bool: true, OpenVPNPortList_str: "1194", OpenVPNDefaultHub_str: "DEFAULT" }));
+      if (apiPath === "/server/wireguard") {
+        return res.end(JSON.stringify({
+          supported: true,
+          enabled: true,
+          default_udp_port: 51820,
+          wireguard_port: 51820,
+          wireguard_port_listening: true,
+          default_endpoint_host: "vpn.example.com",
+          peers: [
+            {
+              hub: "DEFAULT",
+              user: "alice",
+              label: "MacBook Pro",
+              assigned_ip: "10.250.0.2",
+              public_key: "mK8x9P2vR4wT7yU1zA3bC5dE6fG8hJ0kL2mN4pQ6rS4=",
+            },
+          ],
+        }));
+      }
       if (apiPath === "/server/azure") return res.end(JSON.stringify({ IsEnabled_bool: false, Status_u32: 0 }));
       if (apiPath === "/server/ddns") {
         return res.end(JSON.stringify({ HostName_str: "vpnserver.softether.net", CurrentIPv4_str: "203.0.113.10", CurrentIPv6_str: "", IsEnabled_bool: true, DdnsKey_str: "ABCDEF123456" }));
@@ -900,9 +926,9 @@ async function run() {
         if (pageErrors.length) throw new AggregateError(pageErrors, `${lang}/${target.name}`);
         await page.waitForSelector(`html[lang="${lang}"][data-theme="${target.theme}"] main h1`, { visible: true });
         if (target.name === "logs") {
-          const log = await page.waitForSelector(".logsplit .rows button", { visible: true });
+          const log = await page.waitForSelector(".lograil__item", { visible: true });
           await log.click();
-          await page.waitForFunction(() => document.querySelector(".logsplit__view")?.textContent?.includes("Periodic housekeeping"));
+          await page.waitForFunction(() => document.querySelector(".logbench__view")?.textContent?.includes("Periodic housekeeping"));
         }
         await page.evaluate(() => document.fonts.ready);
         if (pageErrors.length) throw new AggregateError(pageErrors, `${lang}/${target.name}`);

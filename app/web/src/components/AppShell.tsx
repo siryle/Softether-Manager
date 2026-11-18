@@ -1,13 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../lib/auth";
 import { useServer } from "../lib/server";
 import { Link, navigate, seg, useRoute } from "../lib/router";
 import { LanguageButton, useI18n, t } from "../lib/i18n";
 import { api, type Probe, type Wire } from "../lib/api";
 import { formatBytes } from "../lib/util";
-import { usePoll } from "./bits";
 import {
   BrandMark,
   IconCheck,
@@ -45,13 +44,12 @@ import { useTheme } from "../ui/theme";
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
-  const { hubs, servers, health, currentServerId, clientCount, setClientCount } = useServer();
+  const { hubs, servers, health, clientCount, resources } = useServer();
   const { t } = useI18n();
   const route = useRoute();
   const p = route.parts;
   const active = p[0] ?? "";
 
-  const [resources, setResources] = useState<Wire | null>(null);
   const [version, setVersion] = useState<string | null>(null);
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<boolean>(() => {
@@ -84,22 +82,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     window.addEventListener("keydown", focusSearch);
     return () => window.removeEventListener("keydown", focusSearch);
   }, []);
-
-  const loadResources = useCallback(async () => {
-    setResources(await api.resources().catch(() => null));
-  }, []);
-  usePoll(loadResources, "live", [currentServerId]);
-
-  const loadClients = useCallback(async () => {
-    if (health !== "online") return;
-    try {
-      const res = await api.allClients().catch(() => null);
-      if (res && Array.isArray(res.clients)) {
-        setClientCount(res.clients.length);
-      }
-    } catch {}
-  }, [health, setClientCount]);
-  usePoll(loadClients, "list", [health, currentServerId]);
 
   // Total user count from hubs
   const totalUsers = hubs?.reduce((acc, h) => acc + (Number(h.NumUsers_u32) || 0), 0) ?? 0;

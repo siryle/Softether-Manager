@@ -322,24 +322,7 @@ func parseXDBRegion(res string) (country, region, city, isp string) {
 	return country, region, city, isp
 }
 
-func (a *App) lookupXDB(ip string) (IPGeoInfo, bool) {
-	a.geoMu.RLock()
-	searcher := a.xdb
-	a.geoMu.RUnlock()
-	if searcher == nil {
-		return IPGeoInfo{}, false
-	}
-
-	res, err := searcher.Search(ip)
-	if err != nil || res == "" {
-		return IPGeoInfo{}, false
-	}
-
-	country, region, city, isp := parseXDBRegion(res)
-	if country == "" && region == "" && city == "" && isp == "" {
-		return IPGeoInfo{}, false
-	}
-
+func buildIPGeoInfo(ip, country, region, city, isp string) IPGeoInfo {
 	locParts := []string{}
 	if country != "" && country != "中国" {
 		locParts = append(locParts, country)
@@ -372,13 +355,95 @@ func (a *App) lookupXDB(ip string) (IPGeoInfo, bool) {
 		ISP:      isp,
 		Location: loc,
 		Full:     full,
-	}, true
+	}
 }
 
-func (a *App) lookupIP(ctx context.Context, ipStr string) IPGeoInfo {
+func (a *App) lookupXDB(ip string) (IPGeoInfo, bool) {
+	a.geoMu.RLock()
+	searcher := a.xdb
+	a.geoMu.RUnlock()
+	if searcher == nil {
+		return IPGeoInfo{}, false
+	}
+
+	res, err := searcher.Search(ip)
+	if err != nil || res == "" {
+		return IPGeoInfo{}, false
+	}
+
+	country, region, city, isp := parseXDBRegion(res)
+	if country == "" && region == "" && city == "" && isp == "" {
+		return IPGeoInfo{}, false
+	}
+	return buildIPGeoInfo(ip, country, region, city, isp), true
+}
+
+func (a *App) isGeoNegCached(ip string) bool {
+	a.geoNegMu.Lock()
+	defer a.geoNegMu.Unlock()
+	if a.geoNegCache == nil {
+		return false
+	}
+	until, ok := a.geoNegCache[ip]
+	if !ok {
+		return false
+	}
+	if time.Now().After(until) {
+		delete(a.geoNegCache, ip)
+		return false
+	}
+	return true
+}
+
+func (a *App) markGeoNegCached(ip string) {
+	a.geoNegMu.Lock()
+	defer a.geoNegMu.Unlock()
+	if a.geoNegCache == nil {
+		a.geoNegCache = make(map[string]time.Time)
+	}
+	if len(a.geoNegCache) >= 2048 {
+		nowTime := time.Now()
+		for k, v := range a.geoNegCache {
+			if nowTime.After(v) {
+				delete(a.geoNegCache, k)
+			}
+		}
+	}
+	a.geoNegCache[ip] = time.Now().Add(10 * time.Minute)
+}
+
+func (a *App) upsertIPGeoCache(entries []IPGeoInfo) {
+	if len(entries) == 0 {
+		return
+	}
+	tx, err := a.db.Begin()
+	if err != nil {
+		log.Printf("ipgeo cache begin tx: %v", err)
+		return
+	}
+	defer tx.Rollback()
+	stmt, err := tx.Prepare(`INSERT OR REPLACE INTO IPGeoCache(IP, Country, Region, City, ISP, Location, Full, UpdatedDate) VALUES(?,?,?,?,?,?,?,?)`)
+	if err != nil {
+		log.Printf("ipgeo cache prepare: %v", err)
+		return
+	}
+	defer stmt.Close()
+	stamp := now()
+	for _, info := range entries {
+		if _, err := stmt.Exec(info.IP, info.Country, info.Region, info.City, info.ISP, info.Location, info.Full, stamp); err != nil {
+			log.Printf("ipgeo cache write %s: %v", info.IP, err)
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		log.Printf("ipgeo cache commit: %v", err)
+	}
+}
+
+func (a *App) lookupIPResult(ctx context.Context, ipStr string, useNegCache bool) (IPGeoInfo, bool) {
 	ip := cleanIP(ipStr)
 	if ip == "" {
-		return IPGeoInfo{}
+		return IPGeoInfo{}, false
 	}
 	if isPrivateIP(ip) {
 		return IPGeoInfo{
@@ -386,7 +451,7 @@ func (a *App) lookupIP(ctx context.Context, ipStr string) IPGeoInfo {
 			Location: "局域网/内网",
 			ISP:      "—",
 			Full:     "局域网/内网",
-		}
+		}, false
 	}
 
 	// 1. Check local SQLite cache
@@ -404,7 +469,7 @@ func (a *App) lookupIP(ctx context.Context, ipStr string) IPGeoInfo {
 				ISP:      isp,
 				Location: loc,
 				Full:     str(row["Full"]),
-			}
+			}, false
 		}
 	}
 
@@ -412,36 +477,50 @@ func (a *App) lookupIP(ctx context.Context, ipStr string) IPGeoInfo {
 	if info, ok := a.lookupXDB(ip); ok {
 		// If domestic or overseas with city known, we have authoritative results
 		if info.Country == "中国" || info.City != "" {
-			execute(a.db, `INSERT OR REPLACE INTO IPGeoCache(IP, Country, Region, City, ISP, Location, Full, UpdatedDate) VALUES(?,?,?,?,?,?,?,?)`,
-				info.IP, info.Country, info.Region, info.City, info.ISP, info.Location, info.Full, now())
-			return info
+			return info, true
 		}
 
-		// Overseas IP without city: attempt online enrichment
-		online := fetchIPGeo(ctx, ip)
-		if online.City != "" {
-			info.City = online.City
-			if online.Region != "" && info.Region == "" {
-				info.Region = online.Region
+		// Overseas IP without city: attempt online enrichment unless negatively cached
+		if !useNegCache || !a.isGeoNegCached(ip) {
+			online := fetchIPGeo(ctx, ip)
+			if online.City != "" {
+				info.City = online.City
+				if online.Region != "" && info.Region == "" {
+					info.Region = online.Region
+				}
+				info.Location = online.Location
+				if online.ISP != "" && info.ISP == "" {
+					info.ISP = online.ISP
+				}
+				info.Full = strings.TrimSpace(info.Location + " " + info.ISP)
+				return info, true
 			}
-			info.Location = online.Location
-			if online.ISP != "" && info.ISP == "" {
-				info.ISP = online.ISP
+			if useNegCache {
+				a.markGeoNegCached(ip)
 			}
-			info.Full = strings.TrimSpace(info.Location + " " + info.ISP)
 		}
-		execute(a.db, `INSERT OR REPLACE INTO IPGeoCache(IP, Country, Region, City, ISP, Location, Full, UpdatedDate) VALUES(?,?,?,?,?,?,?,?)`,
-			info.IP, info.Country, info.Region, info.City, info.ISP, info.Location, info.Full, now())
-		return info
+		return info, true
 	}
 
-	// 3. Fallback to online multi-tier APIs
+	// 3. Fallback to HTTPS online API (with negative caching on batch polling)
+	if useNegCache && a.isGeoNegCached(ip) {
+		return IPGeoInfo{IP: ip}, false
+	}
 	info := fetchIPGeo(ctx, ip)
 	if info.Location != "" || info.ISP != "" {
-		execute(a.db, `INSERT OR REPLACE INTO IPGeoCache(IP, Country, Region, City, ISP, Location, Full, UpdatedDate) VALUES(?,?,?,?,?,?,?,?)`,
-			info.IP, info.Country, info.Region, info.City, info.ISP, info.Location, info.Full, now())
+		return info, true
 	}
+	if useNegCache {
+		a.markGeoNegCached(ip)
+	}
+	return info, false
+}
 
+func (a *App) lookupIP(ctx context.Context, ipStr string) IPGeoInfo {
+	info, shouldCache := a.lookupIPResult(ctx, ipStr, false)
+	if shouldCache {
+		a.upsertIPGeoCache([]IPGeoInfo{info})
+	}
 	return info
 }
 
@@ -457,109 +536,24 @@ type ipwhoisResponse struct {
 	} `json:"connection"`
 }
 
-type ipapiResponse struct {
-	Status     string `json:"status"`
-	Country    string `json:"country"`
-	RegionName string `json:"regionName"`
-	City       string `json:"city"`
-	ISP        string `json:"isp"`
-	Org        string `json:"org"`
-}
-
 func fetchIPGeo(ctx context.Context, ip string) IPGeoInfo {
 	client := &http.Client{Timeout: 3 * time.Second}
 
-	// 1. Try ipwho.is
 	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("https://ipwho.is/%s?lang=zh-CN", ip), nil)
-	if err == nil {
-		req.Header.Set("User-Agent", "SoftEther-Manager")
-		resp, err := client.Do(req)
-		if err == nil && resp != nil {
-			defer resp.Body.Close()
-		}
-		if err == nil && resp != nil && resp.StatusCode == 200 {
-			var res ipwhoisResponse
-			if err := json.NewDecoder(resp.Body).Decode(&res); err == nil && res.Success {
-				locParts := []string{}
-				if res.Country != "" && res.Country != "中国" {
-					locParts = append(locParts, res.Country)
-				}
-				if res.Region != "" {
-					locParts = append(locParts, res.Region)
-				}
-				if res.City != "" && res.City != res.Region {
-					locParts = append(locParts, res.City)
-				}
-				loc := strings.Join(locParts, " ")
-				if loc == "" {
-					loc = res.Country
-				}
-				isp := sanitizeISP(res.Connection.ISP, res.Connection.Org)
-				full := loc
-				if isp != "" {
-					if full != "" {
-						full += " " + isp
-					} else {
-						full = isp
-					}
-				}
-				return IPGeoInfo{
-					IP:       ip,
-					Country:  res.Country,
-					Region:   res.Region,
-					City:     res.City,
-					ISP:      isp,
-					Location: loc,
-					Full:     full,
-				}
-			}
-		}
+	if err != nil {
+		return IPGeoInfo{IP: ip}
 	}
-
-	// 2. Fallback to ip-api.com
-	req2, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("http://ip-api.com/json/%s?lang=zh-CN", ip), nil)
-	if err == nil {
-		req2.Header.Set("User-Agent", "SoftEther-Manager")
-		resp, err := client.Do(req2)
-		if err == nil && resp != nil {
-			defer resp.Body.Close()
-		}
-		if err == nil && resp != nil && resp.StatusCode == 200 {
-			var res ipapiResponse
-			if err := json.NewDecoder(resp.Body).Decode(&res); err == nil && res.Status == "success" {
-				locParts := []string{}
-				if res.Country != "" && res.Country != "中国" {
-					locParts = append(locParts, res.Country)
-				}
-				if res.RegionName != "" {
-					locParts = append(locParts, res.RegionName)
-				}
-				if res.City != "" && res.City != res.RegionName {
-					locParts = append(locParts, res.City)
-				}
-				loc := strings.Join(locParts, " ")
-				if loc == "" {
-					loc = res.Country
-				}
-				isp := sanitizeISP(res.ISP, res.Org)
-				full := loc
-				if isp != "" {
-					if full != "" {
-						full += " " + isp
-					} else {
-						full = isp
-					}
-				}
-				return IPGeoInfo{
-					IP:       ip,
-					Country:  res.Country,
-					Region:   res.RegionName,
-					City:     res.City,
-					ISP:      isp,
-					Location: loc,
-					Full:     full,
-				}
-			}
+	req.Header.Set("User-Agent", "SoftEther-Manager")
+	resp, err := client.Do(req)
+	if err != nil || resp == nil {
+		return IPGeoInfo{IP: ip}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == 200 {
+		var res ipwhoisResponse
+		if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&res); err == nil && res.Success {
+			isp := sanitizeISP(res.Connection.ISP, res.Connection.Org)
+			return buildIPGeoInfo(ip, res.Country, res.Region, res.City, isp)
 		}
 	}
 
@@ -590,23 +584,33 @@ func (a *App) batchLookupIPs(ctx context.Context, ips []string) map[string]IPGeo
 		return out
 	}
 
-	// Concurrently resolve needed IPs (local xdb lookups are lockless in-memory buffers)
+	// Concurrently resolve needed IPs without writing SQLite inside workers; persist batch once done.
 	sem := make(chan struct{}, 8)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
+	var toCache []IPGeoInfo
 
 	for _, ip := range needed {
 		wg.Add(1)
 		go func(targetIP string) {
 			defer wg.Done()
+			defer func() {
+				if p := recover(); p != nil {
+					log.Printf("ipgeo lookup %s: %v", targetIP, p)
+				}
+			}()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			info := a.lookupIP(ctx, targetIP)
+			info, shouldCache := a.lookupIPResult(ctx, targetIP, true)
 			mu.Lock()
 			out[targetIP] = info
+			if shouldCache {
+				toCache = append(toCache, info)
+			}
 			mu.Unlock()
 		}(ip)
 	}
 	wg.Wait()
+	a.upsertIPGeoCache(toCache)
 	return out
 }
