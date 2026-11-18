@@ -278,3 +278,45 @@ func TestUnsignedWireValues(t *testing.T) {
 		})
 	}
 }
+
+func TestRPCOmitsEmptyHeaders(t *testing.T) {
+	for _, tc := range []struct {
+		auth     string
+		password string
+	}{
+		{"header", "vpn-secret"},
+		{"both", "vpn-secret"},
+		{"basic", "vpn-secret"},
+		{"header", ""},
+		{"basic", ""},
+	} {
+		t.Run(tc.auth+"_"+tc.password, func(t *testing.T) {
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				for name, values := range r.Header {
+					for _, v := range values {
+						if strings.TrimSpace(v) == "" {
+							t.Errorf("sent empty HTTP header %s=%q", name, v)
+						}
+					}
+				}
+				if _, exists := r.Header["X-Vpnadmin-Hubname"]; exists {
+					t.Error("X-VPNADMIN-HUBNAME must be omitted for server-admin mode")
+				}
+				var req M
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					t.Fatal(err)
+				}
+				writeJSON(w, 200, M{"jsonrpc": "2.0", "id": req["id"], "result": M{"ok": true}})
+			}))
+			defer server.Close()
+			c := NewRPCClient("localhost", 1, tc.password, tc.auth)
+			c.http = server.Client()
+			c.url = server.URL + "/api/"
+			defer c.Close()
+			out, err := c.Call(context.Background(), "GetServerInfo", nil)
+			if err != nil || out["ok"] != true {
+				t.Fatalf("rpc failed: out=%v err=%v", out, err)
+			}
+		})
+	}
+}

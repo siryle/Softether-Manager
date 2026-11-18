@@ -33,7 +33,7 @@ type RPCClient struct {
 
 func NewRPCClient(host string, port int, password, auth string) *RPCClient {
 	// Standalone clients use normal PKI validation; panel clients add persisted pinning.
-	transport := &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}, MaxIdleConnsPerHost: 4, IdleConnTimeout: 90 * time.Second, DialContext: (&net.Dialer{Timeout: 10 * time.Second}).DialContext, TLSHandshakeTimeout: 10 * time.Second}
+	transport := &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}, MaxIdleConnsPerHost: 4, IdleConnTimeout: 10 * time.Second, DialContext: (&net.Dialer{Timeout: 10 * time.Second}).DialContext, TLSHandshakeTimeout: 10 * time.Second}
 	return &RPCClient{http: &http.Client{Transport: transport, Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, url: "https://" + net.JoinHostPort(host, strconv.Itoa(port)) + "/api/", password: password, auth: auth, host: host, port: port}
 }
 func (c *RPCClient) Close() { c.http.CloseIdleConnections() }
@@ -54,11 +54,13 @@ func (c *RPCClient) Call(ctx context.Context, method string, params M) (M, error
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "SoftEther-Manager-Go")
-	if c.auth != "basic" {
-		req.Header.Set("X-VPNADMIN-HUBNAME", "")
+	// SoftEther's AddHttpValueStr rejects any header with an empty value and closes
+	// the socket (EOF); omit X-VPNADMIN-HUBNAME for server-admin mode and use
+	// Basic auth when the password is empty.
+	if c.auth != "basic" && c.password != "" {
 		req.Header.Set("X-VPNADMIN-PASSWORD", c.password)
 	}
-	if c.auth == "basic" || c.auth == "both" {
+	if c.auth == "basic" || c.auth == "both" || c.password == "" {
 		req.SetBasicAuth("administrator", c.password)
 	}
 	res, err := c.http.Do(req)
