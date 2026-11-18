@@ -6,9 +6,9 @@ import { RangeSeg, TrafficChart, useTrafficUsage } from "../components/TrafficCh
 import { api, type Wire } from "../lib/api";
 import { useI18n, t } from "../lib/i18n";
 import { useServer } from "../lib/server";
-import { Link } from "../lib/router";
+import { Link, seg } from "../lib/router";
 import { formatBytes, formatCount, formatDuration } from "../lib/util";
-import { IconPlus, IconSettings } from "../ui/Icon";
+import { IconChevron, IconPlus, IconSettings } from "../ui/Icon";
 
 import { CreateHubSheet, HubList } from "./Hubs";
 
@@ -84,6 +84,10 @@ export function Dashboard() {
   const totalUsers = Number(status?.NumUsers_u32) || 0;
   const rxTotal = (Number(status?.["Recv.UnicastBytes_u64"]) || 0) + (Number(status?.["Recv.BroadcastBytes_u64"]) || 0);
   const txTotal = (Number(status?.["Send.UnicastBytes_u64"]) || 0) + (Number(status?.["Send.BroadcastBytes_u64"]) || 0);
+  const sessionsUrl =
+    hubs && hubs.length === 1
+      ? `/hub/${seg(String(hubs[0].HubName_str))}/sessions`
+      : "/connections";
 
   return (
     <div className="dash-view space-y-6">
@@ -109,17 +113,23 @@ export function Dashboard() {
 
       {/* ── 2. Stat KPI Cards ─────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="stat-card">
-          <div className="stat-card__l">{t("Active sessions")}</div>
+        <Link to={sessionsUrl} className="stat-card stat-card--clickable">
+          <div className="stat-card__l flex items-center justify-between">
+            <span>{t("Active sessions")}</span>
+            <IconChevron size={12} className="stat-card__chevron" />
+          </div>
           <div className="stat-card__v">{formatCount(activeSessions)}</div>
           <div className="stat-card__s">{t("Across all {count} hubs", { count: hubs?.length ?? 1 })}</div>
-        </div>
+        </Link>
 
-        <div className="stat-card">
-          <div className="stat-card__l">{t("Configured users")}</div>
+        <Link to="/users" className="stat-card stat-card--clickable">
+          <div className="stat-card__l flex items-center justify-between">
+            <span>{t("Configured users")}</span>
+            <IconChevron size={12} className="stat-card__chevron" />
+          </div>
           <div className="stat-card__v">{formatCount(totalUsers)}</div>
           <div className="stat-card__s">{t("Local passwords / certificates")}</div>
-        </div>
+        </Link>
 
         <div className="stat-card">
           <div className="stat-card__l">{t("Cumulative inbound (RX)")}</div>

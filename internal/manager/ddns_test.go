@@ -98,20 +98,21 @@ func TestDDNSSwitch(t *testing.T) {
 	if status != 200 || out["enabled"] != true || out["CurrentFqdn_str"] != "vpn-test.softether.net" {
 		t.Fatalf("enabled status: %d %v", status, out)
 	}
-	status, out, _ = call(t, a, "PUT", "/api/v1/server/ddns", M{"enabled": false, "confirm_restart": true}, token)
-	if status != 409 {
-		t.Fatalf("unsafe toggle should require maintenance: %d %v", status, out)
+	for _, enabled := range []bool{false, false, true} {
+		status, out, _ = call(t, a, "PUT", "/api/v1/server/ddns", M{"enabled": enabled, "confirm_restart": true}, token)
+		if status != 200 {
+			t.Fatalf("toggle: %d %v", status, out)
+		}
+		status, out, _ = call(t, a, "GET", "/api/v1/server/ddns", nil, token)
+		if status != 200 || out["enabled"] != enabled {
+			t.Fatalf("readback: %d %v", status, out)
+		}
 	}
 	mu.Lock()
-	if saves != 0 || config != ddnsTestConfig {
-		t.Fatalf("configuration changed: %d %q", saves, config)
+	if saves != 2 || config != ddnsTestConfig {
+		t.Fatalf("unexpected writes=%d or unrelated configuration changed: %q", saves, config)
 	}
-	config = strings.Replace(ddnsTestConfig, "Disabled false", "Disabled true", 1)
 	mu.Unlock()
-	status, out, _ = call(t, a, "GET", "/api/v1/server/ddns", nil, token)
-	if status != 200 || out["enabled"] != false {
-		t.Fatalf("disabled status: %d %v", status, out)
-	}
 	for _, body := range []M{{"enabled": false}, {"enabled": "false", "confirm_restart": true}, {"confirm_restart": true}} {
 		status, _, _ = call(t, a, "PUT", "/api/v1/server/ddns", body, token)
 		if status != 422 {
@@ -150,12 +151,12 @@ func TestDDNSSwitch(t *testing.T) {
 	config = "invalid config"
 	mu.Unlock()
 	status, _, _ = call(t, a, "PUT", "/api/v1/server/ddns", M{"enabled": false, "confirm_restart": true}, token)
-	if status != 409 {
-		t.Fatalf("unexpected toggle result: %d", status)
+	if status != 502 {
+		t.Fatalf("invalid config accepted: %d", status)
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if saves != 0 {
+	if saves != 2 {
 		t.Fatalf("unsafe request wrote the configuration: %d", saves)
 	}
 }

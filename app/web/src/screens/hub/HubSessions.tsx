@@ -463,9 +463,9 @@ export function SessionSheet({ hub,
                       <div className="micro">{t("half connection")}</div>
                       <div className="mono" style={{ fontSize: "var(--t-data)" }}>{detail.HalfConnection_bool ? t("yes") : t("no")}</div>
                     </div>
-                    <div>
+                    <div style={{ gridColumn: "1 / -1" }}>
                       <div className="micro">{t("Client software")}</div>
-                      <div className="mono truncate" title={clientInfo.app} style={{ fontSize: "var(--t-data)" }}>
+                      <div className="mono" title={clientInfo.app} style={{ fontSize: "var(--t-data)", wordBreak: "break-word", lineHeight: 1.4 }}>
                         {clientInfo.app}
                       </div>
                     </div>

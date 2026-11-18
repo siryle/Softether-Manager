@@ -426,6 +426,7 @@
   font-size: var(--t-small);
   font-weight: 700;
   color: var(--text-2);
+  white-space: nowrap;
   transition:
     color var(--d-fast) ease,
     background-color var(--d-quick) var(--ease-out-quart),
@@ -1271,6 +1272,37 @@
   border-radius: var(--r-card);
   background: var(--bg-card);
   border: 1px solid var(--border-hairline);
+}
+.stat-card--clickable {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  transition:
+    border-color var(--d-fast) ease,
+    background var(--d-fast) ease,
+    box-shadow var(--d-fast) ease,
+    transform var(--d-press) var(--ease-out-quart);
+}
+.stat-card__chevron {
+  opacity: 0.35;
+  transition: opacity var(--d-fast) ease, transform var(--d-fast) ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .stat-card--clickable:hover {
+    border-color: var(--accent-line);
+    background: var(--glass-hi);
+  }
+  .stat-card--clickable:hover .stat-card__v {
+    color: var(--accent);
+  }
+  .stat-card--clickable:hover .stat-card__chevron {
+    opacity: 0.9;
+    transform: translateX(2px);
+  }
+}
+.stat-card--clickable:active {
+  transform: translateY(1px);
 }
 .stat-card__l {
   font-size: var(--t-micro);

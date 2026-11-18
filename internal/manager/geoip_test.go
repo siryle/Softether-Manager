@@ -83,3 +83,59 @@ func TestEnrichConnections(t *testing.T) {
 		t.Errorf("expected 局域网/内网, got %v", list[1]["IpLocation_str"])
 	}
 }
+
+func TestSanitizeISP(t *testing.T) {
+	for raw, expected := range map[string]string{
+		"No.31,Jin-rong Street": "中国电信",
+		"Financial Street":      "中国电信",
+		"CHINANET-JS":           "中国电信",
+		"China Unicom Henan":    "中国联通",
+		"China Mobile 5G":       "中国移动",
+		"Tietong Telecom":       "中国铁通",
+		"CERNET Backbone":       "中国教育网",
+		"Normal ISP":            "Normal ISP",
+	} {
+		if got := sanitizeISP(raw, ""); got != expected {
+			t.Errorf("expected %s for %s, got %s", expected, raw, got)
+		}
+	}
+}
+
+func TestClearIPGeoCache(t *testing.T) {
+	a := testApp(t)
+	execute(a.db, `INSERT INTO IPGeoCache(IP, Location, UpdatedDate) VALUES(?, ?, ?)`, "1.2.3.4", "Test Loc", now())
+	if n := a.clearIPGeoCache(); n != 1 {
+		t.Errorf("expected 1 row deleted, got %d", n)
+	}
+	if row := one(a.db, `SELECT COUNT(*) n FROM IPGeoCache`); integer(row["n"]) != 0 {
+		t.Errorf("expected 0 rows in cache, got %v", row["n"])
+	}
+}
+
+func TestIP2RegionOfflineLookup(t *testing.T) {
+	a := testApp(t)
+	// Try loading root or local ip2region_v4.xdb if available
+	candidates := []string{"../../ip2region_v4.xdb", "../../../ip2region_v4.xdb", "ip2region_v4.xdb"}
+	for _, p := range candidates {
+		if a.loadXDB(p) {
+			break
+		}
+	}
+	if a.xdb == nil {
+		t.Skip("ip2region_v4.xdb not found on disk, skipping offline test")
+	}
+
+	info := a.lookupIP(context.Background(), "58.222.254.242")
+	if info.City != "泰州市" {
+		t.Errorf("expected 泰州市, got %s", info.City)
+	}
+	if info.Region != "江苏省" {
+		t.Errorf("expected 江苏省, got %s", info.Region)
+	}
+	if info.ISP != "中国电信" {
+		t.Errorf("expected 中国电信, got %s", info.ISP)
+	}
+	if info.Location != "江苏省 泰州市" {
+		t.Errorf("expected 江苏省 泰州市, got %s", info.Location)
+	}
+}

@@ -2,7 +2,7 @@
 
 import { t } from "../../lib/i18n";
 import { useCallback, useState } from "react";
-import { Empty, LoadingBlock, SectionTitle, usePoll } from "../../components/bits";
+import { Empty, LoadingBlock, RefreshButton, SectionTitle, usePoll } from "../../components/bits";
 import { api, type Wire } from "../../lib/api";
 import { useToast } from "../../lib/toast";
 import { timeAgo } from "../../lib/util";
@@ -18,28 +18,41 @@ export function HubTables({ hub }: { hub: string }) {
   const [tab, setTab] = useState<"mac" | "ip">("mac");
   const [mac, setMac] = useState<Wire[] | null>(null);
   const [ip, setIp] = useState<Wire[] | null>(null);
+  const [loading, setLoading] = useState(false);
   const { guard } = useToast();
 
-  const load = useCallback(async () => {
-    if (tab === "mac") {
-      const r = await api.macTable(hub).catch(() => null);
-      if (r) setMac((r.MacTable as Wire[]) ?? []);
-    } else {
-      const r = await api.ipTable(hub).catch(() => null);
-      if (r) setIp((r.IpTable as Wire[]) ?? []);
+  const load = useCallback(async (targetTab?: "mac" | "ip") => {
+    const currentTab = targetTab ?? tab;
+    setLoading(true);
+    try {
+      if (currentTab === "mac") {
+        const r = await api.macTable(hub).catch(() => null);
+        if (r) setMac((r.MacTable as Wire[]) ?? []);
+      } else {
+        const r = await api.ipTable(hub).catch(() => null);
+        if (r) setIp((r.IpTable as Wire[]) ?? []);
+      }
+    } finally {
+      setLoading(false);
     }
   }, [hub, tab]);
-  usePoll(load, "detail", [hub, tab]);
+
+  usePoll(() => load(tab), "detail", [hub, tab]);
+
+  const switchTab = (nextTab: "mac" | "ip") => {
+    setTab(nextTab);
+    void load(nextTab);
+  };
 
   const removeMac = (key: number) =>
     guard(async () => {
       await api.deleteMac(hub, key);
-      await load();
+      await load("mac");
     }, "MAC entry deleted.");
   const removeIp = (key: number) =>
     guard(async () => {
       await api.deleteIp(hub, key);
-      await load();
+      await load("ip");
     }, "IP entry deleted.");
 
   const rows = tab === "mac" ? mac : ip;
@@ -49,9 +62,24 @@ export function HubTables({ hub }: { hub: string }) {
       <SectionTitle
         count={rows?.length}
         actions={
-          <div className="seg">
-            <button className={tab === "mac" ? "on" : ""} onClick={() => setTab("mac")}>{t("MAC table")}</button>
-            <button className={tab === "ip" ? "on" : ""} onClick={() => setTab("ip")}>{t("IP table")}</button>
+          <div style={{ display: "flex", gap: "var(--s2)", alignItems: "center" }}>
+            <div className="seg">
+              <button
+                type="button"
+                className={tab === "mac" ? "on" : ""}
+                onClick={() => switchTab("mac")}
+              >
+                {t("MAC table")}
+              </button>
+              <button
+                type="button"
+                className={tab === "ip" ? "on" : ""}
+                onClick={() => switchTab("ip")}
+              >
+                {t("IP table")}
+              </button>
+            </div>
+            <RefreshButton onClick={() => void load(tab)} busy={loading} />
           </div>
         }
       >
@@ -65,10 +93,10 @@ export function HubTables({ hub }: { hub: string }) {
       ) : (
         <div className="card tcard">
           <div className="tscroll">
-            <table className="dtable">
+            <table className="dtable" key={tab}>
               <thead>
                 <tr>
-                  <th>{tab === "mac" ? "MAC address" : "IP address"}</th>
+                  <th>{tab === "mac" ? t("MAC address") : t("IP address")}</th>
                   {tab === "mac" && <th>{t("VLAN")}</th>}
                   {tab === "ip" && <th>{t("Source")}</th>}
                   <th>{t("Session")}</th>
@@ -79,8 +107,12 @@ export function HubTables({ hub }: { hub: string }) {
               </thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={String(r.Key_u32)}>
-                    <td className="tmono">{tab === "mac" ? formatMac(String(r.MacAddress_bin ?? "")) : String(r.IpAddress_ip)}</td>
+                  <tr key={`${tab}-${String(r.Key_u32)}`}>
+                    <td className="tmono">
+                      {tab === "mac"
+                        ? formatMac(String(r.MacAddress_bin ?? ""))
+                        : String(r.IpAddress_ip ?? "—")}
+                    </td>
                     {tab === "mac" && <td className="tmono">{Number(r.VlanId_u32) || "—"}</td>}
                     {tab === "ip" && <td>{r.DhcpAllocated_bool ? "DHCP" : "learned"}</td>}
                     <td className="tmono">

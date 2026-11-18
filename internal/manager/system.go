@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -76,6 +77,22 @@ func (a *App) registerSystem() {
 		sql += " ORDER BY AuditLogID DESC LIMIT ?"
 		args = append(args, queryInt(r, "limit", 100, 1, 500))
 		return query(a.db, sql, args...)
+	})
+	a.endpoint("GET /system/ip-geo/status", func(_ http.ResponseWriter, _ *http.Request, _ M) any {
+		a.geoMu.RLock()
+		hasXDB := a.xdb != nil
+		xdbPath := a.xdbPath
+		a.geoMu.RUnlock()
+		var count int64
+		if row := one(a.db, `SELECT COUNT(*) n FROM IPGeoCache`); row != nil {
+			count = integer(row["n"])
+		}
+		return M{"xdb_loaded": hasXDB, "xdb_path": xdbPath, "cached_count": count}
+	})
+	a.endpoint("POST /system/ip-geo/clear-cache", func(_ http.ResponseWriter, _ *http.Request, u M) any {
+		n := a.clearIPGeoCache()
+		a.audit(u, "ip_geo.cache_cleared", "system", "", fmt.Sprintf("cleared %d entries", n))
+		return M{"ok": true, "cleared": n}
 	})
 	a.endpoint("GET /system/domain", func(_ http.ResponseWriter, r *http.Request, _ M) any { return a.tls.status(r) })
 	a.endpoint("PUT /system/domain", func(w http.ResponseWriter, r *http.Request, u M) any {

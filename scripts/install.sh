@@ -830,6 +830,7 @@ chmod 0755 "$NEW_APP"
 install -m 0755 "$SOURCE_TREE/bin/softether-manager-linux-$MANAGER_ARCH" "$NEW_APP/softether-manager"
 mkdir -p "$NEW_APP/app/web" "$NEW_APP/scripts"
 cp -a "$SOURCE_TREE/app/web/out" "$NEW_APP/app/web/out"
+[[ -d "$SOURCE_TREE/data" ]] && cp -a "$SOURCE_TREE/data" "$NEW_APP/data"
 [[ -d "$SOURCE_TREE/scripts" ]] && cp -a "$SOURCE_TREE/scripts/." "$NEW_APP/scripts/"
 [[ -f "$SOURCE_TREE/VERSION" ]] && cp -a "$SOURCE_TREE/VERSION" "$NEW_APP/VERSION"
 [[ -f "$SOURCE_TREE/README.md" ]] && cp -a "$SOURCE_TREE/README.md" "$NEW_APP/README.md"
@@ -875,6 +876,9 @@ NEW_APP=""
 # created here so the service's first start writes into a directory that
 # already has the right owner and mode.
 install -d -m 0700 "$DATA_DIR"
+if [[ -f "$APP_DIR/data/ip2region.xdb" && ! -f "$DATA_DIR/ip2region.xdb" ]]; then
+  cp -a "$APP_DIR/data/ip2region.xdb" "$DATA_DIR/ip2region.xdb"
+fi
 
 # ---------------------------------------------------------------- environment
 #

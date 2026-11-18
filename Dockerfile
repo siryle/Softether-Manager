@@ -18,8 +18,9 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 
 FROM alpine:3.22
 RUN apk add --no-cache ca-certificates \
-    && mkdir -p /data \
-    && ln -s /usr/local/bin/softether-manager /usr/local/bin/sem
+    && mkdir -p /data /app/data \
+    && ln -s /usr/local/bin/softether-manager /usr/local/bin/sem \
+    && (wget -q --timeout=15 -O /app/data/ip2region.xdb https://cdn.jsdelivr.net/gh/lionsoul2014/ip2region@master/data/ip2region_v4.xdb || true)
 WORKDIR /app
 ENV SEM_APP_ROOT=/app \
     SEM_DATA_DIR=/data \

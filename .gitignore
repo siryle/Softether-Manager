@@ -52,5 +52,6 @@ node_modules/
 app/web/out/
 app/web/.next/
 *.db
+*.xdb
 /data/
 /dist/

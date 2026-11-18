@@ -64,8 +64,13 @@ printf '%s\n' "$VERSION" > "$TREE/VERSION"
 
 # Keep one release asset name so existing installers can migrate in place.
 # Both Linux architectures are included; the installer chooses its executable.
-mkdir -p "$TREE/app/web" "$TREE/bin"
+mkdir -p "$TREE/app/web" "$TREE/bin" "$TREE/data"
 cp -a "$ROOT/app/web/out" "$TREE/app/web/out"
+if [[ -f "$ROOT/data/ip2region.xdb" ]]; then
+  cp -a "$ROOT/data/ip2region.xdb" "$TREE/data/ip2region.xdb"
+elif [[ -f "$ROOT/ip2region_v4.xdb" ]]; then
+  cp -a "$ROOT/ip2region_v4.xdb" "$TREE/data/ip2region.xdb"
+fi
 for arch in amd64 arm64; do
   step "Building Go backend for linux/$arch"
   (cd "$ROOT" && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" \

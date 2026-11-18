@@ -86,15 +86,32 @@ func (a *App) registerDDNS() {
 		check(err)
 		return nil
 	})
-	a.endpoint("PUT /server/ddns", func(w http.ResponseWriter, r *http.Request, _ M) any {
+	a.endpoint("PUT /server/ddns", func(w http.ResponseWriter, r *http.Request, u M) any {
 		body := readBody(w, r)
-		_, ok := body["enabled"].(bool)
+		enabled, ok := body["enabled"].(bool)
 		if !ok || body["confirm_restart"] != true {
 			fail(422, "enabled must be a boolean and confirm_restart must be true.")
 		}
-		// SoftEther has no dedicated toggle. A GetConfig/SetConfig round trip
-		// can overwrite unrelated changes from other management clients.
-		fail(409, "Change DDNS during VPN server maintenance; the panel cannot safely rewrite the entire configuration.")
-		return nil
+		config := a.rpc(r.Context(), "GetConfig", nil)
+		raw, err := base64.StdEncoding.DecodeString(str(config["FileData_bin"]))
+		if err != nil {
+			fail(502, "SoftEther returned an invalid configuration buffer.")
+		}
+		start, end, disabled, err := ddnsConfigValue(string(raw))
+		if err != nil {
+			fail(502, err.Error())
+		}
+		if disabled == !enabled {
+			return M{"restarting": false}
+		}
+		value := "true"
+		if enabled {
+			value = "false"
+		}
+		updated := string(raw[:start]) + value + string(raw[end:])
+		// SetConfig saves the supplied configuration and restarts SoftEther itself.
+		a.rpc(r.Context(), "SetConfig", M{"FileData_bin": base64.StdEncoding.EncodeToString([]byte(updated))})
+		a.audit(u, "ddns.toggled", "server", "", fmt.Sprintf("enabled=%t; restart requested", enabled))
+		return M{"restarting": true}
 	})
 }

@@ -165,6 +165,7 @@ func (a *App) startWorkers(ctx context.Context) {
 	a.worker(ctx, 30*time.Second, func() time.Duration {
 		return time.Minute
 	}, a.backupTick)
+	a.startGeoWorker(ctx)
 }
 func bytesFor(m M, prefix string) (int64, int64) {
 	return integer(m[prefix+"Send.UnicastBytes_u64"]) + integer(m[prefix+"Send.BroadcastBytes_u64"]), integer(m[prefix+"Recv.UnicastBytes_u64"]) + integer(m[prefix+"Recv.BroadcastBytes_u64"])

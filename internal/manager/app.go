@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/lionsoul2014/ip2region/binding/golang/xdb"
 )
 
 type httpError struct {
@@ -142,6 +144,9 @@ type App struct {
 	updates                                  updateState
 	cancel                                   context.CancelFunc
 	workers                                  sync.WaitGroup
+	geoMu                                    sync.RWMutex
+	xdb                                      *xdb.Searcher
+	xdbPath                                  string
 }
 
 func New(cfg Config) (app *App, err error) {
@@ -186,6 +191,12 @@ func (a *App) Close() error {
 	}
 	a.workers.Wait()
 	a.tls.close()
+	a.geoMu.Lock()
+	if a.xdb != nil {
+		a.xdb.Close()
+		a.xdb = nil
+	}
+	a.geoMu.Unlock()
 	a.connectionMu.Lock()
 	for _, c := range a.rpcClients {
 		if c != nil {
