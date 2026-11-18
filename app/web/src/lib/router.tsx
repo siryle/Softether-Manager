@@ -12,6 +12,8 @@ import {
   createContext,
   useContext,
   useEffect,
+  useLayoutEffect,
+  useRef,
   useState,
   type MouseEvent,
   type ReactNode,
@@ -36,11 +38,40 @@ const RouteContext = createContext<Route>({ path: "/", parts: [] });
 
 export function RouterProvider({ children }: { children: ReactNode }) {
   const [route, setRoute] = useState<Route>(parse);
+  const prevPathRef = useRef(route.path);
+
   useEffect(() => {
     const onChange = () => setRoute(parse());
     window.addEventListener("hashchange", onChange);
     return () => window.removeEventListener("hashchange", onChange);
   }, []);
+
+  useLayoutEffect(() => {
+    const prevPath = prevPathRef.current;
+    if (prevPath === route.path) return;
+    prevPathRef.current = route.path;
+
+    const prevRoot = prevPath.split("/")[1] ?? "";
+    const nextRoot = route.parts[0] ?? "";
+    const hasDocSection = (nextRoot === "settings" || nextRoot === "server-settings") && Boolean(route.parts[1]);
+    if (hasDocSection && prevRoot === nextRoot) return;
+
+    const resetTop = () => {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    };
+    resetTop();
+
+    // Safari/WebKit can apply native hash-anchor scroll adjustments one frame after hashchange.
+    if (!hasDocSection) {
+      const frame = requestAnimationFrame(() => {
+        if (window.scrollY > 0 || document.documentElement.scrollTop > 0) resetTop();
+      });
+      return () => cancelAnimationFrame(frame);
+    }
+  }, [route]);
+
   return <RouteContext.Provider value={route}>{children}</RouteContext.Provider>;
 }
 

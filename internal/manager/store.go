@@ -272,6 +272,7 @@ func initSchema(db *sql.DB) error {
 		{"TrafficQuota", "ServerID", fmt.Sprintf("INTEGER NOT NULL DEFAULT %d", defaultID)},
 		{"TrafficQuota", "BaseSendBytes", `INTEGER NOT NULL DEFAULT 0`},
 		{"TrafficQuota", "BaseRecvBytes", `INTEGER NOT NULL DEFAULT 0`},
+		{"WireGuardPeer", "EncryptedPrivateKey", `TEXT NOT NULL DEFAULT ''`},
 		{"AuditLog", "ServerID", `INTEGER DEFAULT NULL`},
 	} {
 		cols, e := tableColumns(tx, migration.table)

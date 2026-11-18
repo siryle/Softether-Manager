@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ApiError, useServerApi, type Wire, type WireGuardPeer, type WireGuardState } from "../lib/api";
 import { useI18n } from "../lib/i18n";
+import { encodeQrCode, qrSvgPath } from "../lib/qrcode";
 import { useToast } from "../lib/toast";
 import { downloadText } from "../lib/util";
-import { IconCheck, IconCopy, IconWireGuardDownload } from "../ui/Icon";
+import { IconCheck, IconCopy, IconQrCode, IconRefresh, IconWireGuardDownload } from "../ui/Icon";
 import { Sheet } from "../ui/Sheet";
 import { ErrorAlert, Field } from "./bits";
 
@@ -162,6 +163,7 @@ export function WireGuardAddPeerSheet({
     client_private_key?: string;
     client_config: string;
   } | null>(null);
+  const [showCreatedQr, setShowCreatedQr] = useState(false);
 
   useEffect(() => {
     if (fixedUser || !hub) return;
@@ -225,10 +227,11 @@ export function WireGuardAddPeerSheet({
   };
 
   if (created) {
-    const filename = `wg-${created.peer.hub}-${created.peer.user}.conf`;
+    const filename = peerConfigFilename(created.peer);
+    const hasPlaceholder = hasPlaceholderPrivateKey(created.client_config);
     return (
       <Sheet
-        title={t("WireGuard client ready")}
+        title={showCreatedQr ? t("WireGuard configuration QR code") : t("WireGuard client ready")}
         subtitle={`${created.peer.user} · ${t("Hub")} ${created.peer.hub}`}
         onClose={onClose}
         wide
@@ -237,7 +240,16 @@ export function WireGuardAddPeerSheet({
             <CopyTextButton text={created.client_config} label="Copy config" />
             <button
               type="button"
+              className="btn"
+              disabled={hasPlaceholder}
+              onClick={() => setShowCreatedQr((v) => !v)}
+            >
+              <IconQrCode size={14} /> {showCreatedQr ? t("Back to details") : t("QR code")}
+            </button>
+            <button
+              type="button"
               className="btn btn--primary"
+              disabled={hasPlaceholder}
               onClick={() => downloadText(filename, created.client_config, "text/plain")}
             >
               <IconWireGuardDownload size={14} /> {t("Download .conf")}
@@ -248,45 +260,49 @@ export function WireGuardAddPeerSheet({
           </>
         }
       >
-        <div style={{ display: "grid", gap: "var(--s3)" }}>
-          {created.client_private_key ? (
-            <div className="alert alert--ok">
-              <div>
-                <div className="alert__t">{t("Save or download this configuration now")}</div>
-                <div>{t("The panel generated this keypair on the fly and does not store the client private key.")}</div>
+        {showCreatedQr ? (
+          <WireGuardQrPreview configText={created.client_config} peer={created.peer} state={state} />
+        ) : (
+          <div style={{ display: "grid", gap: "var(--s3)" }}>
+            {created.client_private_key ? (
+              <div className="alert alert--ok">
+                <div>
+                  <div className="alert__t">{t("Client configuration ready")}</div>
+                  <div>{t("The panel encrypted and saved this client private key so you can download .conf or scan its QR code anytime.")}</div>
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="alert">
-              <div>{t("Replace <CLIENT_PRIVATE_KEY> with the matching private key on the client device.")}</div>
-            </div>
-          )}
-          <Field label="Client public key" id={`${uid}-pub`}>
-            <div style={{ display: "flex", gap: "var(--s2)", alignItems: "center" }}>
-              <input id={`${uid}-pub`} className="input mono" value={created.peer.public_key} readOnly />
-              <CopyTextButton text={created.peer.public_key} ariaLabel="Copy client public key" />
-            </div>
-          </Field>
-          <Field label="WireGuard configuration (.conf)" id={`${uid}-conf`}>
-            <pre
-              id={`${uid}-conf`}
-              className="mono"
-              style={{
-                margin: 0,
-                padding: "var(--s3)",
-                borderRadius: "var(--r2)",
-                background: "var(--bg-sunk)",
-                border: "1px solid var(--border)",
-                fontSize: "var(--t-xs)",
-                overflowX: "auto",
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-all",
-              }}
-            >
-              {created.client_config}
-            </pre>
-          </Field>
-        </div>
+            ) : (
+              <div className="alert">
+                <div>{t("Replace <CLIENT_PRIVATE_KEY> with the matching private key on the client device.")}</div>
+              </div>
+            )}
+            <Field label="Client public key" id={`${uid}-pub`}>
+              <div style={{ display: "flex", gap: "var(--s2)", alignItems: "center" }}>
+                <input id={`${uid}-pub`} className="input mono" value={created.peer.public_key} readOnly />
+                <CopyTextButton text={created.peer.public_key} ariaLabel="Copy client public key" />
+              </div>
+            </Field>
+            <Field label="WireGuard configuration (.conf)" id={`${uid}-conf`}>
+              <pre
+                id={`${uid}-conf`}
+                className="mono"
+                style={{
+                  margin: 0,
+                  padding: "var(--s3)",
+                  borderRadius: "var(--r2)",
+                  background: "var(--bg-sunk)",
+                  border: "1px solid var(--border)",
+                  fontSize: "var(--t-xs)",
+                  overflowX: "auto",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-all",
+                }}
+              >
+                {created.client_config}
+              </pre>
+            </Field>
+          </div>
+        )}
       </Sheet>
     );
   }
@@ -482,24 +498,323 @@ export function WireGuardAddPeerSheet({
   );
 }
 
+export function peerConfigFilename(peer: Pick<WireGuardPeer, "hub" | "user" | "label">): string {
+  const labelSlug = peer.label ? `-${peer.label.trim().replace(/[^a-zA-Z0-9._-]+/g, "-")}` : "";
+  return `wg-${peer.hub}-${peer.user}${labelSlug}.conf`;
+}
+
+export function hasPlaceholderPrivateKey(config: string): boolean {
+  return config.includes("<CLIENT_PRIVATE_KEY>");
+}
+
+function WireGuardQrBox({ configText }: { configText: string }) {
+  const { t } = useI18n();
+  const encoded = useMemo(() => {
+    try {
+      const matrix = encodeQrCode(configText);
+      return { size: matrix.size + 8, path: qrSvgPath(matrix, 4), error: null as string | null };
+    } catch (err) {
+      return { size: 0, path: "", error: err instanceof Error ? err.message : String(err) };
+    }
+  }, [configText]);
+
+  if (encoded.error) {
+    return <ErrorAlert>{t(encoded.error)}</ErrorAlert>;
+  }
+
+  return (
+    <div style={{ display: "grid", justifyItems: "center", gap: "var(--s2)" }}>
+      <div
+        style={{
+          width: 248,
+          maxWidth: "100%",
+          padding: 12,
+          borderRadius: "var(--r-card)",
+          background: "#ffffff",
+          border: "1px solid var(--border-hairline)",
+          boxShadow: "var(--nm-raise-sm)",
+        }}
+      >
+        <svg
+          viewBox={`0 0 ${encoded.size} ${encoded.size}`}
+          role="img"
+          aria-label={t("WireGuard configuration QR code")}
+          style={{ display: "block", width: "100%", height: "auto", shapeRendering: "crispEdges" }}
+        >
+          <rect width={encoded.size} height={encoded.size} fill="#ffffff" />
+          <path d={encoded.path} fill="#0f172a" />
+        </svg>
+      </div>
+      <p className="hint" style={{ margin: 0, textAlign: "center" }}>
+        {t("Scan with the WireGuard app to import this tunnel.")}
+      </p>
+    </div>
+  );
+}
+
+function WireGuardQrPreview({
+  configText,
+  peer,
+  state,
+}: {
+  configText: string;
+  peer: WireGuardPeer;
+  state: WireGuardState;
+}) {
+  const { t } = useI18n();
+  const endpoint = `${state.default_endpoint_host || "YOUR_SERVER_IP"}:${state.default_udp_port || 51820}`;
+  return (
+    <div style={{ display: "grid", gap: "var(--s3)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "var(--s2)", flexWrap: "wrap" }}>
+        <span className="chip mono">{peer.label || t("WireGuard peer")}</span>
+        {peer.assigned_ip && <span className="chip chip--ok mono">{peer.assigned_ip}/32</span>}
+        <span className="chip mono">{endpoint}</span>
+      </div>
+      <WireGuardQrBox configText={configText} />
+    </div>
+  );
+}
+
+function WireGuardMissingKeyPanel({
+  peer,
+  privateKeyDraft,
+  onPrivateKeyChange,
+  busy,
+  onSaveKey,
+  onRotateKey,
+}: {
+  peer: WireGuardPeer;
+  privateKeyDraft: string;
+  onPrivateKeyChange: (v: string) => void;
+  busy: boolean;
+  onSaveKey: () => void;
+  onRotateKey: () => void;
+}) {
+  const { t } = useI18n();
+  const uid = useId();
+  return (
+    <div className="alert" style={{ display: "grid", gap: "var(--s2)" }}>
+      <div>
+        <div className="alert__t">{t("Client private key is not stored for this peer")}</div>
+        <div>
+          {t("Importing a .conf or QR code with <CLIENT_PRIVATE_KEY> will fail in WireGuard. Paste the matching private key to save it, or regenerate the keypair.")}
+        </div>
+      </div>
+      <Field label="Client private key" id={`${uid}-priv`}>
+        <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap" }}>
+          <input
+            id={`${uid}-priv`}
+            className="input mono"
+            style={{ flex: "1 1 240px", minWidth: 0 }}
+            type="password"
+            value={privateKeyDraft}
+            onChange={(e) => onPrivateKeyChange(e.target.value)}
+            placeholder={t("Paste matching 32-byte base64 private key")}
+            autoComplete="off"
+          />
+          <button
+            type="button"
+            className="btn btn--sm"
+            disabled={busy || !privateKeyDraft.trim()}
+            onClick={onSaveKey}
+          >
+            {t("Save private key")}
+          </button>
+          <button
+            type="button"
+            className="btn btn--sm btn--primary"
+            disabled={busy}
+            onClick={onRotateKey}
+            title={`${t("Public key")}: ${peer.public_key.slice(0, 12)}…`}
+          >
+            {busy ? <span className="spin" /> : <IconRefresh size={13} />}
+            {t("Regenerate keypair & restart")}
+          </button>
+        </div>
+      </Field>
+    </div>
+  );
+}
+
+export function WireGuardQrSheet({
+  state,
+  peer: initialPeer,
+  onClose,
+  onPeerUpdated,
+}: {
+  state: WireGuardState;
+  peer: WireGuardPeer;
+  onClose: () => void;
+  onPeerUpdated: (fresh?: WireGuardState) => void;
+}) {
+  const api = useServerApi();
+  const { t } = useI18n();
+  const { push } = useToast();
+
+  const [peer, setPeer] = useState<WireGuardPeer>(initialPeer);
+  const [configText, setConfigText] = useState("");
+  const [filename, setFilename] = useState(() => peerConfigFilename(initialPeer));
+  const [privateKeyDraft, setPrivateKeyDraft] = useState("");
+  const [busy, setBusy] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadConfig = async (targetPeer: WireGuardPeer, privOverride = "") => {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.wireguardClientConfig(targetPeer.hub, {
+        public_key: targetPeer.public_key,
+        assigned_ip: targetPeer.assigned_ip || "",
+        endpoint_host: state.default_endpoint_host || "",
+        endpoint_port: state.default_udp_port || 51820,
+        dns: "1.1.1.1",
+        allowed_ips: "0.0.0.0/0, ::/0",
+        persistent_keepalive: 21,
+        client_private_key: privOverride,
+        filename: peerConfigFilename(targetPeer),
+      });
+      setConfigText(r.config);
+      setFilename(r.filename || peerConfigFilename(targetPeer));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadConfig(initialPeer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPeer.public_key]);
+
+  const savePrivateKey = async () => {
+    const trimmed = privateKeyDraft.trim();
+    if (!trimmed) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await api.updateWireguardPeerMeta(peer.hub, {
+        public_key: peer.public_key,
+        label: peer.label || "",
+        assigned_ip: peer.assigned_ip || "",
+        client_private_key: trimmed,
+      });
+      setPeer(updated);
+      setPrivateKeyDraft("");
+      push("ok", t("Client private key saved."));
+      onPeerUpdated();
+      await loadConfig(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setBusy(false);
+    }
+  };
+
+  const rotateKeypair = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      let res: Awaited<ReturnType<typeof api.rotateWireguardPeer>> | null = null;
+      try {
+        res = await api.rotateWireguardPeer(peer.hub, {
+          public_key: peer.public_key,
+          confirm_restart: true,
+        });
+      } catch (err) {
+        if (!(err instanceof ApiError) || err.seError !== "TransportError") throw err;
+      }
+      push("ok", t("WireGuard keypair rotated. Waiting for server restart…"));
+      const fresh = await waitForWireGuardReady(api, (s) =>
+        res?.peer.public_key ? Boolean(s.peers?.some((p) => p.public_key === res?.peer.public_key)) : true,
+      ).catch(() => undefined);
+      const nextPeer =
+        res?.peer ??
+        fresh?.peers?.find(
+          (p) => p.hub === peer.hub && p.user.toLowerCase() === peer.user.toLowerCase() && (p.label || "") === (peer.label || ""),
+        ) ??
+        peer;
+      setPeer(nextPeer);
+      setPrivateKeyDraft("");
+      onPeerUpdated(fresh);
+      if (res?.client_config) {
+        setConfigText(res.client_config);
+        setFilename(peerConfigFilename(nextPeer));
+        setBusy(false);
+      } else {
+        await loadConfig(nextPeer);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setBusy(false);
+    }
+  };
+
+  const hasPlaceholder = !configText || hasPlaceholderPrivateKey(configText);
+
+  return (
+    <Sheet
+      title={t("WireGuard configuration QR code")}
+      subtitle={`${peer.user} · ${t("Hub")} ${peer.hub}`}
+      onClose={onClose}
+      footer={
+        <>
+          {!hasPlaceholder && <CopyTextButton text={configText} label="Copy config" />}
+          <button
+            type="button"
+            className="btn btn--primary"
+            disabled={busy || hasPlaceholder}
+            onClick={() => downloadText(filename, configText, "text/plain")}
+          >
+            <IconWireGuardDownload size={14} /> {t("Download .conf")}
+          </button>
+          <button type="button" className="btn" onClick={onClose}>
+            {t("Close")}
+          </button>
+        </>
+      }
+    >
+      <div style={{ display: "grid", gap: "var(--s3)" }}>
+        {error && <ErrorAlert>{error}</ErrorAlert>}
+        {busy && !configText ? (
+          <div style={{ padding: "var(--s6)", textAlign: "center" }} className="hint">
+            <span className="spin" /> {t("Loading…")}
+          </div>
+        ) : hasPlaceholder ? (
+          <WireGuardMissingKeyPanel
+            peer={peer}
+            privateKeyDraft={privateKeyDraft}
+            onPrivateKeyChange={setPrivateKeyDraft}
+            busy={busy}
+            onSaveKey={() => void savePrivateKey()}
+            onRotateKey={() => void rotateKeypair()}
+          />
+        ) : (
+          <WireGuardQrPreview configText={configText} peer={peer} state={state} />
+        )}
+      </div>
+    </Sheet>
+  );
+}
+
 export function WireGuardConfigSheet({
   state,
-  peer,
+  peer: initialPeer,
   onClose,
   onMetaSaved,
 }: {
   state: WireGuardState;
   peer: WireGuardPeer;
   onClose: () => void;
-  onMetaSaved: () => void;
+  onMetaSaved: (fresh?: WireGuardState) => void;
 }) {
   const api = useServerApi();
   const { t } = useI18n();
   const { push } = useToast();
   const uid = useId();
 
-  const [label, setLabel] = useState(peer.label || "");
-  const [assignedIp, setAssignedIp] = useState(peer.assigned_ip || "");
+  const [peer, setPeer] = useState<WireGuardPeer>(initialPeer);
+  const [label, setLabel] = useState(initialPeer.label || "");
+  const [assignedIp, setAssignedIp] = useState(initialPeer.assigned_ip || "");
   const [endpointHost, setEndpointHost] = useState(state.default_endpoint_host || "");
   const [endpointPort, setEndpointPort] = useState(String(state.default_udp_port || 51820));
   const [dns, setDns] = useState("1.1.1.1");
@@ -507,24 +822,25 @@ export function WireGuardConfigSheet({
   const [keepalive, setKeepalive] = useState("21");
   const [clientPriv, setClientPriv] = useState("");
   const [configText, setConfigText] = useState("");
-  const [filename, setFilename] = useState(`wg-${peer.hub}-${peer.user}.conf`);
+  const [filename, setFilename] = useState(() => peerConfigFilename(initialPeer));
+  const [showQr, setShowQr] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const renderConfig = async (overrideIp?: string) => {
+  const renderConfig = async (targetPeer: WireGuardPeer = peer, overrideIp?: string, clearPrivDraft = false) => {
     setBusy(true);
     setError(null);
     try {
-      const r = await api.wireguardClientConfig(peer.hub, {
-        public_key: peer.public_key,
+      const r = await api.wireguardClientConfig(targetPeer.hub, {
+        public_key: targetPeer.public_key,
         assigned_ip: (overrideIp ?? assignedIp).trim(),
         endpoint_host: endpointHost.trim(),
         endpoint_port: Number(endpointPort) || 51820,
         dns: dns.trim(),
         allowed_ips: allowedIps.trim(),
         persistent_keepalive: Number(keepalive) || 0,
-        client_private_key: clientPriv.trim(),
-        filename: `wg-${peer.hub}-${peer.user}.conf`,
+        client_private_key: clearPrivDraft ? "" : clientPriv.trim(),
+        filename: peerConfigFilename({ ...targetPeer, label: label.trim() }),
       });
       setConfigText(r.config);
       setFilename(r.filename);
@@ -537,11 +853,11 @@ export function WireGuardConfigSheet({
   };
 
   useEffect(() => {
-    void renderConfig();
+    void renderConfig(initialPeer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [peer.public_key]);
+  }, [initialPeer.public_key]);
 
-  const saveMeta = async () => {
+  const saveMeta = async (withPrivKey = false) => {
     setBusy(true);
     setError(null);
     try {
@@ -549,35 +865,85 @@ export function WireGuardConfigSheet({
         public_key: peer.public_key,
         label: label.trim(),
         assigned_ip: assignedIp.trim(),
+        ...(withPrivKey || clientPriv.trim() ? { client_private_key: clientPriv.trim() } : {}),
       });
-      push("ok", t("Peer metadata saved."));
+      setPeer(saved);
+      if (clientPriv.trim()) setClientPriv("");
+      push("ok", t(withPrivKey ? "Client private key saved." : "Peer metadata saved."));
       onMetaSaved();
-      await renderConfig(saved.assigned_ip);
+      await renderConfig(saved, saved.assigned_ip, true);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setBusy(false);
     }
   };
 
+  const rotateKeypair = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      let res: Awaited<ReturnType<typeof api.rotateWireguardPeer>> | null = null;
+      try {
+        res = await api.rotateWireguardPeer(peer.hub, {
+          public_key: peer.public_key,
+          confirm_restart: true,
+        });
+      } catch (err) {
+        if (!(err instanceof ApiError) || err.seError !== "TransportError") throw err;
+      }
+      push("ok", t("WireGuard keypair rotated. Waiting for server restart…"));
+      const fresh = await waitForWireGuardReady(api, (s) =>
+        res?.peer.public_key ? Boolean(s.peers?.some((p) => p.public_key === res?.peer.public_key)) : true,
+      ).catch(() => undefined);
+      const nextPeer =
+        res?.peer ??
+        fresh?.peers?.find(
+          (p) => p.hub === peer.hub && p.user.toLowerCase() === peer.user.toLowerCase() && (p.label || "") === (peer.label || ""),
+        ) ??
+        peer;
+      setPeer(nextPeer);
+      setClientPriv("");
+      onMetaSaved(fresh);
+      await renderConfig(nextPeer, nextPeer.assigned_ip || assignedIp, true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setBusy(false);
+    }
+  };
+
+  const hasPlaceholder = !configText || hasPlaceholderPrivateKey(configText);
+
   return (
     <Sheet
-      title={t("WireGuard peer configuration")}
+      title={showQr ? t("WireGuard configuration QR code") : t("WireGuard peer configuration")}
       subtitle={`${peer.user} · ${t("Hub")} ${peer.hub}`}
       onClose={onClose}
       wide
       footer={
         <>
-          <button type="button" className="btn" onClick={() => void saveMeta()} disabled={busy}>
-            {t("Save label / IP")}
+          {!showQr && (
+            <>
+              <button type="button" className="btn" onClick={() => void saveMeta(false)} disabled={busy}>
+                {t("Save label / IP")}
+              </button>
+              <button type="button" className="btn" onClick={() => void renderConfig()} disabled={busy}>
+                {t("Refresh preview")}
+              </button>
+            </>
+          )}
+          {configText && !hasPlaceholder && <CopyTextButton text={configText} label="Copy config" />}
+          <button
+            type="button"
+            className="btn"
+            disabled={busy || hasPlaceholder}
+            onClick={() => setShowQr((v) => !v)}
+          >
+            <IconQrCode size={14} /> {showQr ? t("Back to editor") : t("QR code")}
           </button>
-          <button type="button" className="btn" onClick={() => void renderConfig()} disabled={busy}>
-            {t("Refresh preview")}
-          </button>
-          {configText && <CopyTextButton text={configText} label="Copy config" />}
           <button
             type="button"
             className="btn btn--primary"
-            disabled={!configText}
+            disabled={busy || hasPlaceholder}
             onClick={() => downloadText(filename, configText, "text/plain")}
           >
             <IconWireGuardDownload size={14} /> {t("Download .conf")}
@@ -585,97 +951,119 @@ export function WireGuardConfigSheet({
         </>
       }
     >
-      <div style={{ display: "grid", gap: "var(--s2)" }}>
-        {error && <ErrorAlert>{error}</ErrorAlert>}
-        <Field label="Client public key" id={`${uid}-pub`}>
-          <div style={{ display: "flex", gap: "var(--s2)", alignItems: "center" }}>
-            <input id={`${uid}-pub`} className="input mono" value={peer.public_key} readOnly />
-            <CopyTextButton text={peer.public_key} ariaLabel="Copy client public key" />
+      {showQr ? (
+        <WireGuardQrPreview configText={configText} peer={peer} state={state} />
+      ) : (
+        <div style={{ display: "grid", gap: "var(--s2)" }}>
+          {error && <ErrorAlert>{error}</ErrorAlert>}
+          {configText && hasPlaceholder && (
+            <WireGuardMissingKeyPanel
+              peer={peer}
+              privateKeyDraft={clientPriv}
+              onPrivateKeyChange={setClientPriv}
+              busy={busy}
+              onSaveKey={() => void saveMeta(true)}
+              onRotateKey={() => void rotateKeypair()}
+            />
+          )}
+          <Field label="Client public key" id={`${uid}-pub`}>
+            <div style={{ display: "flex", gap: "var(--s2)", alignItems: "center" }}>
+              <input id={`${uid}-pub`} className="input mono" value={peer.public_key} readOnly />
+              <CopyTextButton text={peer.public_key} ariaLabel="Copy client public key" />
+            </div>
+          </Field>
+          <div className="row2">
+            <Field label="Device label" id={`${uid}-label`}>
+              <input id={`${uid}-label`} className="input" value={label} onChange={(e) => setLabel(e.target.value)} />
+            </Field>
+            <Field label="Tunnel IPv4" id={`${uid}-ip`}>
+              <input
+                id={`${uid}-ip`}
+                className="input mono"
+                value={assignedIp}
+                onChange={(e) => setAssignedIp(e.target.value)}
+                inputMode="decimal"
+                spellCheck={false}
+              />
+            </Field>
           </div>
-        </Field>
-        <div className="row2">
-          <Field label="Device label" id={`${uid}-label`}>
-            <input id={`${uid}-label`} className="input" value={label} onChange={(e) => setLabel(e.target.value)} />
-          </Field>
-          <Field label="Tunnel IPv4" id={`${uid}-ip`}>
-            <input
-              id={`${uid}-ip`}
-              className="input mono"
-              value={assignedIp}
-              onChange={(e) => setAssignedIp(e.target.value)}
-              inputMode="decimal"
-              spellCheck={false}
-            />
-          </Field>
-        </div>
-        <div className="row2">
-          <Field label="Endpoint host" id={`${uid}-host`}>
-            <input
-              id={`${uid}-host`}
-              className="input mono"
-              value={endpointHost}
-              onChange={(e) => setEndpointHost(e.target.value)}
-              spellCheck={false}
-              autoCapitalize="none"
-            />
-          </Field>
-          <Field label="Endpoint UDP port" id={`${uid}-port`}>
-            <input
-              id={`${uid}-port`}
-              className="input mono"
-              type="text"
-              inputMode="numeric"
-              value={endpointPort}
-              onChange={(e) => setEndpointPort(e.target.value)}
-            />
-          </Field>
-        </div>
-        <div className="row2">
-          <Field label="DNS" id={`${uid}-dns`}>
-            <input id={`${uid}-dns`} className="input mono" value={dns} onChange={(e) => setDns(e.target.value)} spellCheck={false} />
-          </Field>
-          <Field label="AllowedIPs" id={`${uid}-allowed`}>
-            <input id={`${uid}-allowed`} className="input mono" value={allowedIps} onChange={(e) => setAllowedIps(e.target.value)} spellCheck={false} />
-          </Field>
-        </div>
-        <div className="row2">
-          <Field label="PersistentKeepalive (s)" id={`${uid}-keep`}>
-            <input id={`${uid}-keep`} className="input mono" type="text" inputMode="numeric" value={keepalive} onChange={(e) => setKeepalive(e.target.value)} />
-          </Field>
-          <Field label="Client private key (optional, never saved)" id={`${uid}-priv`}>
-            <input
+          <div className="row2">
+            <Field label="Endpoint host" id={`${uid}-host`}>
+              <input
+                id={`${uid}-host`}
+                className="input mono"
+                value={endpointHost}
+                onChange={(e) => setEndpointHost(e.target.value)}
+                spellCheck={false}
+                autoCapitalize="none"
+              />
+            </Field>
+            <Field label="Endpoint UDP port" id={`${uid}-port`}>
+              <input
+                id={`${uid}-port`}
+                className="input mono"
+                type="text"
+                inputMode="numeric"
+                value={endpointPort}
+                onChange={(e) => setEndpointPort(e.target.value)}
+              />
+            </Field>
+          </div>
+          <div className="row2">
+            <Field label="DNS" id={`${uid}-dns`}>
+              <input id={`${uid}-dns`} className="input mono" value={dns} onChange={(e) => setDns(e.target.value)} spellCheck={false} />
+            </Field>
+            <Field label="AllowedIPs" id={`${uid}-allowed`}>
+              <input id={`${uid}-allowed`} className="input mono" value={allowedIps} onChange={(e) => setAllowedIps(e.target.value)} spellCheck={false} />
+            </Field>
+          </div>
+          <div className="row2">
+            <Field label="PersistentKeepalive (s)" id={`${uid}-keep`}>
+              <input id={`${uid}-keep`} className="input mono" type="text" inputMode="numeric" value={keepalive} onChange={(e) => setKeepalive(e.target.value)} />
+            </Field>
+            <Field
+              label="Client private key (saved encrypted)"
               id={`${uid}-priv`}
-              className="input mono"
-              type="password"
-              value={clientPriv}
-              onChange={(e) => setClientPriv(e.target.value)}
-              placeholder="<CLIENT_PRIVATE_KEY>"
-              autoComplete="off"
-            />
-          </Field>
-        </div>
-        {configText && (
-          <Field label="WireGuard configuration (.conf)" id={`${uid}-conf`}>
-            <pre
-              id={`${uid}-conf`}
-              className="mono"
-              style={{
-                margin: 0,
-                padding: "var(--s3)",
-                borderRadius: "var(--r2)",
-                background: "var(--bg-sunk)",
-                border: "1px solid var(--border)",
-                fontSize: "var(--t-xs)",
-                overflowX: "auto",
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-all",
-              }}
+              hint={
+                peer.has_private_key
+                  ? "Leave blank to use the encrypted key stored in the panel."
+                  : "Optional: enter the matching private key to include and save it."
+              }
             >
-              {configText}
-            </pre>
-          </Field>
-        )}
-      </div>
+              <input
+                id={`${uid}-priv`}
+                className="input mono"
+                type="password"
+                value={clientPriv}
+                onChange={(e) => setClientPriv(e.target.value)}
+                placeholder={peer.has_private_key ? t("Stored encrypted in panel") : "<CLIENT_PRIVATE_KEY>"}
+                autoComplete="off"
+              />
+            </Field>
+          </div>
+          {configText && (
+            <Field label="WireGuard configuration (.conf)" id={`${uid}-conf`}>
+              <pre
+                id={`${uid}-conf`}
+                className="mono"
+                style={{
+                  margin: 0,
+                  padding: "var(--s3)",
+                  borderRadius: "var(--r2)",
+                  background: "var(--bg-sunk)",
+                  border: "1px solid var(--border)",
+                  fontSize: "var(--t-xs)",
+                  overflowX: "auto",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-all",
+                }}
+              >
+                {configText}
+              </pre>
+            </Field>
+          )}
+        </div>
+      )}
     </Sheet>
   );
 }
@@ -701,8 +1089,7 @@ export async function downloadWireGuardPeerConfig(
   state: WireGuardState,
   peer: WireGuardPeer,
 ) {
-  const labelSlug = peer.label ? `-${peer.label.trim().replace(/[^a-zA-Z0-9._-]+/g, "-")}` : "";
-  const filename = `wg-${peer.hub}-${peer.user}${labelSlug}.conf`;
+  const filename = peerConfigFilename(peer);
   const res = await api.wireguardClientConfig(peer.hub, {
     public_key: peer.public_key,
     assigned_ip: peer.assigned_ip || "",
@@ -721,19 +1108,35 @@ export function WireGuardDownloadChooserSheet({
   hub,
   user,
   peers,
+  mode = "download",
   onClose,
+  onPeerUpdated,
 }: {
   state: WireGuardState;
   hub: string;
   user: string;
   peers: WireGuardPeer[];
+  mode?: "download" | "qr";
   onClose: () => void;
+  onPeerUpdated?: (fresh?: WireGuardState) => void;
 }) {
   const api = useServerApi();
   const { t } = useI18n();
   const { guard } = useToast();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [editingPeer, setEditingPeer] = useState<WireGuardPeer | null>(null);
+  const [qrPeer, setQrPeer] = useState<WireGuardPeer | null>(null);
+
+  if (qrPeer) {
+    return (
+      <WireGuardQrSheet
+        state={state}
+        peer={qrPeer}
+        onClose={() => setQrPeer(null)}
+        onPeerUpdated={(fresh) => onPeerUpdated?.(fresh)}
+      />
+    );
+  }
 
   if (editingPeer) {
     return (
@@ -741,12 +1144,16 @@ export function WireGuardDownloadChooserSheet({
         state={state}
         peer={editingPeer}
         onClose={() => setEditingPeer(null)}
-        onMetaSaved={() => {}}
+        onMetaSaved={(fresh) => onPeerUpdated?.(fresh)}
       />
     );
   }
 
   const downloadPeer = async (peer: WireGuardPeer) => {
+    if (peer.has_private_key === false) {
+      setEditingPeer(peer);
+      return;
+    }
     setBusyKey(peer.public_key);
     const ok = await guard(
       () => downloadWireGuardPeerConfig(api, state, peer),
@@ -758,14 +1165,18 @@ export function WireGuardDownloadChooserSheet({
 
   return (
     <Sheet
-      title={t("Download WireGuard .conf")}
+      title={mode === "qr" ? t("WireGuard configuration QR code") : t("Download WireGuard .conf")}
       subtitle={`${user} · ${t("Hub")} ${hub}`}
       onClose={onClose}
       footer={<button type="button" className="btn" onClick={onClose}>{t("Close")}</button>}
     >
       <div style={{ display: "grid", gap: "var(--s2)" }}>
         <p className="hint" style={{ margin: 0 }}>
-          {t("Select a WireGuard client device below to download its .conf file.")}
+          {t(
+            mode === "qr"
+              ? "Select a WireGuard client device below to view its QR code."
+              : "Select a WireGuard client device below to download its .conf file.",
+          )}
         </p>
         <div style={{ display: "grid", gap: "var(--s2)" }}>
           {peers.map((peer) => {
@@ -792,7 +1203,7 @@ export function WireGuardDownloadChooserSheet({
                     {peer.public_key.slice(0, 20)}…
                   </div>
                 </div>
-                <div style={{ display: "inline-flex", alignItems: "center", gap: "var(--s1)", flexShrink: 0 }}>
+                <div style={{ display: "inline-flex", alignItems: "center", gap: "var(--s1)", flexShrink: 0, flexWrap: "wrap" }}>
                   <button
                     type="button"
                     className="btn btn--sm"
@@ -803,7 +1214,16 @@ export function WireGuardDownloadChooserSheet({
                   </button>
                   <button
                     type="button"
-                    className="btn btn--sm btn--primary"
+                    className={mode === "qr" ? "btn btn--sm btn--primary" : "btn btn--sm"}
+                    onClick={() => setQrPeer(peer)}
+                    disabled={busyKey !== null}
+                  >
+                    <IconQrCode size={14} />
+                    {t("QR code")}
+                  </button>
+                  <button
+                    type="button"
+                    className={mode === "qr" ? "btn btn--sm" : "btn btn--sm btn--primary"}
                     onClick={() => void downloadPeer(peer)}
                     disabled={busyKey !== null}
                   >
@@ -817,5 +1237,55 @@ export function WireGuardDownloadChooserSheet({
         </div>
       </div>
     </Sheet>
+  );
+}
+
+export type WireGuardUserAction =
+  | { kind: "choose"; hub: string; name: string; peers: WireGuardPeer[]; mode: "download" | "qr" }
+  | { kind: "qr"; peer: WireGuardPeer }
+  | { kind: "edit"; peer: WireGuardPeer };
+
+export function WireGuardUserActionSheet({
+  state,
+  action,
+  onClose,
+  onPeerUpdated,
+}: {
+  state: WireGuardState;
+  action: WireGuardUserAction | null;
+  onClose: () => void;
+  onPeerUpdated: (fresh?: WireGuardState) => void;
+}) {
+  if (!action) return null;
+  if (action.kind === "qr") {
+    return (
+      <WireGuardQrSheet
+        state={state}
+        peer={action.peer}
+        onClose={onClose}
+        onPeerUpdated={onPeerUpdated}
+      />
+    );
+  }
+  if (action.kind === "edit") {
+    return (
+      <WireGuardConfigSheet
+        state={state}
+        peer={action.peer}
+        onClose={onClose}
+        onMetaSaved={onPeerUpdated}
+      />
+    );
+  }
+  return (
+    <WireGuardDownloadChooserSheet
+      state={state}
+      hub={action.hub}
+      user={action.name}
+      peers={action.peers}
+      mode={action.mode}
+      onClose={onClose}
+      onPeerUpdated={onPeerUpdated}
+    />
   );
 }

@@ -22,7 +22,8 @@ import {
 import { UserSheet } from "../components/UserSheet";
 import { VpnFileSheet } from "../components/VpnFileSheet";
 import {
-  WireGuardDownloadChooserSheet,
+  WireGuardUserActionSheet,
+  type WireGuardUserAction,
   downloadWireGuardPeerConfig,
   groupWireGuardPeers,
   wireguardPeerKey,
@@ -33,7 +34,7 @@ import { AUTH_TYPES, isNever, userBytes, userSortValue } from "../lib/se";
 import { formatBytes, formatCount, formatDate, timeAgo } from "../lib/util";
 import { useI18n, t } from "../lib/i18n";
 import { useToast } from "../lib/toast";
-import { IconChevron, IconPlus, IconVpnDownload, IconWireGuardDownload } from "../ui/Icon";
+import { IconChevron, IconPlus, IconQrCode, IconVpnDownload, IconWireGuardDownload } from "../ui/Icon";
 import { UserStatePill } from "./hub/HubUsers";
 
 /**
@@ -54,7 +55,7 @@ export function AllUsers() {
   const [creating, setCreating] = useState(false);
   const [createHub, setCreateHub] = useState("");
   const [vpnFor, setVpnFor] = useState<{ hub: string; name: string } | null>(null);
-  const [wgFor, setWgFor] = useState<{ hub: string; name: string; peers: WireGuardPeer[] } | null>(null);
+  const [wgAction, setWgAction] = useState<WireGuardUserAction | null>(null);
   const [downloadingWgKey, setDownloadingWgKey] = useState<string | null>(null);
   const quotas = useQuotaIndex([]);
   const { sort, toggle } = useSort();
@@ -86,10 +87,23 @@ export function AllUsers() {
   usePoll(loadWg, "list", []);
 
   const wgByUser = useMemo(() => groupWireGuardPeers(wg), [wg]);
+  const handleQrWg = (hub: string, user: string, peers: WireGuardPeer[]) => {
+    if (!wg || peers.length === 0) return;
+    if (peers.length > 1) {
+      setWgAction({ kind: "choose", hub, name: user, peers, mode: "qr" });
+      return;
+    }
+    setWgAction({ kind: "qr", peer: peers[0] });
+  };
+
   const handleDownloadWg = async (hub: string, user: string, peers: WireGuardPeer[]) => {
     if (!wg || peers.length === 0) return;
     if (peers.length > 1) {
-      setWgFor({ hub, name: user, peers });
+      setWgAction({ kind: "choose", hub, name: user, peers, mode: "download" });
+      return;
+    }
+    if (peers[0].has_private_key === false) {
+      setWgAction({ kind: "edit", peer: peers[0] });
       return;
     }
     const key = wireguardPeerKey(hub, user);
@@ -247,7 +261,7 @@ export function AllUsers() {
                       <SortTh sortKey="transfer" sort={sort} onSort={toggle}>{t("Transfer")}</SortTh>
                       <SortTh sortKey="quota" sort={sort} onSort={toggle}>{t("Limit")}</SortTh>
                       <SortTh sortKey="expires" sort={sort} onSort={toggle}>{t("Expires")}</SortTh>
-                      <th className="tact" style={{ width: 128 }} aria-label={t("Actions")} />
+                      <th className="tact" style={{ width: 148 }} aria-label={t("Actions")} />
                     </tr>
                   </thead>
                   <tbody>
@@ -276,19 +290,33 @@ export function AllUsers() {
                           <td className="tact">
                             <div style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                               {wgPeers.length > 0 && (
-                                <button
-                                  type="button"
-                                  className="btn btn--sm btn--ghost"
-                                  title={wgPeers.length > 1 ? t("Choose WireGuard .conf ({count})", { count: wgPeers.length }) : t("Download WireGuard .conf")}
-                                  aria-label={t("Download WireGuard .conf")}
-                                  disabled={downloadingWgKey === wgKey}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    void handleDownloadWg(hubName, userName, wgPeers);
-                                  }}
-                                >
-                                  {downloadingWgKey === wgKey ? <span className="spin" /> : <IconWireGuardDownload size={15} />}
-                                </button>
+                                <>
+                                  <button
+                                    type="button"
+                                    className="btn btn--sm btn--ghost"
+                                    title={t("WireGuard configuration QR code")}
+                                    aria-label={t("WireGuard configuration QR code")}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleQrWg(hubName, userName, wgPeers);
+                                    }}
+                                  >
+                                    <IconQrCode size={15} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn btn--sm btn--ghost"
+                                    title={wgPeers.length > 1 ? t("Choose WireGuard .conf ({count})", { count: wgPeers.length }) : t("Download WireGuard .conf")}
+                                    aria-label={t("Download WireGuard .conf")}
+                                    disabled={downloadingWgKey === wgKey}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void handleDownloadWg(hubName, userName, wgPeers);
+                                    }}
+                                  >
+                                    {downloadingWgKey === wgKey ? <span className="spin" /> : <IconWireGuardDownload size={15} />}
+                                  </button>
+                                </>
                               )}
                               <button
                                 type="button"
@@ -351,13 +379,15 @@ export function AllUsers() {
       )}
 
       {vpnFor && <VpnFileSheet hub={vpnFor.hub} name={vpnFor.name} onClose={() => setVpnFor(null)} />}
-      {wgFor && wg && (
-        <WireGuardDownloadChooserSheet
+      {wgAction && wg && (
+        <WireGuardUserActionSheet
           state={wg}
-          hub={wgFor.hub}
-          user={wgFor.name}
-          peers={wgFor.peers}
-          onClose={() => setWgFor(null)}
+          action={wgAction}
+          onClose={() => setWgAction(null)}
+          onPeerUpdated={(fresh) => {
+            if (fresh) setWg(fresh);
+            else void loadWg();
+          }}
         />
       )}
       {creating && createHub && (

@@ -174,6 +174,17 @@ export const IconWireGuardDownload = (p: P) => (
   </S>
 );
 
+/** QR code icon — three finder squares and data modules. */
+export const IconQrCode = (p: P) => (
+  <S {...p}>
+    <rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1" />
+    <rect x="14" y="3.5" width="6.5" height="6.5" rx="1" />
+    <rect x="3.5" y="14" width="6.5" height="6.5" rx="1" />
+    <path d="M6.75 6.75h.01M17.25 6.75h.01M6.75 17.25h.01" strokeWidth={2.2} />
+    <path d="M14 14h2.5v2.5M18 14h2.5M14 18.5h2M18.5 17.5v3h-3" />
+  </S>
+);
+
 export const IconSignOut = (p: P) => (
   <S {...p}>
     <path d="M10 4.5H4.5v15H10" />

@@ -590,6 +590,26 @@ func patchWireGuardDeletePeer(raw, publicKey string) (string, error) {
 	return applySEEdits(raw, []seEdit{{start: target.DeclStart, end: target.End, text: ""}})
 }
 
+func patchWireGuardReplacePeerKey(raw, oldPublicKey, newPublicKey, hub, user string) (string, error) {
+	doc, err := parseSEConfig(raw)
+	if err != nil {
+		return "", err
+	}
+	list := doc.Root.child("WireGuardKeyList")
+	if list == nil {
+		return "", httpError{404, "WireGuard peer key not found."}
+	}
+	target := list.child(oldPublicKey)
+	if target == nil {
+		return "", httpError{404, "WireGuard peer key not found."}
+	}
+	if list.child(newPublicKey) != nil {
+		return "", httpError{409, "This WireGuard public key is already registered."}
+	}
+	block := formatWGPeerBlock(doc.EOL, list.Depth+1, newPublicKey, hub, user)
+	return applySEEdits(raw, []seEdit{{start: target.DeclStart, end: target.End, text: block}})
+}
+
 func parseIPv4(s string) (net.IP, error) {
 	trimmed := strings.TrimSpace(s)
 	if idx := strings.IndexByte(trimmed, '/'); idx != -1 {
@@ -757,6 +777,11 @@ func buildWireGuardClientConfig(privateKey, address, dns, serverPub, presharedKe
 		addr += "/32"
 	}
 	endpointHost = cleanConfigLineField(endpointHost)
+	if strings.HasPrefix(endpointHost, "[") && strings.HasSuffix(endpointHost, "]") {
+		if inner := endpointHost[1 : len(endpointHost)-1]; net.ParseIP(inner) != nil {
+			endpointHost = inner
+		}
+	}
 	if endpointHost == "" {
 		endpointHost = "YOUR_SERVER_IP"
 	}
@@ -796,15 +821,26 @@ func buildWireGuardClientConfig(privateKey, address, dns, serverPub, presharedKe
 
 func (a *App) loadWireGuardMeta(serverID int64) map[string]M {
 	out := map[string]M{}
-	for _, row := range query(a.db, `SELECT PublicKey,HubName,UserName,Label,AssignedIP,CreatedDate,UpdatedDate FROM WireGuardPeer WHERE ServerID=?`, serverID) {
+	for _, row := range query(a.db, `SELECT PublicKey,HubName,UserName,Label,AssignedIP,EncryptedPrivateKey,CreatedDate,UpdatedDate FROM WireGuardPeer WHERE ServerID=?`, serverID) {
 		out[str(row["PublicKey"])] = row
 	}
 	return out
 }
 
-func (a *App) upsertWireGuardMeta(serverID int64, pubKey, hub, user, label, assignedIP string) {
+func (a *App) upsertWireGuardMeta(serverID int64, pubKey, hub, user, label, assignedIP, encPriv string) {
 	stamp := now()
-	execute(a.db, `INSERT INTO WireGuardPeer(ServerID,PublicKey,HubName,UserName,Label,AssignedIP,CreatedDate,UpdatedDate) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(ServerID,PublicKey) DO UPDATE SET HubName=excluded.HubName,UserName=excluded.UserName,Label=excluded.Label,AssignedIP=excluded.AssignedIP,UpdatedDate=excluded.UpdatedDate`, serverID, pubKey, hub, user, label, assignedIP, stamp, stamp)
+	execute(a.db, `INSERT INTO WireGuardPeer(ServerID,PublicKey,HubName,UserName,Label,AssignedIP,EncryptedPrivateKey,CreatedDate,UpdatedDate) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(ServerID,PublicKey) DO UPDATE SET HubName=excluded.HubName,UserName=excluded.UserName,Label=excluded.Label,AssignedIP=excluded.AssignedIP,EncryptedPrivateKey=CASE WHEN excluded.EncryptedPrivateKey!='' THEN excluded.EncryptedPrivateKey ELSE WireGuardPeer.EncryptedPrivateKey END,UpdatedDate=excluded.UpdatedDate`, serverID, pubKey, hub, user, label, assignedIP, encPriv, stamp, stamp)
+}
+
+func (a *App) decryptWireGuardPrivateKey(enc string) string {
+	if enc == "" {
+		return ""
+	}
+	plain, err := a.decrypt(enc)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(plain)
 }
 
 func (a *App) fetchRawConfig(ctx context.Context) string {
@@ -837,16 +873,18 @@ func (a *App) enrichWireGuardPeers(serverID int64, state *wgConfigState) []M {
 	peers := make([]M, 0, len(state.Peers))
 	for _, p := range state.Peers {
 		entry := M{
-			"public_key":  p.PublicKey,
-			"hub":         p.Hub,
-			"user":        p.User,
-			"label":       "",
-			"assigned_ip": "",
+			"public_key":      p.PublicKey,
+			"hub":             p.Hub,
+			"user":            p.User,
+			"label":           "",
+			"assigned_ip":     "",
+			"has_private_key": false,
 		}
 		if m, ok := meta[p.PublicKey]; ok {
 			entry["label"] = str(m["Label"])
 			entry["assigned_ip"] = str(m["AssignedIP"])
 			entry["created_date"] = str(m["CreatedDate"])
+			entry["has_private_key"] = a.decryptWireGuardPrivateKey(str(m["EncryptedPrivateKey"])) != ""
 		}
 		peers = append(peers, entry)
 	}
@@ -1062,53 +1100,34 @@ func (a *App) registerWireGuard() {
 		updated, err := patchWireGuardAddPeer(raw, pubKey, hub, username)
 		check(err)
 		restarting := a.pushWireGuardConfig(r.Context(), updated)
-		a.upsertWireGuardMeta(serverID, pubKey, hub, username, label, assignedIP)
+		encPriv := ""
+		if clientPriv != "" {
+			encPriv = a.encrypt(clientPriv)
+		}
+		a.upsertWireGuardMeta(serverID, pubKey, hub, username, label, assignedIP, encPriv)
 		a.audit(u, "wireguard.peer_added", "hub", hub, username)
 
 		conn := a.connection(r.Context())
-		endpointHost := strings.TrimSpace(str(body["endpoint_host"]))
-		if endpointHost == "" {
-			endpointHost = strings.TrimSpace(str(conn["public_host"]))
-		}
-		if endpointHost == "" {
-			endpointHost = str(conn["host"])
-		}
-		endpointPort := int(integer(body["endpoint_port"]))
-		if endpointPort <= 0 || endpointPort > 65535 {
-			endpointPort = a.wireguardPort(serverID, state)
-		}
-		dns := strings.TrimSpace(str(body["dns"]))
-		if dns == "" {
-			dns = defaultWireGuardDNS
-		}
-		allowedIPs := strings.TrimSpace(str(body["allowed_ips"]))
-		if allowedIPs == "" {
-			allowedIPs = defaultWireGuardAllowedIPs
-		}
-		keepalive := defaultWireGuardKeepalive
-		if _, hasKeepalive := body["persistent_keepalive"]; hasKeepalive {
-			keepalive = int(integer(body["persistent_keepalive"]))
-		}
-
 		configText := buildWireGuardClientConfig(
 			clientPriv,
 			assignedIP,
-			dns,
+			wgBodyDNS(body),
 			state.PublicKey,
 			state.PresharedKey,
-			endpointHost,
-			endpointPort,
-			allowedIPs,
-			keepalive,
+			wgBodyEndpointHost(body, conn),
+			wgBodyEndpointPort(body, a.wireguardPort(serverID, state)),
+			wgBodyAllowedIPs(body),
+			wgBodyKeepalive(body),
 		)
 		resp := M{
 			"restarting": restarting,
 			"peer": M{
-				"public_key":  pubKey,
-				"hub":         hub,
-				"user":        username,
-				"label":       label,
-				"assigned_ip": assignedIP,
+				"public_key":      pubKey,
+				"hub":             hub,
+				"user":            username,
+				"label":           label,
+				"assigned_ip":     assignedIP,
+				"has_private_key": encPriv != "",
 			},
 			"client_config": configText,
 		}
@@ -1150,6 +1169,87 @@ func (a *App) registerWireGuard() {
 		return M{"restarting": restarting}
 	})
 
+	a.endpoint("POST /hubs/{hub}/wireguard/peers/rotate", func(w http.ResponseWriter, r *http.Request, u M) any {
+		hub := r.PathValue("hub")
+		body := readBody(w, r)
+		if body["confirm_restart"] != true {
+			fail(422, "confirm_restart must be true.")
+		}
+		oldPubKey := strings.TrimSpace(str(body["public_key"]))
+		if oldPubKey == "" {
+			fail(422, "public_key is required.")
+		}
+
+		newPriv, newPub, err := wgGenerateKeypair()
+		check(err)
+
+		a.wgMu.Lock()
+		defer a.wgMu.Unlock()
+		raw := a.fetchRawConfig(r.Context())
+		state, err := parseWireGuardState(raw)
+		if err != nil {
+			fail(502, err.Error())
+		}
+		if !state.Supported {
+			fail(400, M{"message": "This SoftEther server does not expose WireGuard protocol settings.", "se_error": "UnsupportedError"})
+		}
+		var matched *wgPeerConfig
+		for i := range state.Peers {
+			if state.Peers[i].PublicKey == oldPubKey && state.Peers[i].Hub == hub {
+				matched = &state.Peers[i]
+				break
+			}
+		}
+		if matched == nil {
+			fail(404, "WireGuard peer key not found in this hub.")
+		}
+
+		updated, err := patchWireGuardReplacePeerKey(raw, oldPubKey, newPub, matched.Hub, matched.User)
+		check(err)
+		restarting := a.pushWireGuardConfig(r.Context(), updated)
+
+		serverID := a.serverIDFromContext(r.Context())
+		meta := a.loadWireGuardMeta(serverID)[oldPubKey]
+		label := str(meta["Label"])
+		assignedIP := str(meta["AssignedIP"])
+		createdDate := str(meta["CreatedDate"])
+		if createdDate == "" {
+			createdDate = now()
+		}
+		encPriv := a.encrypt(newPriv)
+		stamp := now()
+		execute(a.db, `DELETE FROM WireGuardPeer WHERE ServerID=? AND PublicKey=?`, serverID, oldPubKey)
+		execute(a.db, `INSERT INTO WireGuardPeer(ServerID,PublicKey,HubName,UserName,Label,AssignedIP,EncryptedPrivateKey,CreatedDate,UpdatedDate) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(ServerID,PublicKey) DO UPDATE SET HubName=excluded.HubName,UserName=excluded.UserName,Label=excluded.Label,AssignedIP=excluded.AssignedIP,EncryptedPrivateKey=excluded.EncryptedPrivateKey,UpdatedDate=excluded.UpdatedDate`, serverID, newPub, matched.Hub, matched.User, label, assignedIP, encPriv, createdDate, stamp)
+		a.audit(u, "wireguard.peer_key_rotated", "hub", hub, matched.User)
+
+		conn := a.connection(r.Context())
+		configText := buildWireGuardClientConfig(
+			newPriv,
+			assignedIP,
+			wgBodyDNS(body),
+			state.PublicKey,
+			state.PresharedKey,
+			wgBodyEndpointHost(body, conn),
+			wgBodyEndpointPort(body, a.wireguardPort(serverID, state)),
+			wgBodyAllowedIPs(body),
+			wgBodyKeepalive(body),
+		)
+		return M{
+			"restarting": restarting,
+			"peer": M{
+				"public_key":      newPub,
+				"hub":             matched.Hub,
+				"user":            matched.User,
+				"label":           label,
+				"assigned_ip":     assignedIP,
+				"created_date":    createdDate,
+				"has_private_key": true,
+			},
+			"client_private_key": newPriv,
+			"client_config":      configText,
+		}
+	})
+
 	a.endpoint("PUT /hubs/{hub}/wireguard/peers/meta", func(w http.ResponseWriter, r *http.Request, u M) any {
 		hub := r.PathValue("hub")
 		body := readBody(w, r)
@@ -1165,6 +1265,18 @@ func (a *App) registerWireGuard() {
 				fail(422, "Invalid assigned_ip.")
 			}
 			assignedIP = ip.String()
+		}
+		clientPriv := strings.TrimSpace(str(body["client_private_key"]))
+		encPriv := ""
+		if clientPriv != "" {
+			derivedPub, err := wgPublicKey(clientPriv)
+			if err != nil {
+				fail(422, err.Error())
+			}
+			if derivedPub != pubKey {
+				fail(422, "Client private key does not match this peer's public key.")
+			}
+			encPriv = a.encrypt(clientPriv)
 		}
 		raw := a.fetchRawConfig(r.Context())
 		state, err := parseWireGuardState(raw)
@@ -1182,14 +1294,21 @@ func (a *App) registerWireGuard() {
 			fail(404, "WireGuard peer key not found in this hub.")
 		}
 		serverID := a.serverIDFromContext(r.Context())
-		a.upsertWireGuardMeta(serverID, pubKey, matched.Hub, matched.User, label, assignedIP)
+		a.upsertWireGuardMeta(serverID, pubKey, matched.Hub, matched.User, label, assignedIP, encPriv)
+		hasKey := encPriv != ""
+		if !hasKey {
+			if m, ok := a.loadWireGuardMeta(serverID)[pubKey]; ok {
+				hasKey = a.decryptWireGuardPrivateKey(str(m["EncryptedPrivateKey"])) != ""
+			}
+		}
 		a.audit(u, "wireguard.peer_meta_updated", "hub", hub, matched.User)
 		return M{
-			"public_key":  pubKey,
-			"hub":         matched.Hub,
-			"user":        matched.User,
-			"label":       label,
-			"assigned_ip": assignedIP,
+			"public_key":      pubKey,
+			"hub":             matched.Hub,
+			"user":            matched.User,
+			"label":           label,
+			"assigned_ip":     assignedIP,
+			"has_private_key": hasKey,
 		}
 	})
 
@@ -1208,9 +1327,11 @@ func (a *App) registerWireGuard() {
 		pubKey := strings.TrimSpace(str(body["public_key"]))
 		assignedIP := strings.TrimSpace(str(body["assigned_ip"]))
 		serverID := a.serverIDFromContext(r.Context())
-		if assignedIP == "" && pubKey != "" {
-			if meta, ok := a.loadWireGuardMeta(serverID)[pubKey]; ok {
-				assignedIP = str(meta["AssignedIP"])
+		var peerMeta M
+		if pubKey != "" {
+			peerMeta = a.loadWireGuardMeta(serverID)[pubKey]
+			if assignedIP == "" && peerMeta != nil {
+				assignedIP = str(peerMeta["AssignedIP"])
 			}
 		}
 		if assignedIP == "" {
@@ -1226,42 +1347,30 @@ func (a *App) registerWireGuard() {
 			}
 		}
 
-		conn := a.connection(r.Context())
-		endpointHost := strings.TrimSpace(str(body["endpoint_host"]))
-		if endpointHost == "" {
-			endpointHost = strings.TrimSpace(str(conn["public_host"]))
-		}
-		if endpointHost == "" {
-			endpointHost = str(conn["host"])
-		}
-		endpointPort := int(integer(body["endpoint_port"]))
-		if endpointPort <= 0 || endpointPort > 65535 {
-			endpointPort = a.wireguardPort(serverID, state)
-		}
-		dns := strings.TrimSpace(str(body["dns"]))
-		if _, hasDNS := body["dns"]; !hasDNS {
-			dns = defaultWireGuardDNS
-		}
-		allowedIPs := strings.TrimSpace(str(body["allowed_ips"]))
-		if allowedIPs == "" {
-			allowedIPs = defaultWireGuardAllowedIPs
-		}
-		keepalive := defaultWireGuardKeepalive
-		if _, hasKeepalive := body["persistent_keepalive"]; hasKeepalive {
-			keepalive = int(integer(body["persistent_keepalive"]))
-		}
 		clientPriv := strings.TrimSpace(str(body["client_private_key"]))
+		if clientPriv != "" {
+			derivedPub, privErr := wgPublicKey(clientPriv)
+			if privErr != nil {
+				fail(422, privErr.Error())
+			}
+			if pubKey != "" && derivedPub != pubKey {
+				fail(422, "Client private key does not match this peer's public key.")
+			}
+		} else if peerMeta != nil {
+			clientPriv = a.decryptWireGuardPrivateKey(str(peerMeta["EncryptedPrivateKey"]))
+		}
 
+		conn := a.connection(r.Context())
 		configText := buildWireGuardClientConfig(
 			clientPriv,
 			assignedIP,
-			dns,
+			wgBodyDNS(body),
 			state.PublicKey,
 			state.PresharedKey,
-			endpointHost,
-			endpointPort,
-			allowedIPs,
-			keepalive,
+			wgBodyEndpointHost(body, conn),
+			wgBodyEndpointPort(body, a.wireguardPort(serverID, state)),
+			wgBodyAllowedIPs(body),
+			wgBodyKeepalive(body),
 		)
 		filename := strings.TrimSpace(str(body["filename"]))
 		if filename == "" {
@@ -1270,6 +1379,48 @@ func (a *App) registerWireGuard() {
 		if !strings.HasSuffix(strings.ToLower(filename), ".conf") {
 			filename += ".conf"
 		}
-		return M{"filename": filename, "config": configText, "assigned_ip": assignedIP}
+		return M{"filename": filename, "config": configText, "assigned_ip": assignedIP, "has_private_key": clientPriv != ""}
 	})
+}
+
+func wgBodyEndpointHost(body M, conn M) string {
+	host := strings.TrimSpace(str(body["endpoint_host"]))
+	if host == "" {
+		host = strings.TrimSpace(str(conn["public_host"]))
+	}
+	if host == "" {
+		host = str(conn["host"])
+	}
+	return host
+}
+
+func wgBodyEndpointPort(body M, fallback int) int {
+	p := int(integer(body["endpoint_port"]))
+	if p <= 0 || p > 65535 {
+		return fallback
+	}
+	return p
+}
+
+func wgBodyDNS(body M) string {
+	dns := strings.TrimSpace(str(body["dns"]))
+	if _, hasDNS := body["dns"]; !hasDNS {
+		return defaultWireGuardDNS
+	}
+	return dns
+}
+
+func wgBodyAllowedIPs(body M) string {
+	allowed := strings.TrimSpace(str(body["allowed_ips"]))
+	if allowed == "" {
+		return defaultWireGuardAllowedIPs
+	}
+	return allowed
+}
+
+func wgBodyKeepalive(body M) int {
+	if _, has := body["persistent_keepalive"]; has {
+		return int(integer(body["persistent_keepalive"]))
+	}
+	return defaultWireGuardKeepalive
 }

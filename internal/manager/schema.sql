@@ -127,15 +127,16 @@ CREATE TABLE IF NOT EXISTS "AuditLog" (
         "CreatedDate" TEXT    NOT NULL
     );
 CREATE TABLE IF NOT EXISTS "WireGuardPeer" (
-        "WireGuardPeerID" INTEGER PRIMARY KEY AUTOINCREMENT,
-        "ServerID"        INTEGER NOT NULL DEFAULT 1 REFERENCES "Server"("ServerID") ON DELETE CASCADE,
-        "PublicKey"       TEXT    NOT NULL,
-        "HubName"         TEXT    NOT NULL,
-        "UserName"        TEXT    NOT NULL,
-        "Label"           TEXT    NOT NULL DEFAULT '',
-        "AssignedIP"      TEXT    NOT NULL DEFAULT '',
-        "CreatedDate"     TEXT    NOT NULL,
-        "UpdatedDate"     TEXT    NOT NULL,
+        "WireGuardPeerID"     INTEGER PRIMARY KEY AUTOINCREMENT,
+        "ServerID"            INTEGER NOT NULL DEFAULT 1 REFERENCES "Server"("ServerID") ON DELETE CASCADE,
+        "PublicKey"           TEXT    NOT NULL,
+        "HubName"             TEXT    NOT NULL,
+        "UserName"            TEXT    NOT NULL,
+        "Label"               TEXT    NOT NULL DEFAULT '',
+        "AssignedIP"          TEXT    NOT NULL DEFAULT '',
+        "EncryptedPrivateKey" TEXT    NOT NULL DEFAULT '',
+        "CreatedDate"         TEXT    NOT NULL,
+        "UpdatedDate"         TEXT    NOT NULL,
         UNIQUE ("ServerID", "PublicKey")
     );
 CREATE INDEX IF NOT EXISTS "IX_UserTrafficSample_Key" ON "UserTrafficSample"("ServerID", "HubName", "UserName", "SampledDate");

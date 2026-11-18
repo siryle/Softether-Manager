@@ -74,6 +74,7 @@ export interface WireGuardPeer {
   label: string;
   assigned_ip: string;
   created_date?: string;
+  has_private_key?: boolean;
 }
 
 export interface WireGuardHubNetwork {
@@ -444,10 +445,18 @@ function apiMethods(request: typeof sendRequest) {
     ),
   deleteWireguardPeer: (hub: string, body: { public_key: string; confirm_restart: boolean }) =>
     request<{ restarting: boolean }>("POST", `/hubs/${encodeURIComponent(hub)}/wireguard/peers/delete`, body),
-  updateWireguardPeerMeta: (hub: string, body: { public_key: string; label: string; assigned_ip: string }) =>
-    request<WireGuardPeer>("PUT", `/hubs/${encodeURIComponent(hub)}/wireguard/peers/meta`, body),
+  rotateWireguardPeer: (hub: string, body: { public_key: string; confirm_restart: boolean }) =>
+    request<{ restarting: boolean; peer: WireGuardPeer; client_private_key: string; client_config: string }>(
+      "POST",
+      `/hubs/${encodeURIComponent(hub)}/wireguard/peers/rotate`,
+      body,
+    ),
+  updateWireguardPeerMeta: (
+    hub: string,
+    body: { public_key: string; label: string; assigned_ip: string; client_private_key?: string },
+  ) => request<WireGuardPeer>("PUT", `/hubs/${encodeURIComponent(hub)}/wireguard/peers/meta`, body),
   wireguardClientConfig: (hub: string, body: Wire) =>
-    request<{ filename: string; config: string; assigned_ip: string }>(
+    request<{ filename: string; config: string; assigned_ip: string; has_private_key?: boolean }>(
       "POST",
       `/hubs/${encodeURIComponent(hub)}/wireguard/config`,
       body,

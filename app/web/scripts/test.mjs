@@ -320,12 +320,13 @@ test("formatTcpConnections shows numeric count in compact list mode for UDP/L2TP
   assert.equal(formatTcpConnections({ Name_str: "SID-SEAN-[L2TP]-2", ActiveNatTcp_u32: 0 }, t, true), "UDP tunnel");
 });
 
-test("groupWireGuardPeers indexes peers per hub/user case-insensitively and ignores unsupported states", () => {
+test("groupWireGuardPeers and config helpers handle keys and filenames safely", () => {
   const placeholder = () => null;
   const stubs = new Proxy({}, { get: () => placeholder });
-  const { groupWireGuardPeers, wireguardPeerKey } = load("../src/components/WireGuardPeerSheet.tsx", {}, {
+  const { groupWireGuardPeers, wireguardPeerKey, peerConfigFilename, hasPlaceholderPrivateKey } = load("../src/components/WireGuardPeerSheet.tsx", {}, {
     "../lib/api": stubs,
     "../lib/i18n": { useI18n: () => ({ t: v => v }) },
+    "../lib/qrcode": stubs,
     "../lib/toast": { useToast: () => ({ guard: fn => fn(), push() {} }) },
     "../lib/util": stubs,
     "../ui/Icon": stubs,
@@ -344,4 +345,21 @@ test("groupWireGuardPeers indexes peers per hub/user case-insensitively and igno
   assert.equal(grouped.get(wireguardPeerKey("DEFAULT", "sean"))?.length, 2);
   assert.equal(grouped.get(wireguardPeerKey("OTHER", "ALICE"))?.length, 1);
   assert.equal(grouped.get(wireguardPeerKey("DEFAULT", "bob")), undefined);
+  assert.equal(peerConfigFilename({ hub: "DEFAULT", user: "sean", label: "My Mac" }), "wg-DEFAULT-sean-My-Mac.conf");
+  assert.equal(hasPlaceholderPrivateKey("[Interface]\nPrivateKey = <CLIENT_PRIVATE_KEY>\n"), true);
+  assert.equal(hasPlaceholderPrivateKey("[Interface]\nPrivateKey = abc=\n"), false);
+});
+
+test("encodeQrCode builds valid finder patterns and SVG paths for WireGuard configs", () => {
+  const { encodeQrCode, qrSvgPath } = load("../src/lib/qrcode.ts", { TextEncoder, Uint8Array });
+  const wgConf = "[Interface]\nPrivateKey = oN9z0iF8j9fJ1B5X3h4z8a5y6x9w0v1u2t3s4r5q6p8=\nAddress = 192.168.30.2/32\n\n[Peer]\nPublicKey = xwO6hiy1V2bu8cD7eF9gH0iJ1kL2mN3oP4qR5sT6uV8=\nEndpoint = vpn.example.com:51820\nAllowedIPs = 0.0.0.0/0, ::/0\n";
+  const m = encodeQrCode(wgConf);
+  assert.ok(m.version >= 7);
+  assert.equal(m.size, m.version * 4 + 17);
+  // Top-left finder corners and center must be dark, dark module at (size - 8, 8) must be dark.
+  assert.equal(m.modules[0], 1);
+  assert.equal(m.modules[3 * m.size + 3], 1);
+  assert.equal(m.modules[(m.size - 8) * m.size + 8], 1);
+  const path = qrSvgPath(m, 4);
+  assert.ok(path.startsWith("M4 4h"));
 });

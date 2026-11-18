@@ -17,7 +17,13 @@ import { QuotaEnforceSwitch, QuotaSummary, netBytes } from "../components/QuotaC
 import { RangeSeg, TrafficChart, useTrafficUsage } from "../components/TrafficChart";
 import { UserSheet } from "../components/UserSheet";
 import { VpnFileSheet } from "../components/VpnFileSheet";
-import { CopyTextButton, WireGuardAddPeerSheet, WireGuardConfigSheet, waitForWireGuardReady } from "../components/WireGuardPeerSheet";
+import {
+  CopyTextButton,
+  WireGuardAddPeerSheet,
+  WireGuardConfigSheet,
+  WireGuardQrSheet,
+  waitForWireGuardReady,
+} from "../components/WireGuardPeerSheet";
 import { ApiError, api, useServerApi, type Quota, type Usage, type Wire, type WireGuardPeer, type WireGuardState } from "../lib/api";
 import { Sheet } from "../ui/Sheet";
 import { Spark } from "../components/ResourceCards";
@@ -26,7 +32,7 @@ import { AUTH_TYPES, isNever, userBytes, SESSION_TYPE } from "../lib/se";
 import { useToast } from "../lib/toast";
 import { useI18n, t } from "../lib/i18n";
 import { formatBytes, formatCount, formatDate, formatDuration, formatIPLocation, hasIPLocation, timeAgo } from "../lib/util";
-import { IconPlus, IconTrash, IconVpnDownload, IconWireGuardDownload } from "../ui/Icon";
+import { IconPlus, IconQrCode, IconTrash, IconVpnDownload, IconWireGuardDownload } from "../ui/Icon";
 import { Pill } from "../ui/Status";
 import { UserStatePill } from "./hub/HubUsers";
 import { EndpointCell, SessionSheet, SessionsTable } from "./hub/HubSessions";
@@ -213,6 +219,7 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
   const [wg, setWg] = useState<WireGuardState | null>(null);
   const [addingWg, setAddingWg] = useState(false);
   const [editingWg, setEditingWg] = useState<WireGuardPeer | null>(null);
+  const [qrWg, setQrWg] = useState<WireGuardPeer | null>(null);
   const [deletingWg, setDeletingWg] = useState<WireGuardPeer | null>(null);
   const [hours, setHours] = useState(24);
   const [editing, setEditing] = useState(false);
@@ -422,6 +429,15 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
                             </td>
                             <td className="tact">
                               <div style={{ display: "inline-flex", alignItems: "center", gap: "var(--s1)", whiteSpace: "nowrap" }}>
+                                <button
+                                  type="button"
+                                  className="btn btn--sm"
+                                  onClick={() => setQrWg(peer)}
+                                  title={t("WireGuard configuration QR code")}
+                                  aria-label={t("WireGuard configuration QR code")}
+                                >
+                                  <IconQrCode size={14} /> {t("QR code")}
+                                </button>
                                 <button type="button" className="btn btn--sm" onClick={() => setEditingWg(peer)}>
                                   <IconWireGuardDownload size={14} /> {t(".conf")}
                                 </button>
@@ -649,7 +665,21 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
           state={wg}
           peer={editingWg}
           onClose={() => setEditingWg(null)}
-          onMetaSaved={() => void loadWg()}
+          onMetaSaved={(fresh) => {
+            if (fresh) setWg(fresh);
+            else void loadWg();
+          }}
+        />
+      )}
+      {qrWg && wg && (
+        <WireGuardQrSheet
+          state={wg}
+          peer={qrWg}
+          onClose={() => setQrWg(null)}
+          onPeerUpdated={(fresh) => {
+            if (fresh) setWg(fresh);
+            else void loadWg();
+          }}
         />
       )}
       {deletingWg && (

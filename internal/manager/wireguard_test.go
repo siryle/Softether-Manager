@@ -265,8 +265,9 @@ func TestWireGuardEndpoints(t *testing.T) {
 	}
 	peer := object(out["peer"])
 	pubKey := str(peer["public_key"])
-	if str(peer["assigned_ip"]) != "192.168.30.2" {
-		t.Fatalf("expected auto-assigned IP 192.168.30.2, got %v", peer)
+	clientPriv := str(out["client_private_key"])
+	if str(peer["assigned_ip"]) != "192.168.30.2" || peer["has_private_key"] != true {
+		t.Fatalf("expected auto-assigned IP 192.168.30.2 with has_private_key=true, got %v", peer)
 	}
 	conf := str(out["client_config"])
 	if !strings.Contains(conf, "Endpoint = vpn.example.com:51820") || !strings.Contains(conf, "Address = 192.168.30.2/32") || !strings.Contains(conf, "PresharedKey = ") {
@@ -283,16 +284,50 @@ func TestWireGuardEndpoints(t *testing.T) {
 		"label":       "Work Laptop",
 		"assigned_ip": "192.168.30.25",
 	}, token)
-	if status != 200 || str(out["label"]) != "Work Laptop" || str(out["assigned_ip"]) != "192.168.30.25" {
+	if status != 200 || str(out["label"]) != "Work Laptop" || str(out["assigned_ip"]) != "192.168.30.25" || out["has_private_key"] != true {
 		t.Fatalf("PUT meta: %d %v", status, out)
 	}
 
-	// 6. Render config preview
+	// 6. Render config preview without re-sending private key; decrypted key must be included
 	status, out, _ = call(t, a, "POST", "/api/v1/hubs/DEFAULT/wireguard/config", M{
 		"public_key": pubKey,
 	}, token)
-	if status != 200 || !strings.Contains(str(out["config"]), "Address = 192.168.30.25/32") {
+	if status != 200 || out["has_private_key"] != true ||
+		!strings.Contains(str(out["config"]), "Address = 192.168.30.25/32") ||
+		!strings.Contains(str(out["config"]), "PrivateKey = "+clientPriv) {
 		t.Fatalf("POST config preview: %d %v", status, out)
+	}
+
+	// 6b. Rotate peer keypair preserves label and assigned_ip and saves the new private key
+	status, out, _ = call(t, a, "POST", "/api/v1/hubs/DEFAULT/wireguard/peers/rotate", M{
+		"confirm_restart": true,
+		"public_key":      pubKey,
+	}, token)
+	if status != 200 || out["restarting"] != true || str(out["client_private_key"]) == "" || str(out["client_private_key"]) == clientPriv {
+		t.Fatalf("POST rotate peer: %d %v", status, out)
+	}
+	rotatedPeer := object(out["peer"])
+	pubKey = str(rotatedPeer["public_key"])
+	rotatedPriv := str(out["client_private_key"])
+	if str(rotatedPeer["label"]) != "Work Laptop" || str(rotatedPeer["assigned_ip"]) != "192.168.30.25" || rotatedPeer["has_private_key"] != true {
+		t.Fatalf("rotated peer lost metadata: %v", rotatedPeer)
+	}
+	status, out, _ = call(t, a, "POST", "/api/v1/hubs/DEFAULT/wireguard/config", M{
+		"public_key": pubKey,
+	}, token)
+	if status != 200 || !strings.Contains(str(out["config"]), "PrivateKey = "+rotatedPriv) {
+		t.Fatalf("POST config after rotate: %d %v", status, out)
+	}
+
+	// Reject mismatched client_private_key on meta update
+	status, _, _ = call(t, a, "PUT", "/api/v1/hubs/DEFAULT/wireguard/peers/meta", M{
+		"public_key":         pubKey,
+		"label":              "Work Laptop",
+		"assigned_ip":        "192.168.30.25",
+		"client_private_key": clientPriv,
+	}, token)
+	if status != 422 {
+		t.Fatalf("expected 422 on mismatched client_private_key, got %d", status)
 	}
 
 	// 7. Update hub static network
@@ -322,8 +357,8 @@ func TestWireGuardEndpoints(t *testing.T) {
 	if status != 200 || out["supported"] != false {
 		t.Fatalf("expected supported=false for 4x config: %d %v", status, out)
 	}
-	if saves != 4 {
-		t.Fatalf("expected 4 config saves, got %d", saves)
+	if saves != 5 {
+		t.Fatalf("expected 5 config saves, got %d", saves)
 	}
 }
 
