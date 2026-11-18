@@ -26,7 +26,7 @@ import { AUTH_TYPES, isNever, userBytes, SESSION_TYPE } from "../lib/se";
 import { useToast } from "../lib/toast";
 import { useI18n, t } from "../lib/i18n";
 import { formatBytes, formatCount, formatDate, formatDuration, formatIPLocation, hasIPLocation, timeAgo } from "../lib/util";
-import { IconDownload, IconPlus, IconTrash } from "../ui/Icon";
+import { IconPlus, IconTrash, IconVpnDownload, IconWireGuardDownload } from "../ui/Icon";
 import { Pill } from "../ui/Status";
 import { UserStatePill } from "./hub/HubUsers";
 import { EndpointCell, SessionSheet, SessionsTable } from "./hub/HubSessions";
@@ -303,7 +303,7 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
         actions={
           <>
             <button className="btn btn--primary" onClick={() => setDownloading(true)}>
-              <IconDownload size={15} /> {t("Download .vpn")}
+              <IconVpnDownload size={15} /> {t("Download .vpn")}
             </button>
             <button className="btn" onClick={() => setEditing(true)}>{t("Edit profile")}</button>
             <button className="btn btn--danger" onClick={() => setDeleting(true)}>
@@ -377,20 +377,6 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
         return (
           <div className="user-midgrid">
             <div>
-              <SectionTitle actions={<RangeSeg hours={hours} onChange={setHours} />}>{t("Usage")}</SectionTitle>
-              <div className="card" style={{ padding: "var(--s4)" }}>
-                {usage ? (
-                  <TrafficChart
-                    usage={usage}
-                    emptyLabel="No samples in this window — usage builds up as the panel's sampler runs."
-                  />
-                ) : (
-                  <LoadingBlock label="loading usage" />
-                )}
-              </div>
-            </div>
-
-            <div>
               <SectionTitle
                 count={userPeers.length}
                 actions={
@@ -437,7 +423,7 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
                             <td className="tact">
                               <div style={{ display: "inline-flex", alignItems: "center", gap: "var(--s1)", whiteSpace: "nowrap" }}>
                                 <button type="button" className="btn btn--sm" onClick={() => setEditingWg(peer)}>
-                                  <IconDownload size={13} /> {t(".conf")}
+                                  <IconWireGuardDownload size={14} /> {t(".conf")}
                                 </button>
                                 <button
                                   type="button"
@@ -456,6 +442,20 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
                   </div>
                 </div>
               )}
+            </div>
+
+            <div>
+              <SectionTitle actions={<RangeSeg hours={hours} onChange={setHours} />}>{t("Usage")}</SectionTitle>
+              <div className="card" style={{ padding: "var(--s4)" }}>
+                {usage ? (
+                  <TrafficChart
+                    usage={usage}
+                    emptyLabel="No samples in this window — usage builds up as the panel's sampler runs."
+                  />
+                ) : (
+                  <LoadingBlock label="loading usage" />
+                )}
+              </div>
             </div>
           </div>
         );

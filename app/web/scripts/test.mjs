@@ -319,3 +319,29 @@ test("formatTcpConnections shows numeric count in compact list mode for UDP/L2TP
   assert.equal(formatTcpConnections(session, t), "UDP (7 active sessions)");
   assert.equal(formatTcpConnections({ Name_str: "SID-SEAN-[L2TP]-2", ActiveNatTcp_u32: 0 }, t, true), "UDP tunnel");
 });
+
+test("groupWireGuardPeers indexes peers per hub/user case-insensitively and ignores unsupported states", () => {
+  const placeholder = () => null;
+  const stubs = new Proxy({}, { get: () => placeholder });
+  const { groupWireGuardPeers, wireguardPeerKey } = load("../src/components/WireGuardPeerSheet.tsx", {}, {
+    "../lib/api": stubs,
+    "../lib/i18n": { useI18n: () => ({ t: v => v }) },
+    "../lib/toast": { useToast: () => ({ guard: fn => fn(), push() {} }) },
+    "../lib/util": stubs,
+    "../ui/Icon": stubs,
+    "../ui/Sheet": stubs,
+    "./bits": stubs,
+  });
+  assert.equal(groupWireGuardPeers({ supported: false, peers: [{ public_key: "k1", hub: "DEFAULT", user: "sean", label: "", assigned_ip: "" }] }).size, 0);
+  const grouped = groupWireGuardPeers({
+    supported: true,
+    peers: [
+      { public_key: "k1", hub: "DEFAULT", user: "Sean", label: "iPhone", assigned_ip: "192.168.30.2" },
+      { public_key: "k2", hub: "DEFAULT", user: "sean", label: "Mac", assigned_ip: "192.168.30.3" },
+      { public_key: "k3", hub: "OTHER", user: "alice", label: "", assigned_ip: "192.168.30.4" },
+    ],
+  });
+  assert.equal(grouped.get(wireguardPeerKey("DEFAULT", "sean"))?.length, 2);
+  assert.equal(grouped.get(wireguardPeerKey("OTHER", "ALICE"))?.length, 1);
+  assert.equal(grouped.get(wireguardPeerKey("DEFAULT", "bob")), undefined);
+});

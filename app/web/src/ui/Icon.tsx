@@ -157,6 +157,23 @@ export const IconDownload = (p: P) => (
   </S>
 );
 
+/** SoftEther .vpn profile download — shield with down arrow. */
+export const IconVpnDownload = (p: P) => (
+  <S {...p}>
+    <path d="M12 2.75 4.75 5.5v5.3c0 4.6 3.05 8.2 7.25 10.2 4.2-2 7.25-5.6 7.25-10.2V5.5L12 2.75Z" />
+    <path d="M12 7.75v7.25M9.1 12.2 12 15.1l2.9-2.9" />
+  </S>
+);
+
+/** WireGuard .conf download — key bow and teeth above down arrow. */
+export const IconWireGuardDownload = (p: P) => (
+  <S {...p}>
+    <circle cx="7.5" cy="7.5" r="3" />
+    <path d="M10.5 7.5H20v2.4M16.5 7.5v2" />
+    <path d="M12 12.5v8M9 17.5l3 3 3-3" />
+  </S>
+);
+
 export const IconSignOut = (p: P) => (
   <S {...p}>
     <path d="M10 4.5H4.5v15H10" />

@@ -22,14 +22,20 @@ import {
 import { UserSheet } from "../../components/UserSheet";
 import { UserImportSheet } from "../../components/UserImportSheet";
 import { VpnFileSheet } from "../../components/VpnFileSheet";
-import { api, type Quota, type Wire } from "../../lib/api";
+import {
+  WireGuardDownloadChooserSheet,
+  downloadWireGuardPeerConfig,
+  groupWireGuardPeers,
+  wireguardPeerKey,
+} from "../../components/WireGuardPeerSheet";
+import { api, useServerApi, type Quota, type Wire, type WireGuardPeer, type WireGuardState } from "../../lib/api";
 import { navigate, seg } from "../../lib/router";
 import { AUTH_TYPES, isNever, userBytes, userSortValue } from "../../lib/se";
 import { formatBytes, formatCount, formatDate, timeAgo } from "../../lib/util";
 import { useI18n, t } from "../../lib/i18n";
 import { downloadText } from "../../lib/util";
 import { useToast } from "../../lib/toast";
-import { IconChevron, IconDownload, IconPlus, IconUpload, IconUsers } from "../../ui/Icon";
+import { IconChevron, IconDownload, IconPlus, IconUpload, IconUsers, IconVpnDownload, IconWireGuardDownload } from "../../ui/Icon";
 import { Pill } from "../../ui/Status";
 
 /**
@@ -42,12 +48,16 @@ import { Pill } from "../../ui/Status";
  */
 export function HubUsers({ hub }: { hub: string }) {
   const { t } = useI18n();
-  const { push } = useToast();
+  const serverApi = useServerApi();
+  const { guard, push } = useToast();
   const [users, setUsers] = useState<Wire[] | null>(null);
+  const [wg, setWg] = useState<WireGuardState | null>(null);
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
   const [vpnFor, setVpnFor] = useState<string | null>(null);
+  const [wgFor, setWgFor] = useState<{ name: string; peers: WireGuardPeer[] } | null>(null);
+  const [downloadingWgUser, setDownloadingWgUser] = useState<string | null>(null);
   // Case-folded, because SoftEther matches usernames without case.
   const [online, setOnline] = useState<Set<string>>(new Set());
   const quotas = useQuotaIndex([hub]);
@@ -64,6 +74,26 @@ export function HubUsers({ hub }: { hub: string }) {
     if (live) setOnline(new Set(live.usernames ?? []));
   }, [hub]);
   usePoll(load, "list", [hub]);
+
+  const loadWg = useCallback(async () => {
+    setWg(await serverApi.wireguard().catch(() => null));
+  }, [serverApi]);
+  usePoll(loadWg, "list", [hub]);
+
+  const wgByUser = useMemo(() => groupWireGuardPeers(wg), [wg]);
+  const handleDownloadWg = async (user: string, peers: WireGuardPeer[]) => {
+    if (!wg || peers.length === 0) return;
+    if (peers.length > 1) {
+      setWgFor({ name: user, peers });
+      return;
+    }
+    setDownloadingWgUser(user);
+    await guard(
+      () => downloadWireGuardPeerConfig(serverApi, wg, peers[0]),
+      t("WireGuard configuration downloaded."),
+    );
+    setDownloadingWgUser(null);
+  };
 
   const filtered = useMemo(() => {
     if (!users) return null;
@@ -174,21 +204,28 @@ export function HubUsers({ hub }: { hub: string }) {
                       <SortTh sortKey="transfer" sort={sort} onSort={toggle}>{t("Transfer")}</SortTh>
                       <SortTh sortKey="quota" sort={sort} onSort={toggle}>{t("Limit")}</SortTh>
                       <SortTh sortKey="expires" sort={sort} onSort={toggle}>{t("Expires")}</SortTh>
-                      <th className="tact" style={{ width: 96 }} aria-label={t("Actions")} />
+                      <th className="tact" style={{ width: 128 }} aria-label={t("Actions")} />
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.map((u) => (
-                      <UserRow
-                        key={String(u.Name_str)}
-                        user={u}
-                        quota={quotaOf(u)}
-                        moved={movedBy(u)}
-                        online={online.has(String(u.Name_str).toLowerCase())}
-                        onOpen={() => open(String(u.Name_str))}
-                        onVpnFile={() => setVpnFor(String(u.Name_str))}
-                      />
-                    ))}
+                    {filtered.map((u) => {
+                      const uName = String(u.Name_str);
+                      const wgPeers = wgByUser.get(wireguardPeerKey(hub, uName)) ?? [];
+                      return (
+                        <UserRow
+                          key={uName}
+                          user={u}
+                          quota={quotaOf(u)}
+                          moved={movedBy(u)}
+                          online={online.has(uName.toLowerCase())}
+                          wgPeerCount={wgPeers.length}
+                          downloadingWg={downloadingWgUser === uName}
+                          onOpen={() => open(uName)}
+                          onVpnFile={() => setVpnFor(uName)}
+                          onWgFile={() => void handleDownloadWg(uName, wgPeers)}
+                        />
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -233,6 +270,15 @@ export function HubUsers({ hub }: { hub: string }) {
       )}
 
       {vpnFor && <VpnFileSheet hub={hub} name={vpnFor} onClose={() => setVpnFor(null)} />}
+      {wgFor && wg && (
+        <WireGuardDownloadChooserSheet
+          state={wg}
+          hub={hub}
+          user={wgFor.name}
+          peers={wgFor.peers}
+          onClose={() => setWgFor(null)}
+        />
+      )}
       {importing && (
         <UserImportSheet
           hub={hub}
@@ -267,7 +313,27 @@ export function UserStatePill({ user, online }: { user: Wire; online?: boolean }
   return <Pill kind="idle" label="offline" />;
 }
 
-function UserRow({ user: u, quota, moved, online, onOpen, onVpnFile }: { user: Wire; quota?: Quota; moved: { send: number; recv: number }; online: boolean; onOpen: () => void; onVpnFile: () => void }) {
+function UserRow({
+  user: u,
+  quota,
+  moved,
+  online,
+  wgPeerCount,
+  downloadingWg,
+  onOpen,
+  onVpnFile,
+  onWgFile,
+}: {
+  user: Wire;
+  quota?: Quota;
+  moved: { send: number; recv: number };
+  online: boolean;
+  wgPeerCount: number;
+  downloadingWg: boolean;
+  onOpen: () => void;
+  onVpnFile: () => void;
+  onWgFile: () => void;
+}) {
   const { t } = useI18n();
   const bytes = moved;
   const expires = u.Expires_dt ?? u.ExpireTime_dt;
@@ -290,20 +356,38 @@ function UserRow({ user: u, quota, moved, online, onOpen, onVpnFile }: { user: W
       <td><QuotaCell quota={quota} net={moved} /></td>
       <td className="tmono">{isNever(expires as string) ? t("never") : formatDate(expires as string)}</td>
       <td className="tact">
-        <button
-          className="btn btn--sm btn--ghost"
-          title={t("Download .vpn connection file")}
-          aria-label={t("Download .vpn connection file")}
-          onClick={(e) => {
-            e.stopPropagation();
-            onVpnFile();
-          }}
-        >
-          <IconDownload size={14} />
-        </button>
-        <span className="pcard__go">
-          <IconChevron size={15} />
-        </span>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          {wgPeerCount > 0 && (
+            <button
+              type="button"
+              className="btn btn--sm btn--ghost"
+              title={wgPeerCount > 1 ? t("Choose WireGuard .conf ({count})", { count: wgPeerCount }) : t("Download WireGuard .conf")}
+              aria-label={t("Download WireGuard .conf")}
+              disabled={downloadingWg}
+              onClick={(e) => {
+                e.stopPropagation();
+                onWgFile();
+              }}
+            >
+              {downloadingWg ? <span className="spin" /> : <IconWireGuardDownload size={15} />}
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn btn--sm btn--ghost"
+            title={t("Download .vpn connection file")}
+            aria-label={t("Download .vpn connection file")}
+            onClick={(e) => {
+              e.stopPropagation();
+              onVpnFile();
+            }}
+          >
+            <IconVpnDownload size={15} />
+          </button>
+          <span className="pcard__go">
+            <IconChevron size={15} />
+          </span>
+        </div>
       </td>
     </tr>
   );

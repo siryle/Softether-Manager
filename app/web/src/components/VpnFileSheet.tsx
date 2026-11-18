@@ -6,7 +6,7 @@ import { useToast } from "../lib/toast";
 import { useI18n, t } from "../lib/i18n";
 import { useServer } from "../lib/server";
 import { downloadText } from "../lib/util";
-import { IconDownload } from "../ui/Icon";
+import { IconVpnDownload } from "../ui/Icon";
 import { Sheet } from "../ui/Sheet";
 import { CheckRow, ErrorAlert, Field } from "./bits";
 
@@ -137,7 +137,7 @@ export function VpnFileSheet({
         <>
           <button className="btn" onClick={onClose}>{t("Cancel")}</button>
           <button className="btn btn--primary" onClick={download} disabled={busy || !host.trim() || !port}>
-            {busy ? <span className="spin" /> : <IconDownload size={15} />}
+            {busy ? <span className="spin" /> : <IconVpnDownload size={15} />}
             {t("Download .vpn")}
           </button>
         </>

@@ -568,11 +568,6 @@
   gap: var(--s5);
   align-items: start;
 }
-@media (min-width: 1024px) {
-  .user-midgrid {
-    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
-  }
-}
 .user-summary {
   container: user-summary / inline-size;
   min-width: 0;

@@ -5,7 +5,7 @@ import { ApiError, useServerApi, type Wire, type WireGuardPeer, type WireGuardSt
 import { useI18n } from "../lib/i18n";
 import { useToast } from "../lib/toast";
 import { downloadText } from "../lib/util";
-import { IconCheck, IconCopy, IconDownload } from "../ui/Icon";
+import { IconCheck, IconCopy, IconWireGuardDownload } from "../ui/Icon";
 import { Sheet } from "../ui/Sheet";
 import { ErrorAlert, Field } from "./bits";
 
@@ -240,7 +240,7 @@ export function WireGuardAddPeerSheet({
               className="btn btn--primary"
               onClick={() => downloadText(filename, created.client_config, "text/plain")}
             >
-              <IconDownload size={14} /> {t("Download .conf")}
+              <IconWireGuardDownload size={14} /> {t("Download .conf")}
             </button>
             <button type="button" className="btn" onClick={onClose}>
               {t("Done")}
@@ -580,7 +580,7 @@ export function WireGuardConfigSheet({
             disabled={!configText}
             onClick={() => downloadText(filename, configText, "text/plain")}
           >
-            <IconDownload size={14} /> {t("Download .conf")}
+            <IconWireGuardDownload size={14} /> {t("Download .conf")}
           </button>
         </>
       }
@@ -675,6 +675,146 @@ export function WireGuardConfigSheet({
             </pre>
           </Field>
         )}
+      </div>
+    </Sheet>
+  );
+}
+
+export function wireguardPeerKey(hub: string, user: string) {
+  return `${hub}\0${user.toLowerCase()}`;
+}
+
+export function groupWireGuardPeers(state: WireGuardState | null): Map<string, WireGuardPeer[]> {
+  const map = new Map<string, WireGuardPeer[]>();
+  if (!state?.supported || !state.peers?.length) return map;
+  for (const peer of state.peers) {
+    const k = wireguardPeerKey(peer.hub, peer.user);
+    const list = map.get(k);
+    if (list) list.push(peer);
+    else map.set(k, [peer]);
+  }
+  return map;
+}
+
+export async function downloadWireGuardPeerConfig(
+  api: ReturnType<typeof useServerApi>,
+  state: WireGuardState,
+  peer: WireGuardPeer,
+) {
+  const labelSlug = peer.label ? `-${peer.label.trim().replace(/[^a-zA-Z0-9._-]+/g, "-")}` : "";
+  const filename = `wg-${peer.hub}-${peer.user}${labelSlug}.conf`;
+  const res = await api.wireguardClientConfig(peer.hub, {
+    public_key: peer.public_key,
+    assigned_ip: peer.assigned_ip || "",
+    endpoint_host: state.default_endpoint_host || "",
+    endpoint_port: state.default_udp_port || 51820,
+    dns: "1.1.1.1",
+    allowed_ips: "0.0.0.0/0, ::/0",
+    persistent_keepalive: 21,
+    filename,
+  });
+  downloadText(res.filename || filename, res.config, "text/plain");
+}
+
+export function WireGuardDownloadChooserSheet({
+  state,
+  hub,
+  user,
+  peers,
+  onClose,
+}: {
+  state: WireGuardState;
+  hub: string;
+  user: string;
+  peers: WireGuardPeer[];
+  onClose: () => void;
+}) {
+  const api = useServerApi();
+  const { t } = useI18n();
+  const { guard } = useToast();
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [editingPeer, setEditingPeer] = useState<WireGuardPeer | null>(null);
+
+  if (editingPeer) {
+    return (
+      <WireGuardConfigSheet
+        state={state}
+        peer={editingPeer}
+        onClose={() => setEditingPeer(null)}
+        onMetaSaved={() => {}}
+      />
+    );
+  }
+
+  const downloadPeer = async (peer: WireGuardPeer) => {
+    setBusyKey(peer.public_key);
+    const ok = await guard(
+      () => downloadWireGuardPeerConfig(api, state, peer),
+      t("WireGuard configuration downloaded."),
+    );
+    setBusyKey(null);
+    if (ok) onClose();
+  };
+
+  return (
+    <Sheet
+      title={t("Download WireGuard .conf")}
+      subtitle={`${user} · ${t("Hub")} ${hub}`}
+      onClose={onClose}
+      footer={<button type="button" className="btn" onClick={onClose}>{t("Close")}</button>}
+    >
+      <div style={{ display: "grid", gap: "var(--s2)" }}>
+        <p className="hint" style={{ margin: 0 }}>
+          {t("Select a WireGuard client device below to download its .conf file.")}
+        </p>
+        <div style={{ display: "grid", gap: "var(--s2)" }}>
+          {peers.map((peer) => {
+            const busy = busyKey === peer.public_key;
+            return (
+              <div
+                key={peer.public_key}
+                className="card"
+                style={{
+                  padding: "var(--s3)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "var(--s3)",
+                  flexWrap: "wrap",
+                }}
+              >
+                <div style={{ minWidth: 0, display: "grid", gap: 4 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "var(--s2)", flexWrap: "wrap" }}>
+                    <span className="tname mono">{peer.label || t("WireGuard peer")}</span>
+                    {peer.assigned_ip && <span className="chip chip--ok mono">{peer.assigned_ip}/32</span>}
+                  </div>
+                  <div className="micro mono" title={peer.public_key}>
+                    {peer.public_key.slice(0, 20)}…
+                  </div>
+                </div>
+                <div style={{ display: "inline-flex", alignItems: "center", gap: "var(--s1)", flexShrink: 0 }}>
+                  <button
+                    type="button"
+                    className="btn btn--sm"
+                    onClick={() => setEditingPeer(peer)}
+                    disabled={busyKey !== null}
+                  >
+                    {t("Customize")}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--sm btn--primary"
+                    onClick={() => void downloadPeer(peer)}
+                    disabled={busyKey !== null}
+                  >
+                    {busy ? <span className="spin" /> : <IconWireGuardDownload size={14} />}
+                    {t("Download .conf")}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </Sheet>
   );
