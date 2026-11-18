@@ -473,7 +473,6 @@ func (a *App) enrichConnections(ctx context.Context, connections []M) M {
 		note        string
 		group       string
 	}
-	connToSession := make(map[string]sessionInfo)
 	ipToSession := make(map[string]sessionInfo)
 
 	func() {
@@ -520,23 +519,11 @@ func (a *App) enrichConnections(ctx context.Context, connections []M) M {
 				if clientIP != "" {
 					ipToSession[clientIP] = info
 				}
-
-				if len(sessList) <= 50 {
-					func() {
-						defer func() { _ = recover() }()
-						st := a.rpc(ctx, "GetSessionStatus", M{"HubName_str": hubName, "Name_str": sessName})
-						connName := strings.TrimSpace(str(st["ConnectionName_str"]))
-						if connName != "" {
-							connToSession[connName] = info
-						}
-					}()
-				}
 			}
 		}
 	}()
 
 	for _, c := range connections {
-		connName := strings.TrimSpace(str(c["Name_str"]))
 		ip := cleanIP(str(c["Ip_ip"]))
 
 		if geo, ok := geoMap[ip]; ok {
@@ -545,15 +532,7 @@ func (a *App) enrichConnections(ctx context.Context, connections []M) M {
 			c["IpFull_str"] = geo.Full
 		}
 
-		var matched sessionInfo
-		var ok bool
-		if connName != "" {
-			matched, ok = connToSession[connName]
-		}
-		if !ok && ip != "" {
-			matched, ok = ipToSession[ip]
-		}
-		if ok {
+		if matched, ok := ipToSession[ip]; ok && ip != "" {
 			c["Username_str"] = matched.username
 			c["Realname_utf"] = matched.realname
 			c["Note_utf"] = matched.note

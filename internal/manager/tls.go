@@ -83,6 +83,11 @@ func atomicWrite(path string, data []byte, mode os.FileMode) error {
 	}
 	return os.Rename(f.Name(), path)
 }
+var (
+	domainLabelRegex = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
+	numericTLDRegex  = regexp.MustCompile(`^\d+$`)
+)
+
 func normalizeDomain(value string) string {
 	name := strings.ToLower(strings.Trim(strings.TrimSpace(value), "."))
 	if name == "" {
@@ -93,16 +98,15 @@ func normalizeDomain(value string) string {
 		fail(422, "A valid public domain name is required.")
 	}
 	labels := strings.Split(ascii, ".")
-	valid := regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 	if len(labels) < 2 {
 		fail(422, "A public domain name needs at least two parts.")
 	}
 	for _, label := range labels {
-		if !valid.MatchString(label) {
+		if !domainLabelRegex.MatchString(label) {
 			fail(422, "Invalid hostname label: "+label)
 		}
 	}
-	if regexp.MustCompile(`^\d+$`).MatchString(labels[len(labels)-1]) {
+	if numericTLDRegex.MatchString(labels[len(labels)-1]) {
 		fail(422, "A domain name cannot end in a number.")
 	}
 	return ascii

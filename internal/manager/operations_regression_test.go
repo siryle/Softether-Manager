@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -150,14 +151,19 @@ func TestBackupSchedulesAndPermissionsAreServerScoped(t *testing.T) {
 	}
 	path := filepath.Join(a.getBackupDir(1), files[0].Filename)
 	info, err := os.Stat(path)
-	if err != nil || info.Mode().Perm() != 0600 {
-		t.Fatal("backup was not created with owner-only access", err)
+	if err != nil {
+		t.Fatal(err)
 	}
-	check(os.Chmod(path, 0644))
-	check(a.protectExistingBackups())
-	info, err = os.Stat(path)
-	if err != nil || info.Mode().Perm() != 0600 {
-		t.Fatal("legacy backup permissions were not repaired", err)
+	if runtime.GOOS != "windows" {
+		if info.Mode().Perm() != 0600 {
+			t.Fatal("backup was not created with owner-only access", err)
+		}
+		check(os.Chmod(path, 0644))
+		check(a.protectExistingBackups())
+		info, err = os.Stat(path)
+		if err != nil || info.Mode().Perm() != 0600 {
+			t.Fatal("legacy backup permissions were not repaired", err)
+		}
 	}
 }
 
@@ -323,6 +329,8 @@ func TestHistoryQueriesUseTimeRangeIndexes(t *testing.T) {
 	a := testApp(t)
 	for _, tc := range []struct{ query, index string }{
 		{`SELECT * FROM UserTrafficSample WHERE ServerID=1 AND HubName='VPN' AND UserName='Alice' COLLATE NOCASE AND julianday(SampledDate)>=julianday('2026-01-01') ORDER BY julianday(SampledDate),UserTrafficSampleID`, "IX_UserTrafficSample_History"},
+		{`SELECT * FROM HubTrafficSample WHERE ServerID=1 AND HubName='VPN' AND julianday(SampledDate)>=julianday('2026-01-01') ORDER BY julianday(SampledDate),HubTrafficSampleID`, "IX_HubTrafficSample_History"},
+		{`SELECT * FROM HubTrafficSample WHERE ServerID=1 AND julianday(SampledDate)>=julianday('2026-01-01') ORDER BY julianday(SampledDate),HubTrafficSampleID`, "IX_HubTrafficSample_ServerHistory"},
 		{`DELETE FROM VpnSessionTrafficSample WHERE datetime(SampledDate)<datetime('now','-30 days')`, "IX_VpnSessionTrafficSample_Retention"},
 	} {
 		plan := query(a.db, "EXPLAIN QUERY PLAN "+tc.query)

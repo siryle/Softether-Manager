@@ -130,6 +130,8 @@ CREATE INDEX IF NOT EXISTS "IX_UserTrafficSample_Retention" ON "UserTrafficSampl
 CREATE INDEX IF NOT EXISTS "IX_HubTrafficSample_Retention" ON "HubTrafficSample"(datetime("SampledDate"));
 CREATE INDEX IF NOT EXISTS "IX_UserTrafficSample_Date" ON "UserTrafficSample"("SampledDate");
 CREATE INDEX IF NOT EXISTS "IX_HubTrafficSample_Key" ON "HubTrafficSample"("ServerID", "HubName", "SampledDate");
+CREATE INDEX IF NOT EXISTS "IX_HubTrafficSample_History" ON "HubTrafficSample"("ServerID", "HubName", julianday("SampledDate"));
+CREATE INDEX IF NOT EXISTS "IX_HubTrafficSample_ServerHistory" ON "HubTrafficSample"("ServerID", julianday("SampledDate"));
 CREATE INDEX IF NOT EXISTS "IX_HubTrafficSample_Date" ON "HubTrafficSample"("SampledDate");
 CREATE INDEX IF NOT EXISTS "IX_AuditLog_Date" ON "AuditLog"("CreatedDate");
 CREATE INDEX IF NOT EXISTS "IX_VpnSessionSample_Open" ON "VpnSessionSample"("ServerID", "HubName", "EndedDate");

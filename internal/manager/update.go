@@ -70,9 +70,10 @@ func (a *App) updateUnavailable() string {
 	}
 	return ""
 }
+var versionRegex = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)$`)
+
 func isNewer(current, candidate string) bool {
-	version := regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)$`)
-	a, b := version.FindStringSubmatch(current), version.FindStringSubmatch(candidate)
+	a, b := versionRegex.FindStringSubmatch(current), versionRegex.FindStringSubmatch(candidate)
 	if a == nil || b == nil || (integer(a[1])+integer(a[2])+integer(a[3]) == 0) {
 		return false
 	}

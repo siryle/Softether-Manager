@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"strings"
 )
 
 func cliPassword(password string, fromStdin bool) string {
@@ -18,5 +19,5 @@ func cliPassword(password string, fromStdin bool) string {
 	if len(data) > 1024 {
 		panic(errors.New("password input is too long"))
 	}
-	return string(data)
+	return strings.TrimRight(string(data), "\r\n")
 }

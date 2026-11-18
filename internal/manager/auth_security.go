@@ -41,7 +41,17 @@ func (l *loginLimiter) take(ip string, at time.Time) bool {
 	attempt, exists := l.attempts[ip]
 	if !exists {
 		if len(l.attempts) >= 4096 {
-			return false
+			var oldestKey string
+			var oldestTime time.Time
+			for k, v := range l.attempts {
+				if oldestTime.IsZero() || v.expires.Before(oldestTime) {
+					oldestKey = k
+					oldestTime = v.expires
+				}
+			}
+			if oldestKey != "" {
+				delete(l.attempts, oldestKey)
+			}
 		}
 		attempt.expires = at.Add(5 * time.Minute)
 	}

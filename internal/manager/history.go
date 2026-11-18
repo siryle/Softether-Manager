@@ -252,8 +252,23 @@ func (a *App) sampleSessions(ctx context.Context) {
 		}()
 	}
 }
+type liveSessionData struct {
+	key        string
+	username   string
+	clientIP   string
+	virtualIP  string
+	clientHost string
+	started    string
+	packetSize int64
+	packetNum  int64
+	down       int64
+	up         int64
+	sampled    bool
+}
+
 func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string) {
 	live := list(a.rpc(ctx, "EnumSession", M{"HubName_str": hub})["SessionList"])
+	var toWrite []liveSessionData
 	seen := map[string]bool{}
 	stamp := now()
 	series := boolean(a.setting("session_traffic_enabled"))
@@ -354,17 +369,61 @@ func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string)
 		if started == "" {
 			started = stamp
 		}
-		execute(a.db, `INSERT INTO VpnSessionSample(ServerID,HubName,UserName,SessionKey,ClientIP,VirtualIP,ClientHostname,StartedDate,LastSeenDate,BytesTotal,PacketsTotal,DownloadBytes,UploadBytes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(ServerID,HubName,SessionKey) DO UPDATE SET LastSeenDate=excluded.LastSeenDate,BytesTotal=excluded.BytesTotal,PacketsTotal=excluded.PacketsTotal,VirtualIP=CASE WHEN excluded.VirtualIP != '' THEN excluded.VirtualIP ELSE VpnSessionSample.VirtualIP END,ClientHostname=CASE WHEN excluded.ClientHostname != '' THEN excluded.ClientHostname ELSE VpnSessionSample.ClientHostname END,DownloadBytes=CASE WHEN ? THEN excluded.DownloadBytes ELSE VpnSessionSample.DownloadBytes END,UploadBytes=CASE WHEN ? THEN excluded.UploadBytes ELSE VpnSessionSample.UploadBytes END`, serverID, hub, str(s["Username_str"]), key, clientIP, virtualIP, clientHost, started, stamp, integer(s["PacketSize_u64"]), integer(s["PacketNum_u64"]), down, up, sampled, sampled)
-		if sampled {
-			row := one(a.db, `SELECT VpnSessionSampleID FROM VpnSessionSample WHERE ServerID=? AND HubName=? AND SessionKey=?`, serverID, hub, key)
-			if row != nil {
-				execute(a.db, `INSERT INTO VpnSessionTrafficSample(VpnSessionSampleID,DownloadBytes,UploadBytes,TotalBytes,SampledDate) VALUES(?,?,?,?,?)`, row["VpnSessionSampleID"], down, up, integer(s["PacketSize_u64"]), stamp)
+		toWrite = append(toWrite, liveSessionData{
+			key:        key,
+			username:   str(s["Username_str"]),
+			clientIP:   clientIP,
+			virtualIP:  virtualIP,
+			clientHost: clientHost,
+			started:    started,
+			packetSize: integer(s["PacketSize_u64"]),
+			packetNum:  integer(s["PacketNum_u64"]),
+			down:       down,
+			up:         up,
+			sampled:    sampled,
+		})
+	}
+
+	tx, err := a.db.Begin()
+	check(err)
+	defer tx.Rollback()
+
+	insertSample, err := tx.Prepare(`INSERT INTO VpnSessionSample(ServerID,HubName,UserName,SessionKey,ClientIP,VirtualIP,ClientHostname,StartedDate,LastSeenDate,BytesTotal,PacketsTotal,DownloadBytes,UploadBytes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(ServerID,HubName,SessionKey) DO UPDATE SET LastSeenDate=excluded.LastSeenDate,BytesTotal=excluded.BytesTotal,PacketsTotal=excluded.PacketsTotal,VirtualIP=CASE WHEN excluded.VirtualIP != '' THEN excluded.VirtualIP ELSE VpnSessionSample.VirtualIP END,ClientHostname=CASE WHEN excluded.ClientHostname != '' THEN excluded.ClientHostname ELSE VpnSessionSample.ClientHostname END,DownloadBytes=CASE WHEN ? THEN excluded.DownloadBytes ELSE VpnSessionSample.DownloadBytes END,UploadBytes=CASE WHEN ? THEN excluded.UploadBytes ELSE VpnSessionSample.UploadBytes END`)
+	check(err)
+	defer insertSample.Close()
+
+	for _, d := range toWrite {
+		_, err = insertSample.Exec(serverID, hub, d.username, d.key, d.clientIP, d.virtualIP, d.clientHost, d.started, stamp, d.packetSize, d.packetNum, d.down, d.up, d.sampled, d.sampled)
+		check(err)
+		if d.sampled {
+			var sampleID int64
+			if err = tx.QueryRow(`SELECT VpnSessionSampleID FROM VpnSessionSample WHERE ServerID=? AND HubName=? AND SessionKey=?`, serverID, hub, d.key).Scan(&sampleID); err == nil {
+				_, err = tx.Exec(`INSERT INTO VpnSessionTrafficSample(VpnSessionSampleID,DownloadBytes,UploadBytes,TotalBytes,SampledDate) VALUES(?,?,?,?,?)`, sampleID, d.down, d.up, d.packetSize, stamp)
+				check(err)
 			}
 		}
 	}
-	for _, row := range query(a.db, `SELECT SessionKey FROM VpnSessionSample WHERE ServerID=? AND HubName=? AND EndedDate IS NULL`, serverID, hub) {
-		if !seen[str(row["SessionKey"])] {
-			execute(a.db, `UPDATE VpnSessionSample SET EndedDate=LastSeenDate WHERE ServerID=? AND HubName=? AND SessionKey=? AND EndedDate IS NULL`, serverID, hub, row["SessionKey"])
+
+	rows, err := tx.Query(`SELECT SessionKey FROM VpnSessionSample WHERE ServerID=? AND HubName=? AND EndedDate IS NULL`, serverID, hub)
+	check(err)
+	var endedKeys []string
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err == nil && !seen[k] {
+			endedKeys = append(endedKeys, k)
 		}
 	}
+	_ = rows.Close()
+
+	if len(endedKeys) > 0 {
+		updateEnded, err := tx.Prepare(`UPDATE VpnSessionSample SET EndedDate=LastSeenDate WHERE ServerID=? AND HubName=? AND SessionKey=? AND EndedDate IS NULL`)
+		check(err)
+		defer updateEnded.Close()
+		for _, k := range endedKeys {
+			_, err = updateEnded.Exec(serverID, hub, k)
+			check(err)
+		}
+	}
+
+	check(tx.Commit())
 }
