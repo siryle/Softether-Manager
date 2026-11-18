@@ -79,7 +79,11 @@ func (a *App) registerCustomRPC() {
 						out[key] = M{"ok": false, "error": fmtError(p)}
 					}
 				}()
-				out[key] = M{"ok": true, "data": a.rpc(r.Context(), method, nil)}
+				res := a.rpc(r.Context(), method, nil)
+				if key == "openvpn" {
+					res = a.enrichOpenVPNConfig(a.serverIDFromContext(r.Context()), res)
+				}
+				out[key] = M{"ok": true, "data": res}
 			}()
 		}
 		return out
@@ -178,6 +182,41 @@ func (a *App) registerCustomRPC() {
 		out := a.rpc(r.Context(), "GetConfig", nil)
 		return M{"filename": withDefault(out, "FileName_str", "vpn_server.config"), "config_base64": withDefault(out, "FileData_bin", "")}
 	})
+	a.endpoint("GET /server/openvpn", func(_ http.ResponseWriter, r *http.Request, _ M) any {
+		out := a.rpc(r.Context(), "GetOpenVpnSstpConfig", nil)
+		return a.enrichOpenVPNConfig(a.serverIDFromContext(r.Context()), out)
+	})
+	a.endpoint("PUT /server/openvpn", func(w http.ResponseWriter, r *http.Request, u M) any {
+		b := readBody(w, r)
+		serverID := a.serverIDFromContext(r.Context())
+		rawPortStr := strings.TrimSpace(str(b["OpenVPNPortList_str"]))
+		var parsedPorts []int
+		if rawPortStr != "" {
+			var err error
+			parsedPorts, err = parseOpenVPNPortList(rawPortStr)
+			if err != nil {
+				fail(422, err.Error())
+			}
+		} else {
+			parsedPorts = []int{1194}
+		}
+		formattedPorts := formatPortListStr(parsedPorts)
+		b["OpenVPNPortList_str"] = formattedPorts
+
+		a.rpc(r.Context(), "SetOpenVpnSstpConfig", b)
+		out := a.rpc(r.Context(), "GetOpenVpnSstpConfig", nil)
+
+		// SoftEther 5.x ignores OpenVPNPortList_str in SetOpenVpnSstpConfig and
+		// returns "" from GetOpenVpnSstpConfig, using ServerConfiguration.PortsUDP instead.
+		if strings.TrimSpace(str(out["OpenVPNPortList_str"])) == "" {
+			prevSaved, _ := parseOpenVPNPortList(a.savedOpenVPNPorts(serverID))
+			a.setOpenVPNPorts(serverID, formattedPorts)
+			a.syncOpenVPNUDPPorts(r.Context(), serverID, prevSaved, parsedPorts)
+			out["OpenVPNPortList_str"] = formattedPorts
+		}
+		a.audit(u, "openvpn.updated", "server", "", formattedPorts)
+		return out
+	})
 	a.endpoint("POST /server/openvpn/sample-config", func(w http.ResponseWriter, r *http.Request, _ M) any {
 		var body M
 		if r.Body != nil {
@@ -191,6 +230,7 @@ func (a *App) registerCustomRPC() {
 				}
 			}
 		}
+		serverID := a.serverIDFromContext(r.Context())
 		host := strings.TrimSpace(str(body["host"]))
 		if host == "" {
 			host = strings.TrimSpace(str(a.setting("vpn_public_host")))
@@ -198,6 +238,13 @@ func (a *App) registerCustomRPC() {
 		port := int(integer(body["port"]))
 		if port < 0 || port > 65535 {
 			port = 0
+		}
+		if port == 0 {
+			if saved := a.savedOpenVPNPorts(serverID); saved != "" {
+				if ports, err := parseOpenVPNPortList(saved); err == nil && len(ports) > 0 {
+					port = ports[0]
+				}
+			}
 		}
 		out := a.rpc(r.Context(), "MakeOpenVpnConfigFile", nil)
 		raw, err := base64.StdEncoding.DecodeString(str(out["Buffer_bin"]))
@@ -691,4 +738,116 @@ func applyOpenVPNEndpoint(config, host string, port int) string {
 		lines[i] = lead + strings.Join(parts, " ") + cr
 	}
 	return strings.Join(lines, "\n")
+}
+
+func parseOpenVPNPortList(s string) ([]int, error) {
+	tokens := strings.FieldsFunc(s, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\r' || r == '\n'
+	})
+	if len(tokens) == 0 {
+		return nil, errors.New("at least one OpenVPN UDP port is required")
+	}
+	seen := map[int]bool{}
+	out := make([]int, 0, len(tokens))
+	for _, tok := range tokens {
+		p, err := strconv.Atoi(tok)
+		if err != nil || p < 1 || p > 65535 {
+			return nil, errors.New("OpenVPN UDP ports must be numbers between 1 and 65535")
+		}
+		if !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+func formatPortListStr(ports []int) string {
+	parts := make([]string, len(ports))
+	for i, p := range ports {
+		parts[i] = strconv.Itoa(p)
+	}
+	return strings.Join(parts, ", ")
+}
+
+func (a *App) savedOpenVPNPorts(serverID int64) string {
+	raw := a.setting("openvpn_ports")
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(str(m[strconv.FormatInt(serverID, 10)]))
+}
+
+func (a *App) setOpenVPNPorts(serverID int64, ports string) {
+	next := M{}
+	if existing, ok := a.setting("openvpn_ports").(map[string]any); ok {
+		for k, v := range existing {
+			next[k] = v
+		}
+	}
+	next[strconv.FormatInt(serverID, 10)] = ports
+	a.set("openvpn_ports", next)
+}
+
+func (a *App) enrichOpenVPNConfig(serverID int64, out M) M {
+	if out == nil {
+		return nil
+	}
+	if strings.TrimSpace(str(out["OpenVPNPortList_str"])) == "" {
+		if saved := a.savedOpenVPNPorts(serverID); saved != "" {
+			out["OpenVPNPortList_str"] = saved
+		} else {
+			out["OpenVPNPortList_str"] = "1194"
+		}
+	}
+	return out
+}
+
+func (a *App) syncOpenVPNUDPPorts(ctx context.Context, serverID int64, prevPorts, nextPorts []int) {
+	a.wgMu.Lock()
+	defer a.wgMu.Unlock()
+	raw := a.fetchRawConfig(ctx)
+	doc, err := parseSEConfig(raw)
+	if err != nil {
+		return
+	}
+	sc := doc.Root.child("ServerConfiguration")
+	if sc == nil || sc.item("PortsUDP") == nil {
+		return
+	}
+	existing := parseUDPPorts(sc.item("PortsUDP").Val)
+	wgPort := a.savedWireguardPort(serverID)
+	reserved := map[int]bool{443: true, 992: true, 1194: true, 5555: true}
+	dropSet := map[int]bool{}
+	nextSet := map[int]bool{}
+	for _, p := range nextPorts {
+		nextSet[p] = true
+	}
+	for _, p := range prevPorts {
+		if !nextSet[p] && !reserved[p] && p != wgPort {
+			dropSet[p] = true
+		}
+	}
+	seen := map[int]bool{}
+	merged := make([]int, 0, len(existing)+len(nextPorts))
+	for _, p := range existing {
+		if p >= 1 && p <= 65535 && !dropSet[p] && !seen[p] {
+			seen[p] = true
+			merged = append(merged, p)
+		}
+	}
+	for _, p := range nextPorts {
+		if p >= 1 && p <= 65535 && !seen[p] {
+			seen[p] = true
+			merged = append(merged, p)
+		}
+	}
+	sort.Ints(merged)
+	edit := setItemEdit(doc, sc, "string", "PortsUDP", formatUDPPorts(merged))
+	updated, err := applySEEdits(raw, []seEdit{edit})
+	if err != nil || updated == raw {
+		return
+	}
+	a.pushWireGuardConfig(ctx, updated)
 }

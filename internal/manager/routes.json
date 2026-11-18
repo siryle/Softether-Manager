@@ -88,21 +88,6 @@
   },
   {
     "method": "GET",
-    "path": "/server/openvpn",
-    "rpc": "GetOpenVpnSstpConfig",
-    "params": {},
-    "body": false
-  },
-  {
-    "method": "PUT",
-    "path": "/server/openvpn",
-    "rpc": "SetOpenVpnSstpConfig",
-    "params": {},
-    "body": true,
-    "audit": "openvpn.updated"
-  },
-  {
-    "method": "GET",
     "path": "/server/azure",
     "rpc": "GetAzureStatus",
     "params": {},

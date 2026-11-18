@@ -300,7 +300,7 @@ export function Dashboard() {
               <div className="py-2.5 flex items-center justify-between">
                 <span className="text-secondary">OpenVPN</span>
                 <span className={openvpn?.EnableOpenVPN_bool ? "text-primary font-medium" : "text-muted"}>
-                  {openvpn?.EnableOpenVPN_bool ? `UDP ${openvpn.OpenVPNPortList_str ?? "1194"}` : t("Off")}
+                  {openvpn?.EnableOpenVPN_bool ? `UDP ${openvpn.OpenVPNPortList_str || "1194"}` : t("Off")}
                 </span>
               </div>
               <div className="py-2.5 flex items-center justify-between">

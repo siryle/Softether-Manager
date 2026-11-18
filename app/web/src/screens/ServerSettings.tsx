@@ -76,7 +76,7 @@ export function ServerSettings({ section }: { section?: string }) {
           }}
         />
         <ListenersCard />
-        <ProtocolsCard wg={wg} wgError={wgError} onWgFresh={setWg} publicEndpoint={publicEndpoint} />
+        <ProtocolsCard wg={wg} wgError={wgError} onWgFresh={setWg} reloadWg={loadWg} publicEndpoint={publicEndpoint} />
         <EncryptionCard />
         <BridgeCard />
         <L3Card />
@@ -165,7 +165,7 @@ function PublicEndpointCard({
               placeholder="vpn.example.com"
             />
           </Field>
-          <Field label="Public port" hint="Default port for .vpn downloads; default 443 (.ovpn uses the OpenVPN UDP port setting).">
+          <Field label="Public port" hint="Default port for .vpn downloads; default 443.">
             <input
               className="input mono"
               type="number"
@@ -600,11 +600,13 @@ function ProtocolsCard({
   wg,
   wgError,
   onWgFresh,
+  reloadWg,
   publicEndpoint,
 }: {
   wg: WireGuardState | null;
   wgError: Error | null;
   onWgFresh: (fresh: WireGuardState) => void;
+  reloadWg: () => Promise<WireGuardState | null>;
   publicEndpoint: { host: string; port: number; loaded: boolean };
 }) {
   const [ipsec, setIpsec] = useState<Wire | null>(null);
@@ -682,19 +684,47 @@ function ProtocolsCard({
               <CheckRow checked={Boolean(openvpn.EnableOpenVPN_bool)} onChange={(v) => { setOpenvpn({ ...openvpn, EnableOpenVPN_bool: v }); setDirty((d) => ({ ...d, openvpn: true })); }}
                 label="OpenVPN server" hint="Stock OpenVPN clients connect straight to this server." />
               <Field label="OpenVPN UDP ports" hint="Comma separated.">
-                <input className="input mono" value={String(openvpn.OpenVPNPortList_str ?? "")} onChange={(e) => { setOpenvpn({ ...openvpn, OpenVPNPortList_str: e.target.value }); setDirty((d) => ({ ...d, openvpn: true })); }} spellCheck={false} inputMode="numeric" />
+                {(() => {
+                  const ovpnPortList = String(openvpn.OpenVPNPortList_str ?? "")
+                    .split(/[,\s]+/)
+                    .map((p) => Number(p.trim()))
+                    .filter((p) => Number.isInteger(p) && p >= 1 && p <= 65535);
+                  const ovpnListening =
+                    Boolean(openvpn.EnableOpenVPN_bool) &&
+                    ovpnPortList.length > 0 &&
+                    (!wg?.supported || ovpnPortList.every((p) => (wg.udp_ports ?? []).includes(p)));
+                  return (
+                    <div style={{ display: "flex", gap: "var(--s2)", alignItems: "center" }}>
+                      <input
+                        className="input mono"
+                        style={{ flex: 1, minWidth: 0 }}
+                        value={String(openvpn.OpenVPNPortList_str || "")}
+                        onChange={(e) => { setOpenvpn({ ...openvpn, OpenVPNPortList_str: e.target.value }); setDirty((d) => ({ ...d, openvpn: true })); }}
+                        spellCheck={false}
+                        inputMode="numeric"
+                      />
+                      {!openvpn.EnableOpenVPN_bool ? (
+                        <Pill kind="idle" label="disabled" />
+                      ) : (
+                        <Pill kind={ovpnListening ? "ok" : "warn"} label={ovpnListening ? "listening" : "not listening"} />
+                      )}
+                    </div>
+                  );
+                })()}
               </Field>
               <CheckRow checked={Boolean(openvpn.EnableSSTP_bool)} onChange={(v) => { setOpenvpn({ ...openvpn, EnableSSTP_bool: v }); setDirty((d) => ({ ...d, openvpn: true })); }}
                 label="SSTP server" hint="Microsoft SSTP over 443. Needs the server certificate to be trusted by clients." />
               <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap" }}>
                 {dirty.openvpn && (
                   <button className="btn btn--primary" onClick={() => void guard(async () => {
-                    await api.setOpenvpn({
+                    const saved = await api.setOpenvpn({
                       EnableOpenVPN_bool: Boolean(openvpn.EnableOpenVPN_bool),
-                      OpenVPNPortList_str: String(openvpn.OpenVPNPortList_str ?? "1194"),
+                      OpenVPNPortList_str: String(openvpn.OpenVPNPortList_str || "1194"),
                       EnableSSTP_bool: Boolean(openvpn.EnableSSTP_bool),
                     });
+                    setOpenvpn(saved);
                     setDirty((d) => ({ ...d, openvpn: false }));
+                    void reloadWg();
                   }, t("OpenVPN/SSTP settings saved."))}>
                     {t("Save")}
                   </button>
@@ -900,21 +930,34 @@ function WireGuardSection({
               checked={enabledDraft}
               onChange={(v) => { setEnabledDraft(v); setDirty(true); }}
               label="WireGuard server"
-              hint="Accepts WireGuard handshakes on the configured UDP port. Changes apply via SetConfig and restart the service."
+              hint="WireGuard changes apply via SetConfig and restart the service."
             />
             <Field
               label="WireGuard UDP port"
               hint="UDP port for WireGuard connections (default 51820). Saving automatically listens on this UDP port."
             >
-              <input
-                className="input mono"
-                type="number"
-                min={1}
-                max={65535}
-                value={wgPortDraft}
-                onChange={(e) => { setWgPortDraft(e.target.value); setDirty(true); }}
-                inputMode="numeric"
-              />
+              {(() => {
+                const wgListening = Boolean(wg.enabled) && validWgPort && (wg.udp_ports ?? []).includes(wgPortNum);
+                return (
+                  <div style={{ display: "flex", gap: "var(--s2)", alignItems: "center" }}>
+                    <input
+                      className="input mono"
+                      style={{ flex: 1, minWidth: 0 }}
+                      type="number"
+                      min={1}
+                      max={65535}
+                      value={wgPortDraft}
+                      onChange={(e) => { setWgPortDraft(e.target.value); setDirty(true); }}
+                      inputMode="numeric"
+                    />
+                    {!wg.enabled ? (
+                      <Pill kind="idle" label="disabled" />
+                    ) : (
+                      <Pill kind={wgListening ? "ok" : "warn"} label={wgListening ? "listening" : "not listening"} />
+                    )}
+                  </div>
+                );
+              })()}
             </Field>
             {wg.enabled && wg.wireguard_port_listening === false && !dirty && (
               <div className="hint hint--err" style={{ marginBottom: "var(--s2)" }}>

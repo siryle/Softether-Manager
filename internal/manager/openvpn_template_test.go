@@ -3,7 +3,13 @@ package manager
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/base64"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -75,5 +81,89 @@ func TestApplyOpenVPNEndpointPortOnlyAndValidation(t *testing.T) {
 	}
 	if got := applyOpenVPNEndpoint(in, "bad host", 0); got != in {
 		t.Fatalf("expected invalid host/port to leave template unchanged, got %q", got)
+	}
+}
+
+func TestOpenVPN5xPortFallbackAndSampleSync(t *testing.T) {
+	a := testApp(t)
+	token := admin(t, a)
+	var mu sync.Mutex
+	config := wgTestConfig5x
+	enableOpenVPN := true
+	enableSSTP := false
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req M
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Error(err)
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		result := M{}
+		switch str(req["method"]) {
+		case "GetOpenVpnSstpConfig":
+			// Simulate SoftEther 5.x returning an empty OpenVPNPortList_str.
+			result = M{
+				"EnableOpenVPN_bool":  enableOpenVPN,
+				"OpenVPNPortList_str": "",
+				"EnableSSTP_bool":     enableSSTP,
+			}
+		case "SetOpenVpnSstpConfig":
+			p := object(req["params"])
+			enableOpenVPN = boolean(p["EnableOpenVPN_bool"])
+			enableSSTP = boolean(p["EnableSSTP_bool"])
+			result = M{
+				"EnableOpenVPN_bool":  enableOpenVPN,
+				"OpenVPNPortList_str": "",
+				"EnableSSTP_bool":     enableSSTP,
+			}
+		case "GetConfig":
+			result["FileName_str"] = "vpn_server.config"
+			result["FileData_bin"] = base64.StdEncoding.EncodeToString([]byte(config))
+		case "SetConfig":
+			raw, _ := base64.StdEncoding.DecodeString(str(object(req["params"])["FileData_bin"]))
+			config = string(raw)
+		case "MakeOpenVpnConfigFile":
+			result["Buffer_bin"] = base64.StdEncoding.EncodeToString(zipOf(t, map[string]string{
+				"hostopenvpn_remote_access_l3.ovpn": "client\nremote vpn123.softether.net 1194\n",
+			}))
+		default:
+			t.Errorf("unexpected RPC: %v", req["method"])
+		}
+		writeJSON(w, 200, M{"jsonrpc": "2.0", "id": req["id"], "result": result})
+	}))
+	defer server.Close()
+	target, _ := url.Parse(server.URL)
+	host, port, _ := strings.Cut(target.Host, ":")
+	a.saveConnection(host, int(integer(port)), ptr("vpn-secret"), "header")
+
+	// 1. Empty 5.x port list defaults to "1194".
+	status, out, _ := call(t, a, "GET", "/api/v1/server/openvpn", nil, token)
+	if status != 200 || str(out["OpenVPNPortList_str"]) != "1194" {
+		t.Fatalf("expected 5.x OpenVPNPortList_str fallback 1194, got %d %v", status, out)
+	}
+
+	// 2. Saving a custom port persists it, syncs PortsUDP, and updates .ovpn downloads.
+	status, out, _ = call(t, a, "PUT", "/api/v1/server/openvpn", M{
+		"EnableOpenVPN_bool":  true,
+		"OpenVPNPortList_str": "1195",
+		"EnableSSTP_bool":     true,
+	}, token)
+	if status != 200 || str(out["OpenVPNPortList_str"]) != "1195" {
+		t.Fatalf("PUT /server/openvpn failed: %d %v", status, out)
+	}
+
+	parsed, err := parseWireGuardState(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsPort(parsed.UDPPorts, 1195) {
+		t.Fatalf("expected 1195 synced to PortsUDP, got %v", parsed.UDPPorts)
+	}
+
+	status, out, _ = call(t, a, "POST", "/api/v1/server/openvpn/sample-config", M{"host": "vpn.example.com"}, token)
+	if status != 200 || !strings.Contains(str(out["config"]), "remote vpn.example.com 1195") {
+		t.Fatalf("expected .ovpn to use vpn.example.com 1195, got %d %v", status, out)
 	}
 }
