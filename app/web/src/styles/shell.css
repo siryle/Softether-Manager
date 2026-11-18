@@ -10,6 +10,7 @@
   display: flex;
   flex-direction: column;
   min-height: 100svh;
+  padding-top: var(--topbar-h);
   background: var(--bg-page);
   color: var(--text-primary);
 }
@@ -30,6 +31,13 @@
 }
 
 @media (min-width: 768px) {
+  .shell__body {
+    padding-inline-start: var(--rail-w);
+    transition: padding-inline-start var(--d-quick) var(--ease-out-quint);
+  }
+  .shell--collapsed .shell__body {
+    padding-inline-start: var(--rail-w-min);
+  }
   .shell__scroll {
     padding: var(--s7) var(--s8) var(--s12);
   }
@@ -38,8 +46,9 @@
 /* ═════════════════════════════════════════════════════════════════ topbar ══ */
 
 .topbar {
-  position: sticky;
+  position: fixed;
   top: 0;
+  inset-inline: 0;
   z-index: 40;
   display: flex;
   align-items: center;
@@ -414,17 +423,16 @@
 /* ════════════════════════════════════════════════════════════════ sidebar ══ */
 
 .side {
-  position: sticky;
+  position: fixed;
   top: var(--topbar-h);
-  height: calc(100vh - var(--topbar-h));
-  height: calc(100dvh - var(--topbar-h));
-  max-height: calc(100vh - var(--topbar-h));
-  max-height: calc(100dvh - var(--topbar-h));
+  inset-inline-start: 0;
+  bottom: 0;
+  z-index: 30;
   width: var(--rail-w);
   flex-shrink: 0;
   background: var(--bg-deep);
   border-right: 1px solid var(--border-hairline);
-  padding: 20px 12px 14px;
+  padding: 20px 10px 14px;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;

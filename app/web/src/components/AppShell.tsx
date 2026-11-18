@@ -100,7 +100,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="shell">
+    <div className={`shell${collapsed ? " shell--collapsed" : ""}`}>
       {/* ── Top Navigation Bar (56px Single-Row Precision Chrome) ─────── */}
       <header className="topbar">
         {/* Left: Identity + Slash + Server Switcher */}
