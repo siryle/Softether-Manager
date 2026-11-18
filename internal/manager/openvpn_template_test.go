@@ -67,6 +67,9 @@ func TestApplyOpenVPNEndpointRewritesRemoteLines(t *testing.T) {
 
 func TestApplyOpenVPNEndpointPortOnlyAndValidation(t *testing.T) {
 	in := "client\nremote auto.softether.net 1194\n"
+	if got := applyOpenVPNEndpoint(in, "vpn.example.com", 0); got != "client\nremote vpn.example.com 1194\n" {
+		t.Fatalf("host-only rewrite should preserve OpenVPN port, got: %q", got)
+	}
 	if got := applyOpenVPNEndpoint(in, "", 8443); got != "client\nremote auto.softether.net 8443\n" {
 		t.Fatalf("port-only rewrite mismatch: %q", got)
 	}

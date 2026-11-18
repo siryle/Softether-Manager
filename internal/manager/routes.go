@@ -196,8 +196,8 @@ func (a *App) registerCustomRPC() {
 			host = strings.TrimSpace(str(a.setting("vpn_public_host")))
 		}
 		port := int(integer(body["port"]))
-		if port <= 0 || port > 65535 {
-			port = int(integer(a.setting("vpn_public_port")))
+		if port < 0 || port > 65535 {
+			port = 0
 		}
 		out := a.rpc(r.Context(), "MakeOpenVpnConfigFile", nil)
 		raw, err := base64.StdEncoding.DecodeString(str(out["Buffer_bin"]))

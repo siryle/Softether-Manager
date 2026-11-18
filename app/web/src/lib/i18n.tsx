@@ -170,12 +170,12 @@ const zhCN: Record<string, string> = {
   "Public hostname or IP (e.g. vpn.example.com).": "服务器公网主机名或 IP（例如 vpn.example.com）。",
   "Public port": "公网端口",
   "Open port for VPN clients; default 443.": "VPN 客户端连接的公网端口；默认 443。",
-  "Used as the default server address and port for .ovpn and .vpn downloads. The public domain is also used as the endpoint address in WireGuard client configs.":
-    "用作下载 .ovpn、.vpn 客户端配置时的默认服务器地址与端口；公网域名同时作为 WireGuard 客户端配置中的服务器地址。",
+  "The public domain is used as the default server address for .vpn, .ovpn, and WireGuard client configs; the public port is used as the default port for .vpn downloads.":
+    "公网域名用作 .vpn、.ovpn 与 WireGuard 客户端配置的默认服务器地址；公网端口仅用作下载 .vpn 配置时的默认端口（.ovpn 沿用 OpenVPN UDP 端口设置）。",
   "Used as the default host for .ovpn, .vpn, and WireGuard client configs (e.g. vpn.example.com).":
     "用作 .ovpn、.vpn 与 WireGuard 客户端配置的默认服务器地址（例如 vpn.example.com）。",
-  "Default port for .ovpn and .vpn downloads; default 443.":
-    "下载 .ovpn、.vpn 配置时的默认端口；默认 443。",
+  "Default port for .vpn downloads; default 443 (.ovpn uses the OpenVPN UDP port setting).":
+    "下载 .vpn 配置时的默认端口；默认 443（.ovpn 沿用下方的 OpenVPN UDP 端口设置）。",
   "Public domain / host cannot contain spaces.": "公网域名 / 主机不能包含空格。",
   "Default .ovpn endpoint: {endpoint}": "默认 .ovpn 服务器与端口：{endpoint}",
   "Default .ovpn port: {port}. Set a public domain above to override the server address.":
@@ -1779,7 +1779,13 @@ const zhCN: Record<string, string> = {
   "WireGuard": "WireGuard",
   "Unsupported": "不支持",
   "WireGuard server": "WireGuard 服务器",
-  "Accepts WireGuard handshakes on the server's UDP listener ports. Changes apply via SetConfig and restart the service.": "在服务器的 UDP 监听端口上接收 WireGuard 握手。修改通过 SetConfig 下发并会重启服务。",
+  "Accepts WireGuard handshakes on the configured UDP port. Changes apply via SetConfig and restart the service.":
+    "在配置的 UDP 端口上接收 WireGuard 握手。修改通过 SetConfig 下发并会重启服务。",
+  "WireGuard UDP port": "WireGuard 端口",
+  "UDP port for WireGuard connections (default 51820). Saving automatically listens on this UDP port.":
+    "WireGuard 客户端连接的 UDP 端口（默认 51820）。保存后会自动监听该 UDP 端口并重启服务。",
+  "WireGuard port {port} is not currently listening. Click Save & restart to enable UDP listening automatically.":
+    "WireGuard 端口 {port} 当前尚未监听，可修改后保存以自动开启监听。",
   "Server UDP ports": "服务器 UDP 端口",
   "Comma-separated UDP ports listened by SoftEther (e.g. 51820).": "SoftEther 监听的 UDP 端口，逗号分隔（如 51820）。",
   "+ Add 51820": "+ 添加 51820",

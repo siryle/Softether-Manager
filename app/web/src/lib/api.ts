@@ -90,6 +90,8 @@ export interface WireGuardState {
   has_preshared_key?: boolean;
   udp_ports?: number[];
   default_udp_port?: number;
+  wireguard_port?: number;
+  wireguard_port_listening?: boolean;
   default_endpoint_host?: string;
   peers?: WireGuardPeer[];
   hub_networks?: WireGuardHubNetwork[];

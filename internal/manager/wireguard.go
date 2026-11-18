@@ -673,10 +673,71 @@ func pickWireGuardPort(ports []int) int {
 			return p
 		}
 	}
-	if len(ports) > 0 {
-		return ports[0]
-	}
 	return defaultWireGuardPort
+}
+
+func containsPort(ports []int, target int) bool {
+	for _, p := range ports {
+		if p == target {
+			return true
+		}
+	}
+	return false
+}
+
+// mergeWireGuardUDPPort ensures the selected WireGuard port is present in
+// SoftEther's PortsUDP listener list, replacing a prior non-reserved WireGuard
+// port while keeping standard SoftEther/OpenVPN listeners (443, 992, 1194, 5555).
+func mergeWireGuardUDPPort(existing []int, prevWGPort, nextWGPort int) []int {
+	reserved := map[int]bool{443: true, 992: true, 1194: true, 5555: true}
+	seen := map[int]bool{}
+	out := make([]int, 0, len(existing)+1)
+	for _, p := range existing {
+		if p < 1 || p > 65535 || seen[p] {
+			continue
+		}
+		if prevWGPort > 0 && prevWGPort != nextWGPort && p == prevWGPort && !reserved[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	if nextWGPort >= 1 && nextWGPort <= 65535 && !seen[nextWGPort] {
+		out = append(out, nextWGPort)
+	}
+	sort.Ints(out)
+	return out
+}
+
+func (a *App) savedWireguardPort(serverID int64) int {
+	raw := a.setting("wireguard_ports")
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return 0
+	}
+	p := int(integer(m[strconv.FormatInt(serverID, 10)]))
+	if p >= 1 && p <= 65535 {
+		return p
+	}
+	return 0
+}
+
+func (a *App) setWireguardPort(serverID int64, port int) {
+	next := M{}
+	if existing, ok := a.setting("wireguard_ports").(map[string]any); ok {
+		for k, v := range existing {
+			next[k] = v
+		}
+	}
+	next[strconv.FormatInt(serverID, 10)] = port
+	a.set("wireguard_ports", next)
+}
+
+func (a *App) wireguardPort(serverID int64, state *wgConfigState) int {
+	if saved := a.savedWireguardPort(serverID); saved > 0 {
+		return saved
+	}
+	return pickWireGuardPort(state.UDPPorts)
 }
 
 func buildWireGuardClientConfig(privateKey, address, dns, serverPub, presharedKey, endpointHost string, endpointPort int, allowedIPs string, keepalive int) string {
@@ -801,17 +862,20 @@ func (a *App) registerWireGuard() {
 		if defaultHost == "" {
 			defaultHost = str(conn["host"])
 		}
+		wgPort := a.wireguardPort(serverID, state)
 		return M{
-			"supported":             true,
-			"enabled":               state.Enabled,
-			"public_key":            state.PublicKey,
-			"preshared_key":         state.PresharedKey,
-			"has_preshared_key":     state.PresharedKey != "",
-			"udp_ports":             state.UDPPorts,
-			"default_udp_port":      pickWireGuardPort(state.UDPPorts),
-			"default_endpoint_host": defaultHost,
-			"peers":                 a.enrichWireGuardPeers(serverID, state),
-			"hub_networks":          state.HubNetworks,
+			"supported":                true,
+			"enabled":                  state.Enabled,
+			"public_key":               state.PublicKey,
+			"preshared_key":            state.PresharedKey,
+			"has_preshared_key":        state.PresharedKey != "",
+			"udp_ports":                state.UDPPorts,
+			"default_udp_port":         wgPort,
+			"wireguard_port":           wgPort,
+			"wireguard_port_listening": containsPort(state.UDPPorts, wgPort),
+			"default_endpoint_host":    defaultHost,
+			"peers":                    a.enrichWireGuardPeers(serverID, state),
+			"hub_networks":             state.HubNetworks,
 		}
 	})
 
@@ -836,6 +900,16 @@ func (a *App) registerWireGuard() {
 			patch.UDPPorts = ports
 			patch.HasUDPPorts = true
 		}
+		var wgPort int
+		hasWGPort := false
+		if v, exists := body["wireguard_port"]; exists {
+			p := int(integer(v))
+			if p < 1 || p > 65535 {
+				fail(422, "wireguard_port must be between 1 and 65535.")
+			}
+			wgPort = p
+			hasWGPort = true
+		}
 		if boolean(body["regenerate_preshared_key"]) {
 			k, err := wgGenerateRandomKey()
 			check(err)
@@ -858,13 +932,29 @@ func (a *App) registerWireGuard() {
 			check(err)
 			patch.PrivateKey = &priv
 		}
-		if patch.Enabled == nil && !patch.HasUDPPorts && patch.PresharedKey == nil && patch.PrivateKey == nil {
+		if patch.Enabled == nil && !patch.HasUDPPorts && !hasWGPort && patch.PresharedKey == nil && patch.PrivateKey == nil {
 			fail(422, "No WireGuard changes were requested.")
 		}
 
 		a.wgMu.Lock()
 		defer a.wgMu.Unlock()
+		serverID := a.serverIDFromContext(r.Context())
 		raw := a.fetchRawConfig(r.Context())
+		if hasWGPort {
+			state, err := parseWireGuardState(raw)
+			if err != nil {
+				fail(502, err.Error())
+			}
+			if !state.Supported {
+				fail(400, M{"message": "This SoftEther server does not expose WireGuard protocol settings.", "se_error": "UnsupportedError"})
+			}
+			prevWGPort := a.savedWireguardPort(serverID)
+			if !patch.HasUDPPorts {
+				patch.UDPPorts = mergeWireGuardUDPPort(state.UDPPorts, prevWGPort, wgPort)
+				patch.HasUDPPorts = true
+			}
+			a.setWireguardPort(serverID, wgPort)
+		}
 		updated, err := patchWireGuardServer(raw, patch)
 		check(err)
 		if updated == raw {
@@ -978,7 +1068,7 @@ func (a *App) registerWireGuard() {
 		}
 		endpointPort := int(integer(body["endpoint_port"]))
 		if endpointPort <= 0 || endpointPort > 65535 {
-			endpointPort = pickWireGuardPort(state.UDPPorts)
+			endpointPort = a.wireguardPort(serverID, state)
 		}
 		dns := strings.TrimSpace(str(body["dns"]))
 		if dns == "" {
@@ -1139,7 +1229,7 @@ func (a *App) registerWireGuard() {
 		}
 		endpointPort := int(integer(body["endpoint_port"]))
 		if endpointPort <= 0 || endpointPort > 65535 {
-			endpointPort = pickWireGuardPort(state.UDPPorts)
+			endpointPort = a.wireguardPort(serverID, state)
 		}
 		dns := strings.TrimSpace(str(body["dns"]))
 		if _, hasDNS := body["dns"]; !hasDNS {

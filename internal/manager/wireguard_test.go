@@ -314,7 +314,7 @@ func TestWireGuardEndpoints(t *testing.T) {
 		t.Fatalf("POST delete peer: %d %v", status, out)
 	}
 
-	// 9. Verify 4.x config reports supported=false
+	// Verify 4.x config reports supported=false
 	mu.Lock()
 	config = wgTestConfig4x
 	mu.Unlock()
@@ -324,5 +324,77 @@ func TestWireGuardEndpoints(t *testing.T) {
 	}
 	if saves != 4 {
 		t.Fatalf("expected 4 config saves, got %d", saves)
+	}
+}
+
+func TestWireGuardPortAutoListeners(t *testing.T) {
+	a := testApp(t)
+	token := admin(t, a)
+	var mu sync.Mutex
+	config := wgTestConfig5x
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req M
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Error(err)
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		result := M{}
+		switch str(req["method"]) {
+		case "GetConfig":
+			result["FileName_str"] = "vpn_server.config"
+			result["FileData_bin"] = base64.StdEncoding.EncodeToString([]byte(config))
+		case "SetConfig":
+			raw, err := base64.StdEncoding.DecodeString(str(object(req["params"])["FileData_bin"]))
+			if err != nil {
+				t.Error(err)
+			}
+			config = string(raw)
+		default:
+			t.Errorf("unexpected RPC: %v", req["method"])
+		}
+		writeJSON(w, 200, M{"jsonrpc": "2.0", "id": req["id"], "result": result})
+	}))
+	defer server.Close()
+	target, _ := url.Parse(server.URL)
+	host, port, _ := strings.Cut(target.Host, ":")
+	a.saveConnection(host, int(integer(port)), ptr("vpn-secret"), "header")
+
+	// Initial state defaults to 51820 even when PortsUDP has 443/992/1194/5555.
+	status, out, _ := call(t, a, "GET", "/api/v1/server/wireguard", nil, token)
+	if status != 200 || int(integer(out["wireguard_port"])) != 51820 || out["wireguard_port_listening"] != false {
+		t.Fatalf("unexpected initial wg port state: %d %v", status, out)
+	}
+
+	// Setting wireguard_port=51820 automatically adds 51820 to PortsUDP while keeping 443/992/1194/5555.
+	status, out, _ = call(t, a, "PUT", "/api/v1/server/wireguard", M{
+		"confirm_restart": true,
+		"wireguard_port":  51820,
+	}, token)
+	if status != 200 || out["restarting"] != true {
+		t.Fatalf("PUT wireguard_port=51820: %d %v", status, out)
+	}
+
+	status, out, _ = call(t, a, "GET", "/api/v1/server/wireguard", nil, token)
+	if status != 200 || int(integer(out["wireguard_port"])) != 51820 || out["wireguard_port_listening"] != true {
+		t.Fatalf("expected wireguard_port=51820 listening, got %d %v", status, out)
+	}
+
+	// Changing from 51820 -> 51822 replaces 51820 with 51822 in PortsUDP while keeping 443/992/1194/5555.
+	status, out, _ = call(t, a, "PUT", "/api/v1/server/wireguard", M{
+		"confirm_restart": true,
+		"wireguard_port":  51822,
+	}, token)
+	if status != 200 || out["restarting"] != true {
+		t.Fatalf("PUT wireguard_port=51822: %d %v", status, out)
+	}
+	parsed, err := parseWireGuardState(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsPort(parsed.UDPPorts, 51820) || !containsPort(parsed.UDPPorts, 51822) || !containsPort(parsed.UDPPorts, 443) {
+		t.Fatalf("unexpected PortsUDP after wg port switch: %v", parsed.UDPPorts)
 	}
 }
