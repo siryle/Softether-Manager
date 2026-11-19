@@ -157,10 +157,10 @@ func (a *App) registerConnection() {
 				pwd = &p
 			}
 			if action == "test" {
-				return a.testConnection(r.Context(), host, port, password, auth, boolean(row["SkipCertCheck"]))
+				return a.testConnection(r.Context(), host, port, password, auth)
 			}
 			if !boolean(body["skip_test"]) {
-				out := a.testConnection(r.Context(), host, port, password, auth, boolean(row["SkipCertCheck"]))
+				out := a.testConnection(r.Context(), host, port, password, auth)
 				auth = str(out["auth"])
 			}
 			a.savePublicEndpoint(r.Context(), body)

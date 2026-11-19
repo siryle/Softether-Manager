@@ -42,7 +42,6 @@ export interface ManagedServer {
   auth: string;
   is_enabled: boolean;
   is_default: boolean;
-  skip_cert_check: boolean;
   configured: boolean;
   sort_order?: number;
   created_date?: string;

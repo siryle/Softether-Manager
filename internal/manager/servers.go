@@ -31,12 +31,12 @@ func publicServer(row M) M {
 	if pubPort <= 0 {
 		pubPort = 443
 	}
-	return M{"id": row["ServerID"], "name": row["Name"], "host": row["Host"], "port": row["Port"], "auth": row["AuthType"], "is_enabled": boolean(row["IsEnabled"]), "is_default": boolean(row["IsDefault"]), "skip_cert_check": boolean(row["SkipCertCheck"]), "sort_order": row["SortOrder"], "public_host": str(row["PublicHost"]), "public_port": pubPort, "configured": str(row["EncryptedPassword"]) != "", "created_date": row["CreatedDate"], "updated_date": row["UpdatedDate"]}
+	return M{"id": row["ServerID"], "name": row["Name"], "host": row["Host"], "port": row["Port"], "auth": row["AuthType"], "is_enabled": boolean(row["IsEnabled"]), "is_default": boolean(row["IsDefault"]), "sort_order": row["SortOrder"], "public_host": str(row["PublicHost"]), "public_port": pubPort, "configured": str(row["EncryptedPassword"]) != "", "created_date": row["CreatedDate"], "updated_date": row["UpdatedDate"]}
 }
 
 func (a *App) serverInput(existing, body M) M {
 	row := clone(existing)
-	for key, column := range map[string]string{"name": "Name", "host": "Host", "port": "Port", "auth": "AuthType", "is_enabled": "IsEnabled", "is_default": "IsDefault", "skip_cert_check": "SkipCertCheck", "sort_order": "SortOrder"} {
+	for key, column := range map[string]string{"name": "Name", "host": "Host", "port": "Port", "auth": "AuthType", "is_enabled": "IsEnabled", "is_default": "IsDefault", "sort_order": "SortOrder"} {
 		if v, ok := body[key]; ok {
 			row[column] = v
 		}
@@ -47,7 +47,7 @@ func (a *App) serverInput(existing, body M) M {
 	}
 	host, port, auth := connectionInput(M{"host": row["Host"], "port": row["Port"], "auth": row["AuthType"], "password": body["password"]})
 	row["Host"], row["Port"], row["AuthType"] = host, port, auth
-	for _, key := range []string{"is_enabled", "is_default", "skip_cert_check"} {
+	for _, key := range []string{"is_enabled", "is_default"} {
 		if v, ok := body[key]; ok {
 			if _, valid := v.(bool); !valid {
 				fail(422, key+" must be a boolean.")
@@ -91,7 +91,7 @@ func (a *App) registerServers() {
 		}
 		a.endpoint(method+" "+path, func(w http.ResponseWriter, r *http.Request, u M) any {
 			body := readBody(w, r)
-			existing := M{"Host": "127.0.0.1", "Port": 5555, "AuthType": "", "EncryptedPassword": a.encrypt(""), "IsEnabled": true, "IsDefault": false, "SkipCertCheck": false, "SortOrder": 0}
+			existing := M{"Host": "127.0.0.1", "Port": 5555, "AuthType": "", "EncryptedPassword": a.encrypt(""), "IsEnabled": true, "IsDefault": false, "SortOrder": 0}
 			if method == "PUT" {
 				existing = a.serverRow(serverID(r))
 			}
@@ -106,7 +106,7 @@ func (a *App) registerServers() {
 			if !boolean(body["skip_test"]) && (method == "POST" || body["host"] != nil || body["port"] != nil || body["password"] != nil || body["auth"] != nil) {
 				pwd, err := a.decrypt(str(row["EncryptedPassword"]))
 				check(err)
-				out := a.testConnection(r.Context(), str(row["Host"]), int(integer(row["Port"])), pwd, str(row["AuthType"]), boolean(row["SkipCertCheck"]))
+				out := a.testConnection(r.Context(), str(row["Host"]), int(integer(row["Port"])), pwd, str(row["AuthType"]))
 				row["AuthType"] = out["auth"]
 			}
 			a.connectionMu.Lock()
@@ -141,12 +141,12 @@ func (a *App) registerServers() {
 			id := integer(existing["ServerID"])
 			if method == "POST" {
 				var result sql.Result
-				result, err = tx.Exec(`INSERT INTO Server(Name,Host,Port,EncryptedPassword,AuthType,IsEnabled,IsDefault,SkipCertCheck,SortOrder,CreatedDate,UpdatedDate) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, row["Name"], row["Host"], row["Port"], row["EncryptedPassword"], row["AuthType"], boolean(row["IsEnabled"]), boolean(row["IsDefault"]), boolean(row["SkipCertCheck"]), integer(row["SortOrder"]), stamp, stamp)
+				result, err = tx.Exec(`INSERT INTO Server(Name,Host,Port,EncryptedPassword,AuthType,IsEnabled,IsDefault,SortOrder,CreatedDate,UpdatedDate) VALUES(?,?,?,?,?,?,?,?,?,?)`, row["Name"], row["Host"], row["Port"], row["EncryptedPassword"], row["AuthType"], boolean(row["IsEnabled"]), boolean(row["IsDefault"]), integer(row["SortOrder"]), stamp, stamp)
 				check(err)
 				id, err = result.LastInsertId()
 				check(err)
 			} else {
-				_, err = tx.Exec(`UPDATE Server SET Name=?,Host=?,Port=?,EncryptedPassword=?,AuthType=?,IsEnabled=?,IsDefault=?,SkipCertCheck=?,SortOrder=?,UpdatedDate=? WHERE ServerID=?`, row["Name"], row["Host"], row["Port"], row["EncryptedPassword"], row["AuthType"], boolean(row["IsEnabled"]), boolean(row["IsDefault"]), boolean(row["SkipCertCheck"]), integer(row["SortOrder"]), stamp, id)
+				_, err = tx.Exec(`UPDATE Server SET Name=?,Host=?,Port=?,EncryptedPassword=?,AuthType=?,IsEnabled=?,IsDefault=?,SortOrder=?,UpdatedDate=? WHERE ServerID=?`, row["Name"], row["Host"], row["Port"], row["EncryptedPassword"], row["AuthType"], boolean(row["IsEnabled"]), boolean(row["IsDefault"]), integer(row["SortOrder"]), stamp, id)
 				check(err)
 			}
 			check(tx.Commit())
@@ -163,9 +163,6 @@ func (a *App) registerServers() {
 				action = "server.created"
 			}
 			a.audit(u, action, "server", str(row["Name"]), str(row["Host"]), id)
-			if boolean(row["SkipCertCheck"]) && !boolean(existing["SkipCertCheck"]) {
-				a.audit(u, "server.certificate_check_disabled", "server", str(row["Name"]), str(row["Host"]), id)
-			}
 			return publicServer(a.serverRow(id))
 		})
 	}
@@ -214,7 +211,7 @@ func (a *App) registerServers() {
 		body := readBody(w, r)
 		host, port, auth := connectionInput(body)
 		start := time.Now()
-		out := a.testConnection(r.Context(), host, port, str(body["password"]), auth, boolean(body["skip_cert_check"]))
+		out := a.testConnection(r.Context(), host, port, str(body["password"]), auth)
 		out["rtt_ms"] = time.Since(start).Milliseconds()
 		return out
 	})
@@ -231,7 +228,7 @@ func (a *App) registerServers() {
 			pwd = str(v)
 		}
 		start := time.Now()
-		out := a.testConnection(r.Context(), host, port, pwd, auth, boolean(withDefault(body, "skip_cert_check", row["SkipCertCheck"])))
+		out := a.testConnection(r.Context(), host, port, pwd, auth)
 		out["rtt_ms"] = time.Since(start).Milliseconds()
 		return out
 	})
