@@ -1974,6 +1974,8 @@ const zhCN: Record<string, string> = {
   "Monitoring settings": "监控设置",
   "Session audit records": "会话审计记录",
   "IP / Location": "IP / 属地",
+  "SoftEther 5.x (--foreground mode, common on OpenWrt/Docker/systemd) writes logs to stdout instead of disk .log files, so EnumLogFile returns 0 files. Check system logs (logread / docker logs / journalctl) or configure Syslog forwarding.": "检测到 SoftEther 5.x 开发版：当其以 --foreground 前台模式运行（OpenWrt、Docker、systemd 常见方式）时，日志仅输出到标准输出而不落盘为 .log 文件，因此 EnumLogFile 返回 0 个文件。请在宿主机查看系统日志（logread / docker logs / journalctl），或在服务器配置中开启 Syslog 转发。",
+  "Logging may be switched off, running in foreground stdout mode (SoftEther 5.x --foreground), or pruned when free disk space drops below 100 MB.": "日志功能可能未开启、正以 SoftEther 5.x 前台标准输出模式（--foreground）运行而未落盘，或因可用磁盘空间低于 100 MB 被自动清理。",
 };
 
 interface I18nApi {

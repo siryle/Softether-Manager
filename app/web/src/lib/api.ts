@@ -582,10 +582,10 @@ function apiMethods(request: typeof sendRequest) {
   addEtherip: (body: Wire) => request("POST", "/server/etherip", body),
   deleteEtherip: (key: string) => request("DELETE", `/server/etherip/${encodeURIComponent(key)}`),
   logFiles: () => request("GET", "/server/logs"),
-  readLog: (path: string, offset = 0) =>
+  readLog: (path: string, offset = 0, server = "") =>
     request<{ path: string; offset: number; text: string; bytes: number }>(
       "GET",
-      `/server/logs/read?path=${encodeURIComponent(path)}&offset=${offset}`,
+      `/server/logs/read?path=${encodeURIComponent(path)}&offset=${offset}${server ? `&server=${encodeURIComponent(server)}` : ""}`,
     ),
   getConfig: () => request<{ filename: string; config_base64: string }>("GET", "/server/config"),
   setConfig: (config_base64: string) => request("PUT", "/server/config", { config_base64 }),

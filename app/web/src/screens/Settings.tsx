@@ -606,7 +606,7 @@ function MonitoringCard() {
   );
 }
 
-function AuditCard() {
+export function AuditCard() {
   const { t } = useI18n();
   const [rows, setRows] = useState<Wire[] | null>(null);
   const [exhausted, setExhausted] = useState(false);

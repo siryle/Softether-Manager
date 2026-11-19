@@ -186,6 +186,9 @@ func (a *App) registerCustomRPC() {
 		if offset != 0 {
 			p["Offset_u32"] = offset
 		}
+		if server := strings.TrimSpace(r.URL.Query().Get("server")); server != "" {
+			p["ServerName_str"] = server
+		}
 		out := a.rpc(r.Context(), "ReadLogFile", p)
 		raw, err := base64.StdEncoding.DecodeString(str(out["Buffer_bin"]))
 		if err != nil {

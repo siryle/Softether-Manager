@@ -1288,3 +1288,15 @@
   font-size: 11.5px;
   color: var(--text-muted);
 }
+.logs-empty-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+.logs-empty-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
