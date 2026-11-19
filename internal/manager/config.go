@@ -17,6 +17,8 @@ type Config struct {
 	CORS                                                                                             []string
 	SEHost, SEPassword, SEAuth, AdminUsername, AdminPassword                                         string
 	SEPort                                                                                           int
+	SEDir, SEChainCertsDir                                                                           string
+	ChainCertSearchDirs                                                                              []string
 }
 
 func env(key, fallback string) string {
@@ -73,6 +75,6 @@ func LoadConfig() Config {
 	if database == "" {
 		database = filepath.Join(data, "manager.db")
 	}
-	return Config{Root: root, DataDir: data, Database: database, BindHost: env("SEM_BIND_HOST", "0.0.0.0"), BindPort: envInt("SEM_BIND_PORT", 8000), WebPath: strings.Trim(env("SEM_WEB_PATH", ""), "/"), SecretKey: env("SEM_SECRET_KEY", ""), EncryptionKey: env("SEM_ENCRYPTION_PASSPHRASE", ""), SessionMinutes: envInt("SEM_SESSION_EXPIRE_MINUTES", 10080), Version: version, Repo: installedRepository(), ServiceName: env("SEM_SERVICE_NAME", "softether-manager"), CORS: strings.Split(env("SEM_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"), ","), SEHost: env("SEM_SE_HOST", "127.0.0.1"), SEPort: envInt("SEM_SE_PORT", 5555), SEPassword: env("SEM_SE_PASSWORD", ""), SEAuth: env("SEM_SE_AUTH", "header"), AdminUsername: env("SEM_ADMIN_USERNAME", ""), AdminPassword: env("SEM_ADMIN_PASSWORD", "")}
+	return Config{Root: root, DataDir: data, Database: database, BindHost: env("SEM_BIND_HOST", "0.0.0.0"), BindPort: envInt("SEM_BIND_PORT", 8000), WebPath: strings.Trim(env("SEM_WEB_PATH", ""), "/"), SecretKey: env("SEM_SECRET_KEY", ""), EncryptionKey: env("SEM_ENCRYPTION_PASSPHRASE", ""), SessionMinutes: envInt("SEM_SESSION_EXPIRE_MINUTES", 10080), Version: version, Repo: installedRepository(), ServiceName: env("SEM_SERVICE_NAME", "softether-manager"), CORS: strings.Split(env("SEM_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"), ","), SEHost: env("SEM_SE_HOST", "127.0.0.1"), SEPort: envInt("SEM_SE_PORT", 5555), SEPassword: env("SEM_SE_PASSWORD", ""), SEAuth: env("SEM_SE_AUTH", "header"), AdminUsername: env("SEM_ADMIN_USERNAME", ""), AdminPassword: env("SEM_ADMIN_PASSWORD", ""), SEDir: env("SEM_SE_DIR", ""), SEChainCertsDir: env("SEM_SE_CHAIN_CERTS_DIR", ""), ChainCertSearchDirs: []string{"/opt/vpnserver", "/usr/local/vpnserver", "/usr/vpnserver", "/opt/softether/vpnserver", "/usr/local/libexec/softether/vpnserver", "/var/lib/softether"}}
 }
 func now() string { return time.Now().UTC().Format("2006-01-02T15:04:05+00:00") }

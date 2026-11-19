@@ -35,6 +35,7 @@ type tlsManager struct {
 	http, https                       *http.Server
 	httpsPort                         int
 	certSerial                        string
+	chainSyncKey                      string
 	httpError, httpsError, httpsSince string
 	tokens                            map[string]string
 	busy, requested                   bool
@@ -137,33 +138,49 @@ func resolveCertHookPath(rootDir, dataDir, candidate string) (string, error) {
 		return "", httpError{422, "Certificate renewal hook must be a script path under ssl/, not a shell command."}
 	}
 	roots := certHookAllowedRoots(rootDir, dataDir)
-	tryPath := cleaned
-	if !filepath.IsAbs(tryPath) && len(roots) > 0 {
-		// Relative paths like "ssl/hook.sh" or "hook.sh" resolve relative to root/data.
-		if strings.HasPrefix(tryPath, "ssl/") || strings.HasPrefix(tryPath, "ssl\\") {
-			tryPath = filepath.Join(filepath.Dir(roots[0]), tryPath)
-		} else {
-			tryPath = filepath.Join(roots[0], tryPath)
+	isRooted := filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "/") || strings.HasPrefix(cleaned, "\\")
+	var candidates []string
+	if isRooted {
+		candidates = []string{cleaned}
+	} else {
+		for _, r := range roots {
+			if strings.HasPrefix(cleaned, "ssl/") || strings.HasPrefix(cleaned, "ssl\\") {
+				candidates = append(candidates, filepath.Join(filepath.Dir(r), cleaned))
+			} else {
+				candidates = append(candidates, filepath.Join(r, cleaned))
+			}
 		}
 	}
-	abs, err := filepath.Abs(filepath.Clean(tryPath))
-	if err != nil {
-		return "", httpError{422, "Invalid certificate renewal hook path."}
-	}
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		abs = resolved
-	}
-	for _, r := range roots {
-		base := r
-		if resolvedBase, err := filepath.EvalSymlinks(r); err == nil {
-			base = resolvedBase
+	var validPaths []string
+	for _, tryPath := range candidates {
+		abs, err := filepath.Abs(filepath.Clean(tryPath))
+		if err != nil {
+			continue
 		}
-		rel, err := filepath.Rel(base, abs)
-		if err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return abs, nil
+		if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+			abs = resolved
+		}
+		for _, r := range roots {
+			base := r
+			if resolvedBase, err := filepath.EvalSymlinks(r); err == nil {
+				base = resolvedBase
+			}
+			rel, err := filepath.Rel(base, abs)
+			if err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				validPaths = append(validPaths, abs)
+				break
+			}
 		}
 	}
-	return "", httpError{422, "Certificate renewal hook path must stay inside the ssl/ directory."}
+	if len(validPaths) == 0 {
+		return "", httpError{422, "Certificate renewal hook path must stay inside the ssl/ directory."}
+	}
+	for _, p := range validPaths {
+		if fileExists(p) {
+			return p, nil
+		}
+	}
+	return validPaths[0], nil
 }
 
 func validateCertRenewHook(rootDir, dataDir, raw string) string {
@@ -205,11 +222,33 @@ func (m *tlsManager) pushCertToServer(ctx context.Context, domain string, chain,
 		return err
 	}
 
+	if boolean(m.app.setting("cert_ssh_sync")) {
+		sshCfg, err := m.app.sshConfigFor(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("SSH chain_certs sync: %w", err)
+		}
+		if _, _, err := m.app.syncRemoteChainCertsSSH(ctx, sshCfg, chain); err != nil {
+			return fmt.Errorf("SSH chain_certs sync: %w", err)
+		}
+		if fp := fingerprintOfPEM(chain); fp != "" && len(extractIntermediatePEMs(chain)) > 0 {
+			m.mu.Lock()
+			m.state["deployment_chain_key"] = fmt.Sprintf("%d:%s:%s", id, domain, fp)
+			m.persistLocked()
+			m.mu.Unlock()
+		}
+	}
+
 	hookCmd := strings.TrimSpace(str(m.app.setting("cert_renew_hook")))
 	if hookCmd == "" {
-		candidate := filepath.Join(m.app.cfg.Root, "ssl", "hook.sh")
-		if fi, err := os.Stat(candidate); err == nil && !fi.IsDir() {
-			hookCmd = candidate
+		for _, base := range []string{m.app.cfg.DataDir, m.app.cfg.Root} {
+			if strings.TrimSpace(base) == "" {
+				continue
+			}
+			candidate := filepath.Join(base, "ssl", "hook.sh")
+			if fileExists(candidate) {
+				hookCmd = candidate
+				break
+			}
 		}
 	}
 	if hookCmd != "" {
@@ -225,14 +264,32 @@ func (m *tlsManager) pushCertToServer(ctx context.Context, domain string, chain,
 		if err := writeSSLCopy(sslDir, domain, chain, keyPEM); err != nil {
 			return fmt.Errorf("certificate deployment script files: %w", err)
 		}
+		chainDir := filepath.Join(sslDir, "chain", domain)
+		if _, err := writeIntermediateChainFiles(chainDir, chain); err != nil {
+			return fmt.Errorf("certificate deployment chain files: %w", err)
+		}
+		serverHost := ""
+		_ = recoverAsError(func() error {
+			serverHost = str(m.app.connection(ctx)["host"])
+			return nil
+		})
 		cmd := exec.CommandContext(ctx, hookPath)
 		cmd.Env = append(os.Environ(),
 			"CERT_DOMAIN="+domain,
 			"CERT_PEM="+filepath.Join(sslDir, domain+".pem"),
 			"CERT_KEY="+filepath.Join(sslDir, domain+".key"),
 			"CERT_BUNDLE="+filepath.Join(sslDir, domain+".pem.key"),
+			"CERT_CHAIN_DIR="+chainDir,
+			"SE_SERVER_HOST="+serverHost,
 		)
-		if err := cmd.Run(); err != nil {
+		if output, err := cmd.CombinedOutput(); err != nil {
+			msg := strings.TrimSpace(string(output))
+			if len(msg) > 300 {
+				msg = "..." + msg[len(msg)-300:]
+			}
+			if msg != "" {
+				return fmt.Errorf("certificate deployment script: %w (%s)", err, msg)
+			}
 			return fmt.Errorf("certificate deployment script: %w", err)
 		}
 	}
@@ -265,6 +322,9 @@ func (a *App) installServerCertificate(ctx context.Context, chain, key []byte) (
 	out, err := client.Call(ctx, "SetServerCert", M{"Cert_bin": base64.StdEncoding.EncodeToString(chain), "Key_bin": base64.StdEncoding.EncodeToString(key)})
 	if err != nil {
 		return nil, err
+	}
+	if _, chainErr := syncSoftEtherChainCerts(a.cfg, client.host, certPEM); chainErr != nil {
+		logTLS(chainErr)
 	}
 	a.connectionMu.Lock()
 	defer a.connectionMu.Unlock()
@@ -599,6 +659,16 @@ func (m *tlsManager) start(ctx context.Context) {
 
 const certificateDeploymentKey contextKey = "automatic_certificate_deployment"
 
+func (m *tlsManager) syncChainCertsForServer(host, key string, chain []byte) {
+	if _, err := syncSoftEtherChainCerts(m.app.cfg, host, chain); err != nil {
+		logTLS(err)
+		return
+	}
+	m.mu.Lock()
+	m.chainSyncKey = key
+	m.mu.Unlock()
+}
+
 func (m *tlsManager) deployCertificate(ctx context.Context, domain string) {
 	a := m.app
 	id := integer(a.setting("cert_push_server_id"))
@@ -614,8 +684,16 @@ func (m *tlsManager) deployCertificate(ctx context.Context, domain string) {
 	previousKey := str(m.state["deployment_key"])
 	previousAttempt := parseTime(str(m.state["deployment_attempt_at"]))
 	deployed := str(m.state["deployment_error"]) == ""
+	chainSynced := m.chainSyncKey == key
 	m.mu.Unlock()
 	if key == previousKey && (deployed || time.Since(previousAttempt) < time.Minute) {
+		if deployed && !chainSynced {
+			_ = recoverAsError(func() error {
+				conn := a.connection(context.WithValue(ctx, serverIDKey, id))
+				m.syncChainCertsForServer(str(conn["host"]), key, tlsCertChainPEM(cert))
+				return nil
+			})
+		}
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.WithValue(ctx, serverIDKey, id), 45*time.Second)
@@ -628,6 +706,8 @@ func (m *tlsManager) deployCertificate(ctx context.Context, domain string) {
 	if err != nil {
 		m.state["deployment_error"] = err.Error()
 		logTLS(err)
+	} else {
+		m.chainSyncKey = key
 	}
 	m.persistLocked()
 }
@@ -637,10 +717,7 @@ func (m *tlsManager) pushDomainCertificate(ctx context.Context, domain string) e
 	if cert == nil || boolean(info["stale"]) || boolean(info["staging"]) {
 		return httpError{409, "A current production certificate is required before pushing to SoftEther."}
 	}
-	var chain []byte
-	for _, der := range cert.Certificate {
-		chain = append(chain, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})...)
-	}
+	chain := tlsCertChainPEM(cert)
 	var keyPEM []byte
 	switch key := cert.PrivateKey.(type) {
 	case *rsa.PrivateKey:
@@ -886,6 +963,16 @@ func loadOrCreateKey(path string) (crypto.Signer, error) {
 	}
 	return key, atomicWrite(path, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0600)
 }
+func (m *tlsManager) isRemoteChainSynced(serverID int64, domain, fingerprint string) bool {
+	if m == nil || serverID <= 0 || domain == "" || fingerprint == "" {
+		return false
+	}
+	want := fmt.Sprintf("%d:%s:%s", serverID, domain, fingerprint)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return str(m.state["deployment_chain_key"]) == want
+}
+
 func (m *tlsManager) status(r *http.Request) M {
 	a := m.app
 	domain := m.effectiveDomain()
@@ -927,6 +1014,18 @@ func (m *tlsManager) status(r *http.Request) M {
 		"cert_push_server_id": a.setting("cert_push_server_id"),
 		"deployment_error":    str(m.state["deployment_error"]),
 		"cert_renew_hook":     a.setting("cert_renew_hook"),
+		"cert_ssh_sync":          a.setting("cert_ssh_sync"),
+		"cert_ssh_host":          a.setting("cert_ssh_host"),
+		"cert_ssh_port":          a.setting("cert_ssh_port"),
+		"cert_ssh_user":          a.setting("cert_ssh_user"),
+		"cert_ssh_auth_type":     a.setting("cert_ssh_auth_type"),
+		"cert_ssh_key":           "",
+		"has_cert_ssh_key":       a.secretSetting("cert_ssh_key") != "",
+		"cert_ssh_public_key":    sshPublicKeyLine(a.secretSetting("cert_ssh_key")),
+		"cert_ssh_password":      "",
+		"has_cert_ssh_password":  a.secretSetting("cert_ssh_password") != "",
+		"cert_ssh_remote_dir":    a.setting("cert_ssh_remote_dir"),
+		"cert_ssh_host_key":      a.setting("cert_ssh_host_key"),
 		"vpn_public_host":     conn["public_host"],
 		"vpn_public_port":     conn["public_port"],
 		"ssl_dir":             sslDir,

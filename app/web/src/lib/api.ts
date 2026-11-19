@@ -111,7 +111,7 @@ export class ApiError extends Error {
 export type Wire = Record<string, any>;
 
 async function request<T = Wire>(method: string, path: string, body?: unknown, binary = false, serverId = getStoredServerId()): Promise<T> {
-  const scoped = path === "/system/domain/push-cert" || (!path.startsWith("/auth/") && !path.startsWith("/system/") && !path.startsWith("/servers"));
+  const scoped = path === "/system/domain/push-cert" || path === "/system/domain/test-ssh" || (!path.startsWith("/auth/") && !path.startsWith("/system/") && !path.startsWith("/servers"));
   const assertServer = () => {
     if (scoped && (serverId === null || serverId !== getStoredServerId())) throw new DOMException("Server changed", "AbortError");
   };
@@ -323,6 +323,18 @@ export interface DomainStatus {
   cert_push_server_id?: number;
   deployment_error?: string;
   cert_renew_hook?: string;
+  cert_ssh_sync?: boolean;
+  cert_ssh_host?: string;
+  cert_ssh_port?: number;
+  cert_ssh_user?: string;
+  cert_ssh_auth_type?: "key" | "password";
+  cert_ssh_key?: string;
+  has_cert_ssh_key?: boolean;
+  cert_ssh_public_key?: string;
+  cert_ssh_password?: string;
+  has_cert_ssh_password?: boolean;
+  cert_ssh_remote_dir?: string;
+  cert_ssh_host_key?: string;
   vpn_public_host?: string;
   vpn_public_port?: number;
   ssl_dir?: string;
@@ -342,6 +354,15 @@ export interface DomainIn {
   cert_auto_push?: boolean;
   cert_push_server_id?: number;
   cert_renew_hook?: string;
+  cert_ssh_sync?: boolean;
+  cert_ssh_host?: string;
+  cert_ssh_port?: number;
+  cert_ssh_user?: string;
+  cert_ssh_auth_type?: "key" | "password";
+  cert_ssh_key?: string;
+  cert_ssh_password?: string;
+  cert_ssh_remote_dir?: string;
+  reset_cert_ssh_host_key?: boolean;
 }
 
 const hubPath = (hub: string) => `/hubs/${encodeURIComponent(hub)}`;
@@ -391,6 +412,17 @@ function apiMethods(request: typeof sendRequest) {
   issueCertificate: () => request<DomainStatus>("POST", "/system/domain/issue"),
   checkDomain: () => request<DomainStatus>("POST", "/system/domain/check"),
   pushDomainCert: () => request<{ ok: boolean; message: string }>("POST", "/system/domain/push-cert"),
+  generateDomainSshKey: () => request<{ ok: boolean; public_key: string; has_cert_ssh_key: boolean }>("POST", "/system/domain/ssh-keygen"),
+  testDomainSsh: (body?: {
+    cert_ssh_host?: string;
+    cert_ssh_port?: number;
+    cert_ssh_user?: string;
+    cert_ssh_auth_type?: "key" | "password";
+    cert_ssh_key?: string;
+    cert_ssh_password?: string;
+    cert_ssh_remote_dir?: string;
+    reset_host_key?: boolean;
+  }) => request<{ ok: boolean; remote_dir: string; fingerprint: string; host_key: string }>("POST", "/system/domain/test-ssh", body ?? {}),
   audit: (beforeId = 0) =>
     request<Wire[]>("GET", `/system/audit?limit=100${beforeId ? `&before_id=${beforeId}` : ""}`),
 

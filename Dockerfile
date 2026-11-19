@@ -17,8 +17,8 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags="-s -w" -o /softether-manager ./cmd/softether-manager
 
 FROM alpine:3.22
-RUN apk add --no-cache ca-certificates \
-    && mkdir -p /data /app/data \
+RUN apk add --no-cache ca-certificates openssh-client \
+    && mkdir -p /data /app/data /app/scripts \
     && ln -s /usr/local/bin/softether-manager /usr/local/bin/sem \
     && (wget -q --timeout=15 -O /app/data/ip2region.xdb https://cdn.jsdelivr.net/gh/lionsoul2014/ip2region@master/data/ip2region_v4.xdb || true)
 WORKDIR /app
@@ -29,6 +29,8 @@ ENV SEM_APP_ROOT=/app \
     SEM_CLI_PATH=/usr/local/bin/sem
 COPY --from=backend /softether-manager /usr/local/bin/softether-manager
 COPY --from=frontend /build/out /app/app/web/out
+COPY --chmod=755 scripts/sync-chain-certs-ssh.sh /app/scripts/sync-chain-certs-ssh.sh
+COPY scripts/ssh-sync.env.example /app/scripts/ssh-sync.env.example
 COPY VERSION /app/VERSION
 ARG RELEASE_VERSION
 RUN if [ -n "$RELEASE_VERSION" ]; then printf '%s\n' "$RELEASE_VERSION" > /app/VERSION; fi

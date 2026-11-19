@@ -10,7 +10,7 @@ import { useToast } from "../lib/toast";
 import { formatBytes, formatIPLocation, hasIPLocation, timeAgo } from "../lib/util";
 import { IconClose, IconRefresh } from "../ui/Icon";
 import { Pill } from "../ui/Status";
-import { cleanHost, EndpointCell, formatSessionPorts, parseClientInfo, SessionSheet } from "./hub/HubSessions";
+import { cleanHost, EndpointCell, parseClientInfo, SessionSheet } from "./hub/HubSessions";
 
 /**
  * Aggregated online clients view across all Virtual Hubs.
@@ -125,7 +125,6 @@ export function AllClients() {
                       <th>{t("User")}</th>
                       <th>{t("Virtual HUB")}</th>
                       <th>{t("IP / Host")}</th>
-                      <th>{t("Server / Client port")}</th>
                       <th>{t("Packets")}</th>
                       <th>{t("Transfer")}</th>
                       <th>{t("Started")}</th>
@@ -194,7 +193,6 @@ export function AllClients() {
                               host={cleanHost(s)}
                             />
                           </td>
-                          <td className="tmono">{formatSessionPorts(s)}</td>
                           <td className="tmono">{Number(s.PacketNum_u64 ?? s.NumPacket_u32 ?? 0).toLocaleString()}</td>
                           <td className="tmono">{formatBytes(Number(s.PacketSize_u64 ?? 0))}</td>
                           <td className="tmono">{timeAgo(s.CreatedTime_dt as string)}</td>

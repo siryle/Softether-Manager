@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"golang.org/x/crypto/ssh"
 )
 
 var settingBounds = map[string][2]int64{"resource_interval_seconds": {1, 3600}, "resource_history_points": {10, 2000}, "sample_interval_minutes": {1, 1440}, "sample_retention_days": {1, 3650}, "session_interval_seconds": {5, 3600}, "session_history_retention_days": {1, 3650}, "quota_interval_seconds": {10, 3600}, "ui_live_seconds": {1, 3600}, "ui_detail_seconds": {1, 3600}, "ui_list_seconds": {1, 3600}, "update_check_interval_hours": {1, 168}}
@@ -114,11 +116,23 @@ func (a *App) registerSystem() {
 				fail(422, "Invalid email address.")
 			}
 		}
-		for _, key := range []string{"domain_only", "acme_staging", "cert_auto_push"} {
+		for _, key := range []string{"domain_only", "acme_staging", "cert_auto_push", "cert_ssh_sync"} {
 			if v, ok := body[key]; ok && v != nil {
 				if _, valid := v.(bool); !valid {
 					fail(422, key+" must be a boolean.")
 				}
+			}
+		}
+		if v, ok := body["cert_ssh_port"]; ok && v != nil {
+			p := integer(v)
+			if number(v) != float64(p) || p < 1 || p > 65535 {
+				fail(422, "SSH port must be between 1 and 65535.")
+			}
+		}
+		if v, ok := body["cert_ssh_auth_type"]; ok && v != nil {
+			authType := strings.TrimSpace(str(v))
+			if authType != "key" && authType != "password" {
+				fail(422, "SSH auth type must be key or password.")
 			}
 		}
 		if boolean(body["domain_only"]) && !boolean(a.setting("domain_only")) {
@@ -138,7 +152,13 @@ func (a *App) registerSystem() {
 			a.tls.state = M{}
 			a.tls.mu.Unlock()
 		}
-		for _, key := range []string{"https_port", "acme_email", "acme_staging", "domain_only", "acme_challenge_type", "cf_dns_token", "cert_key_type", "cert_auto_push", "cert_renew_hook"} {
+		prevSSHHost := str(a.setting("cert_ssh_host"))
+		prevSSHPort := integer(a.setting("cert_ssh_port"))
+		for _, key := range []string{
+			"https_port", "acme_email", "acme_staging", "domain_only", "acme_challenge_type", "cf_dns_token",
+			"cert_key_type", "cert_auto_push", "cert_renew_hook",
+			"cert_ssh_sync", "cert_ssh_host", "cert_ssh_port", "cert_ssh_user", "cert_ssh_auth_type", "cert_ssh_key", "cert_ssh_password", "cert_ssh_remote_dir",
+		} {
 			if v, ok := body[key]; ok && v != nil {
 				if key == "acme_email" {
 					v = strings.TrimSpace(str(v))
@@ -147,6 +167,38 @@ func (a *App) registerSystem() {
 					a.setSecretSetting("cf_dns_token", str(v))
 					changed = append(changed, key)
 					continue
+				}
+				if key == "cert_ssh_key" {
+					trimmedKey := strings.TrimSpace(str(v))
+					if trimmedKey != "" {
+						if _, err := ssh.ParsePrivateKey([]byte(trimmedKey)); err != nil {
+							fail(422, "Invalid SSH private key: "+err.Error())
+						}
+					}
+					a.setSecretSetting("cert_ssh_key", trimmedKey)
+					changed = append(changed, key)
+					continue
+				}
+				if key == "cert_ssh_password" {
+					a.setSecretSetting("cert_ssh_password", str(v))
+					changed = append(changed, key)
+					continue
+				}
+				if key == "cert_ssh_host" {
+					v = validateSSHHost(str(v))
+				}
+				if key == "cert_ssh_user" {
+					uName := strings.TrimSpace(str(v))
+					if strings.ContainsAny(uName, " \t\r\n\x00@") {
+						fail(422, "Invalid SSH username.")
+					}
+					if uName == "" {
+						uName = "root"
+					}
+					v = uName
+				}
+				if key == "cert_ssh_remote_dir" {
+					v = validateSSHRemoteDir(str(v))
 				}
 				if key == "cert_renew_hook" {
 					hook := validateCertRenewHook(a.cfg.Root, a.cfg.DataDir, str(v))
@@ -160,6 +212,9 @@ func (a *App) registerSystem() {
 				a.set(key, v)
 				changed = append(changed, key)
 			}
+		}
+		if boolean(body["reset_cert_ssh_host_key"]) || str(a.setting("cert_ssh_host")) != prevSSHHost || integer(a.setting("cert_ssh_port")) != prevSSHPort {
+			a.set("cert_ssh_host_key", "")
 		}
 		if v, ok := body["cert_push_server_id"]; ok && v != nil {
 			id := integer(v)
@@ -212,6 +267,25 @@ func (a *App) registerSystem() {
 		check(a.tls.pushDomainCertificate(r.Context(), domain))
 		a.audit(u, "domain.certificate_pushed", "server", domain, "SetServerCert")
 		return M{"ok": true, "message": "Certificate pushed to SoftEther VPN Server successfully."}
+	})
+	a.endpoint("POST /system/domain/ssh-keygen", func(_ http.ResponseWriter, _ *http.Request, u M) any {
+		privPEM, pubLine, err := generateEd25519SSHKeyPair()
+		check(err)
+		a.setSecretSetting("cert_ssh_key", privPEM)
+		a.set("cert_ssh_auth_type", "key")
+		a.audit(u, "domain.ssh_key_generated", "panel", "cert_ssh_key", "")
+		return M{"ok": true, "public_key": pubLine, "has_cert_ssh_key": true}
+	})
+	a.endpoint("POST /system/domain/test-ssh", func(w http.ResponseWriter, r *http.Request, _ M) any {
+		body := readBody(w, r)
+		remoteDir, fp, err := a.testRemoteSSHSync(r.Context(), body)
+		if err != nil {
+			if _, ok := err.(httpError); ok {
+				panic(err)
+			}
+			fail(502, err.Error())
+		}
+		return M{"ok": true, "remote_dir": remoteDir, "fingerprint": fp, "host_key": a.setting("cert_ssh_host_key")}
 	})
 	a.endpoint("POST /system/domain/check", func(_ http.ResponseWriter, r *http.Request, _ M) any {
 		domain := str(a.setting("domain"))

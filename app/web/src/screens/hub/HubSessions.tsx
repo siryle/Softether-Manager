@@ -49,22 +49,6 @@ export function cleanHost(d: Wire): string {
   return h;
 }
 
-function normalizePort(v: unknown): number {
-  const n = Number(v ?? 0);
-  if (!Number.isFinite(n) || n <= 0) return 0;
-  if (n <= 65535) return Math.trunc(n);
-  const u = n >>> 0;
-  const swapped = (((u & 0xff) << 24) | ((u & 0xff00) << 8) | ((u >>> 8) & 0xff00) | ((u >>> 24) & 0xff)) >>> 0;
-  return swapped > 0 && swapped <= 65535 ? swapped : 0;
-}
-
-export function formatSessionPorts(d: Wire): string {
-  const serverPort = normalizePort(d.ServerPort2_u32) || normalizePort(d.ServerPort_u32);
-  const clientPort = normalizePort(d.ClientPort_u32);
-  if (!serverPort && !clientPort) return "—";
-  return `${serverPort || "—"} / ${clientPort || "—"}`;
-}
-
 export function parseClientInfo(d: Wire) {
   const prod = String(d.ClientProductName_str || "").trim();
   const isDull = (s: string) => !s || /^[-—\s]+$/.test(s) || s.toLowerCase() === "unknown" || s.toLowerCase() === "none";
@@ -206,7 +190,6 @@ export function SessionsTable({
                   <th>{t("User")}</th>
                   <th>{t("Kind")}</th>
                   <th>{t("IP / Host")}</th>
-                  <th>{t("Server / Client port")}</th>
                   <th>{t("Packets")}</th>
                   <th>{t("Transfer")}</th>
                   <th>{t("Started")}</th>
@@ -250,7 +233,6 @@ export function SessionsTable({
                           host={cleanHost(s)}
                         />
                       </td>
-                      <td className="tmono">{formatSessionPorts(s)}</td>
                       <td className="tmono">{formatCount(Number(s.PacketNum_u64))}</td>
                       <td className="tmono">{formatBytes(Number(s.PacketSize_u64))}</td>
                       <td className="tmono">{timeAgo(s.CreatedTime_dt as string)}</td>
@@ -451,7 +433,7 @@ export function SessionSheet({ hub,
                   <span className="session-card__dot" style={{ background: "#818cf8" }} />
                   {t("Connection & Protocol")}
                 </div>
-                <div className="session-grid-4">
+                <div className="session-grid-3">
                   <div>
                     <div className="micro">{t("protocol")}</div>
                     <div className="mono" style={{ fontSize: "var(--t-data)" }}>{String(detail.UnderlayProtocol_str || "—")}</div>
@@ -459,10 +441,6 @@ export function SessionSheet({ hub,
                   <div>
                     <div className="micro">{t("cipher")}</div>
                     <div className="mono" style={{ fontSize: "var(--t-data)" }}>{String(detail.CipherName_str || "plain")}</div>
-                  </div>
-                  <div>
-                    <div className="micro">{t("Server / Client port")}</div>
-                    <div className="mono" style={{ fontSize: "var(--t-data)" }}>{formatSessionPorts(detail)}</div>
                   </div>
                   <div>
                     <div className="micro">{t("UDP / Compress")}</div>

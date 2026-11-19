@@ -406,6 +406,7 @@ func (a *App) defaults() M {
 		"vpn_public_host": "", "vpn_public_port": 443, "wireguard_ports": M{}, "openvpn_ports": M{},
 		"domain": "", "https_port": 443, "acme_email": "", "acme_staging": false, "domain_only": false,
 		"acme_challenge_type": "dns-01", "cf_dns_token": "", "cert_key_type": "rsa2048", "cert_auto_push": true, "cert_push_server_id": 0, "cert_renew_hook": "",
+		"cert_ssh_sync": false, "cert_ssh_host": "", "cert_ssh_port": 22, "cert_ssh_user": "root", "cert_ssh_auth_type": "key", "cert_ssh_key": "", "cert_ssh_password": "", "cert_ssh_remote_dir": "", "cert_ssh_host_key": "",
 		"backup_enabled": true, "backup_interval_hours": 24, "backup_time": "03:00", "backup_dir": filepath.Join(a.cfg.DataDir, "backups"), "backup_retention_count": 15, "backup_last_run": "",
 	}
 }
@@ -449,17 +450,27 @@ func (a *App) set(key string, value any) {
 func (a *App) settings() M {
 	out := a.defaults()
 	hasCFToken := false
+	hasSSHKey := false
+	hasSSHPassword := false
 	for _, row := range query(a.db, `SELECT SettingKey,SettingValue FROM Setting`) {
 		key := str(row["SettingKey"])
 		if _, ok := out[key]; ok {
 			var v any
 			check(json.Unmarshal([]byte(str(row["SettingValue"])), &v))
-			if key == "cf_dns_token" {
+			switch key {
+			case "cf_dns_token":
 				hasCFToken = strings.TrimSpace(str(v)) != ""
 				out[key] = ""
 				continue
-			}
-			if key == "se_password" {
+			case "cert_ssh_key":
+				hasSSHKey = strings.TrimSpace(str(v)) != ""
+				out[key] = ""
+				continue
+			case "cert_ssh_password":
+				hasSSHPassword = strings.TrimSpace(str(v)) != ""
+				out[key] = ""
+				continue
+			case "se_password":
 				out[key] = ""
 				continue
 			}
@@ -467,6 +478,8 @@ func (a *App) settings() M {
 		}
 	}
 	out["has_cf_dns_token"] = hasCFToken
+	out["has_cert_ssh_key"] = hasSSHKey
+	out["has_cert_ssh_password"] = hasSSHPassword
 	return out
 }
 func (a *App) audit(user M, action, target, key, detail string, serverIDs ...int64) {

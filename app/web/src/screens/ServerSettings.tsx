@@ -1303,6 +1303,14 @@ const issueForm = (s: DomainStatus | null) => ({
   cert_key_type: (s?.cert_key_type as "rsa2048" | "ecdsa") || "rsa2048",
   cert_auto_push: Boolean(s?.cert_auto_push && s.cert_push_server_id && s.cert_push_server_id === getStoredServerId()),
   cert_renew_hook: s?.cert_renew_hook ?? "",
+  cert_ssh_sync: Boolean(s?.cert_ssh_sync),
+  cert_ssh_host: s?.cert_ssh_host ?? "",
+  cert_ssh_port: String(s?.cert_ssh_port || 22),
+  cert_ssh_user: s?.cert_ssh_user || "root",
+  cert_ssh_auth_type: (s?.cert_ssh_auth_type as "key" | "password") || "key",
+  cert_ssh_key: "",
+  cert_ssh_password: "",
+  cert_ssh_remote_dir: s?.cert_ssh_remote_dir ?? "",
 });
 
 /** Label, verdict, explanation: one line per thing that can be wrong. */
@@ -1331,12 +1339,15 @@ function IssueCertificateSection() {
   const [saving, setSaving] = useState(false);
   const [acting, setActing] = useState<"" | "issue" | "check">("");
   const [pushing, setPushing] = useState(false);
+  const [sshBusy, setSshBusy] = useState<"" | "keygen" | "test" | "reset">("");
+  const [sshPubKey, setSshPubKey] = useState("");
   const [showEvents, setShowEvents] = useState(false);
   const { guard, push } = useToast();
 
   const absorb = useCallback(
     (s: DomainStatus) => {
       setState(s);
+      if (s.cert_ssh_public_key) setSshPubKey(s.cert_ssh_public_key);
       if (!dirty) setForm(issueForm(s));
     },
     [dirty],
@@ -1362,6 +1373,12 @@ function IssueCertificateSection() {
     }
     setSaving(true);
     await guard(async () => {
+      const sshPort = Number(form.cert_ssh_port.trim() || "22");
+      if (form.cert_ssh_sync && (!Number.isInteger(sshPort) || sshPort < 1 || sshPort > 65535)) {
+        push("err", t("SSH port must be between 1 and 65535."));
+        setSaving(false);
+        return;
+      }
       const payload: Parameters<typeof api.saveDomain>[0] = {
         domain: form.domain.trim(),
         acme_email: form.acme_email.trim(),
@@ -1371,16 +1388,60 @@ function IssueCertificateSection() {
         cert_auto_push: form.cert_auto_push || Boolean(state?.cert_auto_push && state.cert_push_server_id && state.cert_push_server_id !== serverId),
         cert_push_server_id: form.cert_auto_push ? serverId ?? undefined : state?.cert_push_server_id === serverId ? 0 : undefined,
         cert_renew_hook: form.cert_renew_hook.trim(),
+        cert_ssh_sync: form.cert_ssh_sync,
+        cert_ssh_host: form.cert_ssh_host.trim(),
+        cert_ssh_port: Number.isInteger(sshPort) && sshPort > 0 && sshPort <= 65535 ? sshPort : 22,
+        cert_ssh_user: form.cert_ssh_user.trim() || "root",
+        cert_ssh_auth_type: form.cert_ssh_auth_type,
+        cert_ssh_remote_dir: form.cert_ssh_remote_dir.trim(),
       };
       if (form.cf_dns_token.trim()) {
         payload.cf_dns_token = form.cf_dns_token.trim();
       }
+      if (form.cert_ssh_key.trim()) {
+        payload.cert_ssh_key = form.cert_ssh_key.trim();
+      }
+      if (form.cert_ssh_password.trim()) {
+        payload.cert_ssh_password = form.cert_ssh_password;
+      }
       const s = await api.saveDomain(payload);
       setDirty(false);
       setState(s);
+      if (s.cert_ssh_public_key) setSshPubKey(s.cert_ssh_public_key);
       setForm(issueForm(s));
     }, form.domain.trim() ? t("Domain saved — obtaining certificate.") : t("Domain removed."));
     setSaving(false);
+  };
+
+  const generateSshKey = async () => {
+    setSshBusy("keygen");
+    await guard(async () => {
+      const res = await api.generateDomainSshKey();
+      setSshPubKey(res.public_key);
+      setForm((f) => ({ ...f, cert_ssh_auth_type: "key", cert_ssh_key: "" }));
+      await load();
+    }, t("Ed25519 SSH key generated."));
+    setSshBusy("");
+  };
+
+  const testSsh = async (resetPin = false) => {
+    setSshBusy(resetPin ? "reset" : "test");
+    await guard(async () => {
+      const sshPort = Number(form.cert_ssh_port.trim() || "22");
+      const res = await api.testDomainSsh({
+        cert_ssh_host: form.cert_ssh_host.trim(),
+        cert_ssh_port: Number.isInteger(sshPort) && sshPort > 0 && sshPort <= 65535 ? sshPort : 22,
+        cert_ssh_user: form.cert_ssh_user.trim() || "root",
+        cert_ssh_auth_type: form.cert_ssh_auth_type,
+        cert_ssh_key: form.cert_ssh_key.trim(),
+        cert_ssh_password: form.cert_ssh_password,
+        cert_ssh_remote_dir: form.cert_ssh_remote_dir.trim(),
+        reset_host_key: resetPin,
+      });
+      push("ok", t("SSH connected ({dir}) · {fp}", { dir: res.remote_dir, fp: res.fingerprint }));
+      await load();
+    });
+    setSshBusy("");
   };
 
   const issue = async () => {
@@ -1517,6 +1578,148 @@ function IssueCertificateSection() {
           hint={t("Issues a certificate browsers do not trust, without counting against the real rate limits — for checking DNS and firewall before asking for the real thing. Switch it off afterwards and a trusted certificate is obtained in its place.")}
         />
       </div>
+
+      <CheckRow
+        checked={form.cert_ssh_sync}
+        onChange={(v) => set({ cert_ssh_sync: v })}
+        label={t("Sync intermediate certificates via SSH (chain_certs/)")}
+        hint={t("For remote SoftEther servers: automatically uploads intermediate CA files via SSH so OpenVPN (.ovpn) and SSTP stay valid across renewals without re-downloading.")}
+      />
+
+      {form.cert_ssh_sync && (
+        <div
+          style={{
+            padding: "var(--s3)",
+            marginBottom: "var(--s3)",
+            borderRadius: "var(--r-ctl)",
+            background: "var(--glass-lo)",
+            border: "1px solid var(--border-hairline)",
+          }}
+        >
+          <div className="row2">
+            <Field label={t("SSH host")} hint={t("Leave blank to use the current SoftEther server address.")}>
+              <input
+                className="input mono"
+                value={form.cert_ssh_host}
+                onChange={(e) => set({ cert_ssh_host: e.target.value })}
+                placeholder={s?.domain || "192.168.1.100"}
+                autoCapitalize="none"
+                spellCheck={false}
+              />
+            </Field>
+            <Field label={t("SSH port")}>
+              <input
+                className="input mono"
+                type="number"
+                min={1}
+                max={65535}
+                value={form.cert_ssh_port}
+                onChange={(e) => set({ cert_ssh_port: e.target.value })}
+                placeholder="22"
+              />
+            </Field>
+          </div>
+          <div className="row2">
+            <Field label={t("SSH username")}>
+              <input
+                className="input mono"
+                value={form.cert_ssh_user}
+                onChange={(e) => set({ cert_ssh_user: e.target.value })}
+                placeholder="root"
+                autoCapitalize="none"
+                spellCheck={false}
+              />
+            </Field>
+            <Field label={t("Remote chain_certs/ directory")} hint={t("Leave blank to auto-detect (/var/lib/softether/chain_certs, /opt/vpnserver/chain_certs, etc.).")}>
+              <input
+                className="input mono"
+                value={form.cert_ssh_remote_dir}
+                onChange={(e) => set({ cert_ssh_remote_dir: e.target.value })}
+                placeholder="/var/lib/softether/chain_certs"
+                autoCapitalize="none"
+                spellCheck={false}
+              />
+            </Field>
+          </div>
+          <Field label={t("SSH authentication")}>
+            <select
+              className="input"
+              value={form.cert_ssh_auth_type}
+              onChange={(e) => set({ cert_ssh_auth_type: e.target.value as "key" | "password" })}
+            >
+              <option value="key">{t("SSH private key (Recommended)")}</option>
+              <option value="password">{t("SSH password")}</option>
+            </select>
+          </Field>
+
+          {form.cert_ssh_auth_type === "key" ? (
+            <>
+              <Field
+                label={t("SSH private key")}
+                hint={t("Stored encrypted. Paste an OpenSSH private key or generate an Ed25519 key below.")}
+              >
+                <textarea
+                  className="input mono"
+                  rows={3}
+                  value={form.cert_ssh_key}
+                  onChange={(e) => set({ cert_ssh_key: e.target.value })}
+                  placeholder={s?.has_cert_ssh_key ? t("Configured (leave blank to keep)") : "-----BEGIN OPENSSH PRIVATE KEY-----"}
+                  spellCheck={false}
+                  autoCapitalize="none"
+                />
+              </Field>
+              {(sshPubKey || s?.cert_ssh_public_key) && (
+                <Field
+                  label={t("Public key (add to remote ~/.ssh/authorized_keys)")}
+                  hint={t("Append this line to ~/.ssh/authorized_keys on the SoftEther host.")}
+                >
+                  <div style={{ display: "flex", gap: "var(--s2)", alignItems: "center" }}>
+                    <input
+                      className="input mono"
+                      readOnly
+                      value={sshPubKey || s?.cert_ssh_public_key || ""}
+                      onFocus={(e) => e.currentTarget.select()}
+                    />
+                    <CopyTextButton text={sshPubKey || s?.cert_ssh_public_key || ""} />
+                  </div>
+                </Field>
+              )}
+            </>
+          ) : (
+            <Field label={t("SSH password")} hint={t("Stored encrypted.")}>
+              <input
+                className="input mono"
+                type="password"
+                value={form.cert_ssh_password}
+                onChange={(e) => set({ cert_ssh_password: e.target.value })}
+                placeholder={s?.has_cert_ssh_password ? t("Configured (leave blank to keep)") : t("SSH password")}
+                autoComplete="new-password"
+              />
+            </Field>
+          )}
+
+          <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap", alignItems: "center", marginTop: "var(--s2)" }}>
+            {form.cert_ssh_auth_type === "key" && (
+              <button className="btn btn--sm" type="button" onClick={() => void generateSshKey()} disabled={sshBusy !== ""}>
+                {sshBusy === "keygen" && <span className="spin" />} {t("Generate Ed25519 key")}
+              </button>
+            )}
+            <button className="btn btn--sm" type="button" onClick={() => void testSsh(false)} disabled={sshBusy !== ""}>
+              {sshBusy === "test" && <span className="spin" />} {t("Test SSH connection")}
+            </button>
+            {s?.cert_ssh_host_key && (
+              <button className="btn btn--sm" type="button" onClick={() => void testSsh(true)} disabled={sshBusy !== ""}>
+                {sshBusy === "reset" && <span className="spin" />} {t("Reset host key")}
+              </button>
+            )}
+            {s?.cert_ssh_host_key && (
+              <span className="hint mono" style={{ margin: 0, fontSize: "11px" }}>
+                {s.cert_ssh_host_key}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
       <p className="hint" style={{ marginTop: 0 }}>
         {challenge === "dns-01"
           ? t("Using Cloudflare DNS-01 challenge. Automatically creates and cleans up _acme-challenge TXT records.")

@@ -305,22 +305,6 @@ test("IP location localizes a known ISP and leaves unknown ones alone", () => {
   assert.equal(formatIPLocation("Tokyo", "Some Local ISP"), "Tokyo Some Local ISP");
 });
 
-test("formatSessionPorts formats server and client ports including byte-swapped SoftEther NODE_INFO values", () => {
-  const { formatSessionPorts } = component("../src/screens/hub/HubSessions.tsx", "formatSessionPorts", [], {
-    "../../lib/api": {},
-    "../../lib/router": {},
-    "../../lib/se": {},
-    "../../lib/util": {},
-    "../../ui/Status": {},
-  });
-  assert.equal(formatSessionPorts({ ServerPort_u32: 1701, ClientPort_u32: 1701 }), "1701 / 1701");
-  assert.equal(formatSessionPorts({ ServerPort2_u32: 2768633856, ServerPort_u32: 0, ClientPort_u32: 2768633856 }), "1701 / 1701");
-  assert.equal(formatSessionPorts({ ServerPort2_u32: 0xbb010000 >>> 0, ClientPort_u32: 54321 }), "443 / 54321");
-  assert.equal(formatSessionPorts({ ServerPort_u32: 443, ClientPort_u32: 0 }), "443 / —");
-  assert.equal(formatSessionPorts({ ServerPort_u32: 0, ClientPort_u32: 51820 }), "— / 51820");
-  assert.equal(formatSessionPorts({}), "—");
-});
-
 test("groupWireGuardPeers and config helpers handle keys and filenames safely", () => {
   const placeholder = () => null;
   const stubs = new Proxy({}, { get: () => placeholder });

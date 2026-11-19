@@ -172,7 +172,7 @@
   color: var(--accent-strong);
 }
 
-/* ── document layout (sticky anchor nav + focused form measure) ───────────── */
+/* ── document layout (sticky anchor nav + full-width content) ─────────────── */
 .doclayout {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -217,7 +217,7 @@
 }
 .docmain {
   min-width: 0;
-  max-width: 880px;
+  width: 100%;
 }
 .docmain section {
   scroll-margin-top: calc(var(--topbar-h) + var(--s6));

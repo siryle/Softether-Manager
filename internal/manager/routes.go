@@ -269,6 +269,7 @@ func (a *App) registerCustomRPC() {
 			fail(502, "SoftEther returned no OpenVPN template: "+err.Error())
 		}
 		config = applyOpenVPNEndpoint(config, host, port)
+		config = a.applyOpenVPNCA(r.Context(), config)
 		return M{"filename": name, "config": config}
 	})
 	a.endpoint("GET /server/default-hub-admin-options", func(_ http.ResponseWriter, r *http.Request, _ M) any {
