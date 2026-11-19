@@ -114,6 +114,10 @@ func startMockSSHServer(t *testing.T, expectedPubKey ssh.PublicKey, expectedPass
 							mu.Lock()
 							cmds = append(cmds, payload.Cmd)
 							mu.Unlock()
+							if strings.Contains(payload.Cmd, "for d in") {
+								_, _ = io.WriteString(ch, "/var/softethervpn/chain_certs")
+								_ = ch.CloseWrite()
+							}
 							if strings.Contains(payload.Cmd, "tar -C") {
 								tr := tar.NewReader(ch)
 								for {
@@ -224,6 +228,24 @@ func TestWebUISSHKeygenTestAndRemoteChainSync(t *testing.T) {
 	}, token)
 	if status != 200 {
 		t.Fatalf("password test-ssh failed: %d", status)
+	}
+
+	// Blank remote_dir triggers auto-detection including OpenWrt paths (/var/softethervpn before /usr/libexec/softethervpn).
+	status, probeOut, _ := call(t, a, "POST", "/api/v1/system/domain/test-ssh", M{
+		"cert_ssh_host":       sshHost,
+		"cert_ssh_port":       sshPort,
+		"cert_ssh_user":       "root",
+		"cert_ssh_auth_type":  "key",
+		"cert_ssh_remote_dir": "",
+	}, token)
+	if status != 200 || str(probeOut["remote_dir"]) != "/var/softethervpn/chain_certs" {
+		t.Fatalf("auto-detect remote_dir failed: %d %v", status, probeOut)
+	}
+	probeCmd := (*cmds)[len(*cmds)-2]
+	idx5x := strings.Index(probeCmd, "/var/softethervpn")
+	idx4x := strings.Index(probeCmd, "/usr/libexec/softethervpn")
+	if idx5x == -1 || idx4x == -1 || idx5x >= idx4x {
+		t.Fatalf("expected /var/softethervpn probed before /usr/libexec/softethervpn, got: %s", probeCmd)
 	}
 
 	// 3. Save domain with cert_ssh_sync enabled, push certificate, and verify SSH upload + .ovpn roots.

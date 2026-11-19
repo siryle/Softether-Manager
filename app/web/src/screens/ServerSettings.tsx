@@ -1630,7 +1630,7 @@ function IssueCertificateSection() {
                 spellCheck={false}
               />
             </Field>
-            <Field label={t("Remote chain_certs/ directory")} hint={t("Leave blank to auto-detect (/var/lib/softether/chain_certs, /opt/vpnserver/chain_certs, etc.).")}>
+            <Field label={t("Remote chain_certs/ directory")} hint={t("Leave blank to auto-detect Docker, Linux, and OpenWrt SoftEther paths (/var/lib/softether/chain_certs, /opt/vpnserver/chain_certs, /var/softethervpn/chain_certs, /usr/libexec/softethervpn/chain_certs, etc.).")}>
               <input
                 className="input mono"
                 value={form.cert_ssh_remote_dir}
@@ -1670,8 +1670,8 @@ function IssueCertificateSection() {
               </Field>
               {(sshPubKey || s?.cert_ssh_public_key) && (
                 <Field
-                  label={t("Public key (add to remote ~/.ssh/authorized_keys)")}
-                  hint={t("Append this line to ~/.ssh/authorized_keys on the SoftEther host.")}
+                  label={t("Public key (add to remote authorized_keys)")}
+                  hint={t("Append this line to ~/.ssh/authorized_keys (or /etc/dropbear/authorized_keys on OpenWrt) on the SoftEther host.")}
                 >
                   <div style={{ display: "flex", gap: "var(--s2)", alignItems: "center" }}>
                     <input

@@ -108,7 +108,7 @@ CER_FILES="${CER_FILES# }"
 
 if [ -z "$REMOTE_CHAIN_DIR" ]; then
   REMOTE_CHAIN_DIR="$(ssh "$@" "$TARGET" '
-    for d in /var/lib/softether /opt/vpnserver /usr/local/vpnserver /usr/vpnserver /opt/softether/vpnserver; do
+    for d in /var/lib/softether /opt/vpnserver /var/softethervpn /usr/libexec/softethervpn /usr/local/vpnserver /usr/vpnserver /opt/softether/vpnserver /usr/local/libexec/softether/vpnserver /usr/libexec/softether/vpnserver /etc/softethervpn; do
       if [ -d "$d/chain_certs" ] || [ -x "$d/vpnserver" ] || [ -f "$d/vpn_server.config" ]; then
         printf "%s" "$d/chain_certs"
         exit 0

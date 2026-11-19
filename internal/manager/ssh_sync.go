@@ -238,9 +238,9 @@ func runSSHCommand(ctx context.Context, client *ssh.Client, command string, stdi
 	if stdin != nil {
 		session.Stdin = bytes.NewReader(stdin)
 	}
-	var out bytes.Buffer
-	session.Stdout = &out
-	session.Stderr = &out
+	var stdout, stderr bytes.Buffer
+	session.Stdout = &stdout
+	session.Stderr = &stderr
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -252,22 +252,37 @@ func runSSHCommand(ctx context.Context, client *ssh.Client, command string, stdi
 		_ = session.Close()
 		err = ctx.Err()
 	}
-	text := strings.TrimSpace(out.String())
-	if err != nil && text != "" {
-		if len(text) > 300 {
-			text = "..." + text[len(text)-300:]
+	outText := strings.TrimSpace(stdout.String())
+	errText := strings.TrimSpace(stderr.String())
+	if err != nil {
+		msg := errText
+		if msg == "" {
+			msg = outText
 		}
-		return text, fmt.Errorf("%w (%s)", err, text)
+		if len(msg) > 300 {
+			msg = "..." + msg[len(msg)-300:]
+		}
+		if msg != "" {
+			return outText, fmt.Errorf("%w (%s)", err, msg)
+		}
+		return outText, err
 	}
-	return text, err
+	return outText, nil
 }
 
 func resolveRemoteChainDirSSH(ctx context.Context, client *ssh.Client, requested string) (string, error) {
 	dir := strings.TrimSpace(requested)
 	if dir == "" {
-		probeCmd := `for d in /var/lib/softether /opt/vpnserver /usr/local/vpnserver /usr/vpnserver /opt/softether/vpnserver /usr/local/libexec/softether/vpnserver; do if [ -d "$d/chain_certs" ] || [ -x "$d/vpnserver" ] || [ -f "$d/vpn_server.config" ]; then printf '%s' "$d/chain_certs"; exit 0; fi; done; exit 1`
+		quotedDirs := make([]string, len(defaultSoftEtherBaseDirs))
+		for i, d := range defaultSoftEtherBaseDirs {
+			quotedDirs[i] = shellQuote(d)
+		}
+		probeCmd := fmt.Sprintf(`for d in %s; do if [ -d "$d/chain_certs" ] || [ -x "$d/vpnserver" ] || [ -f "$d/vpn_server.config" ]; then printf '%%s' "$d/chain_certs"; exit 0; fi; done; exit 1`, strings.Join(quotedDirs, " "))
 		detected, err := runSSHCommand(ctx, client, probeCmd, nil)
 		if err != nil || strings.TrimSpace(detected) == "" {
+			if err != nil {
+				return "", fmt.Errorf("could not auto-detect remote SoftEther chain_certs/ directory (%w); enter it explicitly", err)
+			}
 			return "", fmt.Errorf("could not auto-detect remote SoftEther chain_certs/ directory; enter it explicitly")
 		}
 		dir = strings.TrimSpace(detected)
@@ -289,6 +304,7 @@ func buildChainTar(intermediates [][]byte) ([]byte, error) {
 			Mode:    0644,
 			Size:    int64(len(certPEM)),
 			ModTime: nowTime,
+			Format:  tar.FormatUSTAR,
 		}
 		if err := tw.WriteHeader(hdr); err != nil {
 			return nil, err
