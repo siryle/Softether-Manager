@@ -1298,11 +1298,9 @@ const issueForm = (s: DomainStatus | null) => ({
   domain: s?.domain ?? "",
   acme_email: s?.acme_email ?? "",
   acme_staging: Boolean(s?.acme_staging),
-  acme_challenge_type: (s?.acme_challenge_type as "dns-01" | "http-01") || "dns-01",
   cf_dns_token: "",
   cert_key_type: (s?.cert_key_type as "rsa2048" | "ecdsa") || "rsa2048",
   cert_auto_push: Boolean(s?.cert_auto_push && s.cert_push_server_id && s.cert_push_server_id === getStoredServerId()),
-  cert_renew_hook: s?.cert_renew_hook ?? "",
   cert_ssh_sync: Boolean(s?.cert_ssh_sync),
   cert_ssh_host: s?.cert_ssh_host ?? "",
   cert_ssh_port: String(s?.cert_ssh_port || 22),
@@ -1367,7 +1365,7 @@ function IssueCertificateSection() {
   };
 
   const save = async () => {
-    if (form.acme_challenge_type === "dns-01" && !form.cf_dns_token.trim() && !state?.has_cf_dns_token) {
+    if (form.domain.trim() && !form.cf_dns_token.trim() && !state?.has_cf_dns_token) {
       push("err", t("Cloudflare DNS API Token is required when using DNS-01 verification."));
       return;
     }
@@ -1383,11 +1381,10 @@ function IssueCertificateSection() {
         domain: form.domain.trim(),
         acme_email: form.acme_email.trim(),
         acme_staging: form.acme_staging,
-        acme_challenge_type: form.acme_challenge_type,
+        acme_challenge_type: "dns-01",
         cert_key_type: form.cert_key_type,
         cert_auto_push: form.cert_auto_push || Boolean(state?.cert_auto_push && state.cert_push_server_id && state.cert_push_server_id !== serverId),
         cert_push_server_id: form.cert_auto_push ? serverId ?? undefined : state?.cert_push_server_id === serverId ? 0 : undefined,
-        cert_renew_hook: form.cert_renew_hook.trim(),
         cert_ssh_sync: form.cert_ssh_sync,
         cert_ssh_host: form.cert_ssh_host.trim(),
         cert_ssh_port: Number.isInteger(sshPort) && sshPort > 0 && sshPort <= 65535 ? sshPort : 22,
@@ -1476,7 +1473,6 @@ function IssueCertificateSection() {
   const cert = s?.certificate;
   const certOk = Boolean(cert?.present && !cert?.stale);
   const daysLeft = cert?.days_left ?? null;
-  const challenge = form.acme_challenge_type;
 
   // One line per problem. The last issuance error usually *is* the DNS or
   // port-80 problem already listed, so it is added only when it says
@@ -1486,7 +1482,6 @@ function IssueCertificateSection() {
     if (s.config_error) attention.push(s.config_error);
     if (s.deployment_error) attention.push(s.deployment_error);
     if (s.dns?.error) attention.push(s.dns.error);
-    if (challenge === "http-01" && s.http.error) attention.push(t("Port 80: {error}", { error: s.http.error }));
     const stageError = s.renewal.last_error_type === "dns" || s.renewal.last_error_type === "port80";
     if (s.renewal.last_error && (!certOk || s.renewal.due) && !stageError) attention.push(s.renewal.last_error);
   }
@@ -1501,30 +1496,23 @@ function IssueCertificateSection() {
     <>
       <div className="section__t" style={{ margin: "var(--s4) 0 var(--s2)" }}>{t("Let's Encrypt certificate")}</div>
       <p className="hint" style={{ marginTop: 0, marginBottom: "var(--s3)" }}>
-        {t("Issue a certificate for the name below and install it on this server. Cloudflare DNS-01 needs no open port; HTTP-01 uses the panel's port 80.")}
+        {t("Issue a certificate for the name below and install it on this server via Cloudflare DNS-01 (no open port 80 required).")}
       </p>
 
-      <Field
-        label={t("Certificate domain")}
-        hint={t("A public hostname resolving to the certificate subject, e.g. vpn.example.com. Leave empty if no Let's Encrypt certificate is needed.")}
-      >
-        <input
-          className="input mono"
-          value={form.domain}
-          onChange={(e) => set({ domain: e.target.value })}
-          placeholder="vpn.example.com"
-          autoCapitalize="none"
-          spellCheck={false}
-          inputMode="url"
-        />
-      </Field>
-
       <div className="row2">
-        <Field label={t("Verification method")} hint={t("DNS-01 uses Cloudflare DNS API without requiring open port 80.")}>
-          <select className="input" value={challenge} onChange={(e) => set({ acme_challenge_type: e.target.value as "dns-01" | "http-01" })}>
-            <option value="dns-01">{t("Cloudflare DNS (DNS-01) - Recommended")}</option>
-            <option value="http-01">{t("HTTP-01 (Requires public Port 80)")}</option>
-          </select>
+        <Field
+          label={t("Certificate domain")}
+          hint={t("A public hostname resolving to the certificate subject, e.g. vpn.example.com. Leave empty if no Let's Encrypt certificate is needed.")}
+        >
+          <input
+            className="input mono"
+            value={form.domain}
+            onChange={(e) => set({ domain: e.target.value })}
+            placeholder="vpn.example.com"
+            autoCapitalize="none"
+            spellCheck={false}
+            inputMode="url"
+          />
         </Field>
         <Field label={t("Certificate Key Type")} hint={t("SoftEther VPN requires RSA 2048 for full compatibility.")}>
           <select className="input" value={form.cert_key_type} onChange={(e) => set({ cert_key_type: e.target.value as "rsa2048" | "ecdsa" })}>
@@ -1534,7 +1522,7 @@ function IssueCertificateSection() {
         </Field>
       </div>
 
-      {challenge === "dns-01" && (
+      <div className="row2">
         <Field label={t("Cloudflare API Token")} hint={t("API token with Zone:Read and DNS:Edit permissions for the domain on Cloudflare.")}>
           <input
             className="input mono"
@@ -1546,21 +1534,8 @@ function IssueCertificateSection() {
             spellCheck={false}
           />
         </Field>
-      )}
-
-      <div className="row2">
         <Field label={t("Contact email (optional)")} hint={t("Let's Encrypt writes to it if a certificate is about to expire unrenewed. Nothing else is done with it.")}>
           <input className="input mono" value={form.acme_email} onChange={(e) => set({ acme_email: e.target.value })} placeholder="ops@example.com" autoCapitalize="none" spellCheck={false} inputMode="email" />
-        </Field>
-        <Field label={t("Custom renewal hook (optional)")} hint={t("Optional script path executed when certificate is renewed (e.g. ssl/hook.sh).")}>
-          <input
-            className="input mono"
-            value={form.cert_renew_hook}
-            onChange={(e) => set({ cert_renew_hook: e.target.value })}
-            placeholder="ssl/hook.sh"
-            autoCapitalize="none"
-            spellCheck={false}
-          />
         </Field>
       </div>
 
@@ -1721,9 +1696,7 @@ function IssueCertificateSection() {
         </div>
       )}
       <p className="hint" style={{ marginTop: 0 }}>
-        {challenge === "dns-01"
-          ? t("Using Cloudflare DNS-01 challenge. Automatically creates and cleans up _acme-challenge TXT records.")
-          : t("Only http-01 validation is used, so the name must resolve straight to this server: no wildcards, no names behind a CDN.")}
+        {t("Using Cloudflare DNS-01 challenge. Automatically creates and cleans up _acme-challenge TXT records.")}
       </p>
 
       {dirty && (
@@ -1783,18 +1756,6 @@ function IssueCertificateSection() {
                     ? <>{t("Resolves to ")}<span className="mono">{(s.dns.addresses ?? []).join(", ")}</span>{t(" — one of this machine's addresses.")}</>
                     : <>{t("Resolves to ")}<span className="mono">{(s.dns.addresses ?? []).join(", ")}</span>{t(", but this machine's addresses are ")}<span className="mono">{(s.dns.local_addresses ?? []).join(", ") || t("unknown")}</span>{t(". Behind NAT or a port forward that can still validate; otherwise fix the record.")}</>}
             </CertRow>
-
-            {challenge === "http-01" && (
-              <CertRow
-                label={t("Port 80")}
-                error={Boolean(s.http.error)}
-                pill={s.http.listening ? <Pill kind="ok" label="listening" /> : <Pill kind="err" label="not available" />}
-              >
-                {s.http.listening
-                  ? t("Answers Let's Encrypt's validation requests; will redirect to HTTPS once the certificate is in place.")
-                  : `${s.http.error || t("The listener is not running.")} ${t("Validation arrives on port 80 and nowhere else, so nothing can be issued until it is free.")}`}
-              </CertRow>
-            )}
 
             <CertRow
               label={t("Certificate")}

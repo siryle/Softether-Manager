@@ -636,6 +636,8 @@ const zhCN: Record<string, string> = {
   "Pushing certificate to SoftEther VPN server…": "正在推送证书到 SoftEther VPN 服务器…",
   "Configure your domain and SSL certificate. Supports Cloudflare DNS verification (no open port 80 required) to issue RSA 2048 certificates saved to ssl/ and automatically pushed to SoftEther VPN.":
     "配置面板域名与 SSL 证书。支持通过 Cloudflare DNS 验证（无需开放 80 端口）签发 RSA 2048 证书，自动保存至 ssl 目录并推送到 SoftEther VPN 服务器。",
+  "Issue a certificate for the name below and install it on this server via Cloudflare DNS-01 (no open port 80 required).":
+    "为下方域名申请证书并安装到这台服务器（默认使用 Cloudflare DNS-01 验证，无需开放 80 端口）。",
   "Leave empty to use server public domain ({host}).": "留空则自动使用服务器公网域名（{host}）。",
   "Verification method": "验证方式",
   "DNS-01 uses Cloudflare DNS API without requiring open port 80.": "DNS-01 通过 Cloudflare DNS API 验证，无需开放公网 80 端口。",
