@@ -165,6 +165,15 @@ export const IconVpnDownload = (p: P) => (
   </S>
 );
 
+/** OpenVPN .ovpn profile download — open tunnel ring & keyhole node with down arrow. */
+export const IconOpenVpnDownload = (p: P) => (
+  <S {...p}>
+    <path d="M7.2 15a6.8 6.8 0 1 1 9.6 0" />
+    <circle cx="12" cy="9.8" r="2.2" />
+    <path d="M12 12v8.2M9.2 17.5 12 20.3l2.8-2.8" />
+  </S>
+);
+
 /** WireGuard .conf download — key bow and teeth above down arrow. */
 export const IconWireGuardDownload = (p: P) => (
   <S {...p}>

@@ -523,3 +523,23 @@ func TestRemoteChainHookReceivesChainDirAndSyncMarker(t *testing.T) {
 		t.Fatalf("expected pure ISRG Root X1 + X2 when remote hook synced chain, got %d certs", len(caCerts))
 	}
 }
+
+func TestApplyOpenVPNClientDefaults(t *testing.T) {
+	softetherSample := "client\r\nauth-user-pass\r\n<ca>\r\n...\r\n</ca>\r\n;<cert>\r\n;</cert>\r\n"
+	got := applyOpenVPNClientDefaults(softetherSample)
+	want := "client\r\nauth-user-pass\r\nsetenv CLIENT_CERT 0\r\n<ca>\r\n...\r\n</ca>\r\n;<cert>\r\n;</cert>\r\n"
+	if got != want {
+		t.Fatalf("unexpected CRLF injection:\ngot:  %q\nwant: %q", got, want)
+	}
+
+	// Idempotent when already present.
+	if again := applyOpenVPNClientDefaults(got); again != got {
+		t.Fatalf("expected idempotency, got %q", again)
+	}
+
+	// Leave profiles with an active client certificate untouched.
+	withCert := "client\nauth-user-pass\n<cert>\n---\n</cert>\n"
+	if unchanged := applyOpenVPNClientDefaults(withCert); unchanged != withCert {
+		t.Fatalf("expected active <cert> profile unchanged, got %q", unchanged)
+	}
+}

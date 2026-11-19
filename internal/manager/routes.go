@@ -270,6 +270,7 @@ func (a *App) registerCustomRPC() {
 		}
 		config = applyOpenVPNEndpoint(config, host, port)
 		config = a.applyOpenVPNCA(r.Context(), config)
+		config = applyOpenVPNClientDefaults(config)
 		return M{"filename": name, "config": config}
 	})
 	a.endpoint("GET /server/default-hub-admin-options", func(_ http.ResponseWriter, r *http.Request, _ M) any {

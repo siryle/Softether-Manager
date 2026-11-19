@@ -358,3 +358,53 @@ func (a *App) applyOpenVPNCA(ctx context.Context, config string) string {
 	}
 	return replaceOpenVPNCABlock(lines, start, end, eol, blocks)
 }
+
+// applyOpenVPNClientDefaults injects `setenv CLIENT_CERT 0` for password-only
+// SoftEther .ovpn profiles so OpenVPN Connect v3 does not prompt for an
+// external client certificate.
+func applyOpenVPNClientDefaults(config string) string {
+	eol := "\n"
+	if strings.Contains(config, "\r\n") {
+		eol = "\r\n"
+	}
+	rawLines := strings.Split(config, "\n")
+	lines := make([]string, len(rawLines))
+	authUserPassIdx := -1
+	caIdx := -1
+	for i, raw := range rawLines {
+		line := strings.TrimSuffix(raw, "\r")
+		lines[i] = line
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, ";") {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		fields := strings.Fields(lower)
+		if len(fields) == 0 {
+			continue
+		}
+		switch {
+		case fields[0] == "<cert>" || fields[0] == "cert" || fields[0] == "<pkcs12>" || fields[0] == "pkcs12":
+			return config
+		case len(fields) >= 2 && fields[0] == "setenv" && strings.EqualFold(fields[1], "client_cert"):
+			return config
+		case fields[0] == "auth-user-pass" && authUserPassIdx == -1:
+			authUserPassIdx = i
+		case fields[0] == "<ca>" && caIdx == -1:
+			caIdx = i
+		}
+	}
+
+	const directive = "setenv CLIENT_CERT 0"
+	insertAt := len(lines)
+	if authUserPassIdx != -1 {
+		insertAt = authUserPassIdx + 1
+	} else if caIdx != -1 {
+		insertAt = caIdx
+	}
+	updated := make([]string, 0, len(lines)+1)
+	updated = append(updated, lines[:insertAt]...)
+	updated = append(updated, directive)
+	updated = append(updated, lines[insertAt:]...)
+	return strings.Join(updated, eol)
+}

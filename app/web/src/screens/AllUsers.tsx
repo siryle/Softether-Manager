@@ -20,7 +20,7 @@ import {
   useQuotaIndex,
 } from "../components/QuotaCard";
 import { UserSheet } from "../components/UserSheet";
-import { VpnFileSheet } from "../components/VpnFileSheet";
+import { VpnFileSheet, downloadOpenVpnConfig } from "../components/VpnFileSheet";
 import {
   WireGuardUserActionSheet,
   type WireGuardUserAction,
@@ -34,7 +34,7 @@ import { AUTH_TYPES, isNever, userBytes, userSortValue } from "../lib/se";
 import { formatBytes, formatCount, formatDate, timeAgo } from "../lib/util";
 import { useI18n, t } from "../lib/i18n";
 import { useToast } from "../lib/toast";
-import { IconChevron, IconPlus, IconQrCode, IconVpnDownload, IconWireGuardDownload } from "../ui/Icon";
+import { IconChevron, IconOpenVpnDownload, IconPlus, IconQrCode, IconVpnDownload, IconWireGuardDownload } from "../ui/Icon";
 import { UserStatePill } from "./hub/HubUsers";
 
 /**
@@ -57,6 +57,7 @@ export function AllUsers() {
   const [vpnFor, setVpnFor] = useState<{ hub: string; name: string } | null>(null);
   const [wgAction, setWgAction] = useState<WireGuardUserAction | null>(null);
   const [downloadingWgKey, setDownloadingWgKey] = useState<string | null>(null);
+  const [downloadingOvpnKey, setDownloadingOvpnKey] = useState<string | null>(null);
   const quotas = useQuotaIndex([]);
   const { sort, toggle } = useSort();
   const quotaOf = (u: Wire) =>
@@ -113,6 +114,16 @@ export function AllUsers() {
       t("WireGuard configuration downloaded."),
     );
     setDownloadingWgKey(null);
+  };
+
+  const handleDownloadOvpn = async (hub: string, user: string) => {
+    const key = wireguardPeerKey(hub, user);
+    setDownloadingOvpnKey(key);
+    await guard(
+      () => downloadOpenVpnConfig(serverApi),
+      t("OpenVPN configuration (.ovpn) downloaded."),
+    );
+    setDownloadingOvpnKey(null);
   };
 
   const counts = useMemo(() => {
@@ -261,7 +272,7 @@ export function AllUsers() {
                       <SortTh sortKey="transfer" sort={sort} onSort={toggle}>{t("Transfer")}</SortTh>
                       <SortTh sortKey="quota" sort={sort} onSort={toggle}>{t("Limit")}</SortTh>
                       <SortTh sortKey="expires" sort={sort} onSort={toggle}>{t("Expires")}</SortTh>
-                      <th className="tact" style={{ width: 148 }} aria-label={t("Actions")} />
+                      <th className="tact" style={{ width: 184 }} aria-label={t("Actions")} />
                     </tr>
                   </thead>
                   <tbody>
@@ -318,6 +329,19 @@ export function AllUsers() {
                                   </button>
                                 </>
                               )}
+                              <button
+                                type="button"
+                                className="btn btn--sm btn--ghost"
+                                title={t("Download OpenVPN .ovpn")}
+                                aria-label={t("Download OpenVPN .ovpn")}
+                                disabled={downloadingOvpnKey === wgKey}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void handleDownloadOvpn(hubName, userName);
+                                }}
+                              >
+                                {downloadingOvpnKey === wgKey ? <span className="spin" /> : <IconOpenVpnDownload size={15} />}
+                              </button>
                               <button
                                 type="button"
                                 className="btn btn--sm btn--ghost"

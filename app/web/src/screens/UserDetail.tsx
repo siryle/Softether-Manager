@@ -16,7 +16,7 @@ import { PolicyEditor, extractPolicy } from "../components/PolicyEditor";
 import { QuotaEnforceSwitch, QuotaSummary, netBytes } from "../components/QuotaCard";
 import { RangeSeg, TrafficChart, useTrafficUsage } from "../components/TrafficChart";
 import { UserSheet } from "../components/UserSheet";
-import { VpnFileSheet } from "../components/VpnFileSheet";
+import { VpnFileSheet, downloadOpenVpnConfig } from "../components/VpnFileSheet";
 import {
   CopyTextButton,
   WireGuardAddPeerSheet,
@@ -32,7 +32,7 @@ import { AUTH_TYPES, isNever, userBytes, SESSION_TYPE } from "../lib/se";
 import { useToast } from "../lib/toast";
 import { useI18n, t } from "../lib/i18n";
 import { formatBytes, formatCount, formatDate, formatDuration, formatIPLocation, hasIPLocation, timeAgo } from "../lib/util";
-import { IconPlus, IconQrCode, IconTrash, IconVpnDownload, IconWireGuardDownload } from "../ui/Icon";
+import { IconOpenVpnDownload, IconPlus, IconQrCode, IconTrash, IconVpnDownload, IconWireGuardDownload } from "../ui/Icon";
 import { Pill } from "../ui/Status";
 import { UserStatePill } from "./hub/HubUsers";
 import { EndpointCell, SessionSheet, SessionsTable } from "./hub/HubSessions";
@@ -218,6 +218,7 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
   const [quota, setQuota] = useState<Quota | null>(null);
   const [wg, setWg] = useState<WireGuardState | null>(null);
   const [addingWg, setAddingWg] = useState(false);
+  const [downloadingOvpn, setDownloadingOvpn] = useState(false);
   const [editingWg, setEditingWg] = useState<WireGuardPeer | null>(null);
   const [qrWg, setQrWg] = useState<WireGuardPeer | null>(null);
   const [deletingWg, setDeletingWg] = useState<WireGuardPeer | null>(null);
@@ -309,6 +310,17 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
         }
         actions={
           <>
+            <button
+              className="btn"
+              disabled={downloadingOvpn}
+              onClick={() => void (async () => {
+                setDownloadingOvpn(true);
+                await guard(() => downloadOpenVpnConfig(serverApi), t("OpenVPN configuration (.ovpn) downloaded."));
+                setDownloadingOvpn(false);
+              })()}
+            >
+              {downloadingOvpn ? <span className="spin" /> : <IconOpenVpnDownload size={15} />} {t("Download .ovpn")}
+            </button>
             <button className="btn btn--primary" onClick={() => setDownloading(true)}>
               <IconVpnDownload size={15} /> {t("Download .vpn")}
             </button>

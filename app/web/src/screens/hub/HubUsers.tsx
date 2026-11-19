@@ -21,7 +21,7 @@ import {
 } from "../../components/QuotaCard";
 import { UserSheet } from "../../components/UserSheet";
 import { UserImportSheet } from "../../components/UserImportSheet";
-import { VpnFileSheet } from "../../components/VpnFileSheet";
+import { VpnFileSheet, downloadOpenVpnConfig } from "../../components/VpnFileSheet";
 import {
   WireGuardUserActionSheet,
   type WireGuardUserAction,
@@ -36,7 +36,7 @@ import { formatBytes, formatCount, formatDate, timeAgo } from "../../lib/util";
 import { useI18n, t } from "../../lib/i18n";
 import { downloadText } from "../../lib/util";
 import { useToast } from "../../lib/toast";
-import { IconChevron, IconDownload, IconPlus, IconQrCode, IconUpload, IconUsers, IconVpnDownload, IconWireGuardDownload } from "../../ui/Icon";
+import { IconChevron, IconDownload, IconOpenVpnDownload, IconPlus, IconQrCode, IconUpload, IconUsers, IconVpnDownload, IconWireGuardDownload } from "../../ui/Icon";
 import { Pill } from "../../ui/Status";
 
 /**
@@ -59,6 +59,7 @@ export function HubUsers({ hub }: { hub: string }) {
   const [vpnFor, setVpnFor] = useState<string | null>(null);
   const [wgAction, setWgAction] = useState<WireGuardUserAction | null>(null);
   const [downloadingWgUser, setDownloadingWgUser] = useState<string | null>(null);
+  const [downloadingOvpnUser, setDownloadingOvpnUser] = useState<string | null>(null);
   // Case-folded, because SoftEther matches usernames without case.
   const [online, setOnline] = useState<Set<string>>(new Set());
   const quotas = useQuotaIndex([hub]);
@@ -107,6 +108,15 @@ export function HubUsers({ hub }: { hub: string }) {
       t("WireGuard configuration downloaded."),
     );
     setDownloadingWgUser(null);
+  };
+
+  const handleDownloadOvpn = async (user: string) => {
+    setDownloadingOvpnUser(user);
+    await guard(
+      () => downloadOpenVpnConfig(serverApi),
+      t("OpenVPN configuration (.ovpn) downloaded."),
+    );
+    setDownloadingOvpnUser(null);
   };
 
   const filtered = useMemo(() => {
@@ -218,7 +228,7 @@ export function HubUsers({ hub }: { hub: string }) {
                       <SortTh sortKey="transfer" sort={sort} onSort={toggle}>{t("Transfer")}</SortTh>
                       <SortTh sortKey="quota" sort={sort} onSort={toggle}>{t("Limit")}</SortTh>
                       <SortTh sortKey="expires" sort={sort} onSort={toggle}>{t("Expires")}</SortTh>
-                      <th className="tact" style={{ width: 148 }} aria-label={t("Actions")} />
+                      <th className="tact" style={{ width: 184 }} aria-label={t("Actions")} />
                     </tr>
                   </thead>
                   <tbody>
@@ -234,8 +244,10 @@ export function HubUsers({ hub }: { hub: string }) {
                           online={online.has(uName.toLowerCase())}
                           wgPeerCount={wgPeers.length}
                           downloadingWg={downloadingWgUser === uName}
+                          downloadingOvpn={downloadingOvpnUser === uName}
                           onOpen={() => open(uName)}
                           onVpnFile={() => setVpnFor(uName)}
+                          onOvpnFile={() => void handleDownloadOvpn(uName)}
                           onWgQr={() => handleQrWg(uName, wgPeers)}
                           onWgFile={() => void handleDownloadWg(uName, wgPeers)}
                         />
@@ -337,8 +349,10 @@ function UserRow({
   online,
   wgPeerCount,
   downloadingWg,
+  downloadingOvpn,
   onOpen,
   onVpnFile,
+  onOvpnFile,
   onWgQr,
   onWgFile,
 }: {
@@ -348,8 +362,10 @@ function UserRow({
   online: boolean;
   wgPeerCount: number;
   downloadingWg: boolean;
+  downloadingOvpn: boolean;
   onOpen: () => void;
   onVpnFile: () => void;
+  onOvpnFile: () => void;
   onWgQr: () => void;
   onWgFile: () => void;
 }) {
@@ -405,6 +421,19 @@ function UserRow({
               </button>
             </>
           )}
+          <button
+            type="button"
+            className="btn btn--sm btn--ghost"
+            title={t("Download OpenVPN .ovpn")}
+            aria-label={t("Download OpenVPN .ovpn")}
+            disabled={downloadingOvpn}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOvpnFile();
+            }}
+          >
+            {downloadingOvpn ? <span className="spin" /> : <IconOpenVpnDownload size={15} />}
+          </button>
           <button
             type="button"
             className="btn btn--sm btn--ghost"

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, type Wire } from "../lib/api";
+import { api, createServerApi, type Wire } from "../lib/api";
 import { useToast } from "../lib/toast";
 import { useI18n, t } from "../lib/i18n";
 import { useServer } from "../lib/server";
@@ -9,6 +9,11 @@ import { downloadText } from "../lib/util";
 import { IconVpnDownload } from "../ui/Icon";
 import { Sheet } from "../ui/Sheet";
 import { CheckRow, ErrorAlert, Field } from "./bits";
+
+export async function downloadOpenVpnConfig(serverApi: ReturnType<typeof createServerApi>) {
+  const r = await serverApi.openvpnSample();
+  downloadText(r.filename || "openvpn-client.ovpn", r.config, "application/x-openvpn-profile");
+}
 
 /**
  * Hand a user their connection: a ready-to-import SoftEther VPN Client
