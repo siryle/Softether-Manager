@@ -16,6 +16,34 @@ func isIPv4(s string) bool {
 	return ip != nil && ip.To4() != nil
 }
 
+// decodeNodePort normalizes SoftEther port fields. NODE_INFO stores ClientPort
+// and ServerPort2 in network byte order passed through LittleEndian32 in
+// OutRpcNodeInfo, so on little-endian servers ports 1..65535 arrive byte-swapped.
+func decodeNodePort(v any) int64 {
+	n := integer(v)
+	if n <= 0 {
+		return 0
+	}
+	if n <= 65535 {
+		return n
+	}
+	u := uint32(n)
+	swapped := int64(((u & 0xff) << 24) | ((u & 0xff00) << 8) | ((u >> 8) & 0xff00) | ((u >> 24) & 0xff))
+	if swapped > 0 && swapped <= 65535 {
+		return swapped
+	}
+	return 0
+}
+
+func extractSessionPorts(st M) (int64, int64) {
+	serverPort := decodeNodePort(st["ServerPort2_u32"])
+	if serverPort == 0 {
+		serverPort = decodeNodePort(st["ServerPort_u32"])
+	}
+	clientPort := decodeNodePort(st["ClientPort_u32"])
+	return serverPort, clientPort
+}
+
 // collectSessionNetMaps resolves per-session IPv4 virtual IPs and DHCP hostnames for a hub.
 func (a *App) collectSessionNetMaps(ctx context.Context, hub string) (sessionIPs map[string][]string, ipToDhcpHost map[string]string) {
 	var ipTable []M
@@ -94,8 +122,10 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 	type sessStatusRes struct {
 		name       string
 		clientHost string
+		serverPort int64
+		clientPort int64
 	}
-	sessClientHosts := make(map[string]string)
+	sessStatusMap := make(map[string]sessStatusRes)
 	if len(sessions) > 0 && len(sessions) <= 50 {
 		ch := make(chan sessStatusRes, len(sessions))
 		sem := make(chan struct{}, 8)
@@ -115,15 +145,20 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 				cH := strings.TrimSpace(str(st["ClientHostname_str"]))
 				sN := strings.TrimSpace(str(st["ServerName_str"]))
 				cIP := strings.TrimSpace(str(st["Client_Ip_Address_ip"]))
+				host := ""
 				if cH != "" && !isIP(cH) && cH != cIP && !strings.EqualFold(cH, sN) {
-					ch <- sessStatusRes{name: sn, clientHost: cH}
+					host = cH
+				}
+				sPort, cPort := extractSessionPorts(st)
+				if host != "" || sPort > 0 || cPort > 0 {
+					ch <- sessStatusRes{name: sn, clientHost: host, serverPort: sPort, clientPort: cPort}
 				}
 			}(sessName)
 		}
 		wg.Wait()
 		close(ch)
 		for res := range ch {
-			sessClientHosts[res.name] = res.clientHost
+			sessStatusMap[res.name] = res
 		}
 	}
 
@@ -166,9 +201,19 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 		s["ActiveNatTcp_u32"] = activeNatTcp
 
 		var realHost string
-		if cH, ok := sessClientHosts[sessName]; ok && cH != "" {
-			realHost = cH
-			s["ClientHostname_str"] = cH
+		if res, ok := sessStatusMap[sessName]; ok {
+			if res.serverPort > 0 {
+				s["ServerPort_u32"] = res.serverPort
+			}
+			if res.clientPort > 0 {
+				s["ClientPort_u32"] = res.clientPort
+			}
+			if res.clientHost != "" {
+				realHost = res.clientHost
+				s["ClientHostname_str"] = res.clientHost
+			} else {
+				realHost = firstDHCPHost(sessionIPs[sessName], ipToDhcpHost, remoteHost)
+			}
 		} else {
 			realHost = firstDHCPHost(sessionIPs[sessName], ipToDhcpHost, remoteHost)
 		}
@@ -305,6 +350,10 @@ func (a *App) enrichSessionStatus(ctx context.Context, hub, name string, status 
 		}
 	}()
 	status["ActiveNatTcp_u32"] = activeNatTcp
+
+	serverPort, clientPort := extractSessionPorts(status)
+	status["ServerPort_u32"] = serverPort
+	status["ClientPort_u32"] = clientPort
 
 	geo := a.lookupIP(ctx, clientIP)
 	status["IpLocation_str"] = geo.Location

@@ -305,22 +305,20 @@ test("IP location localizes a known ISP and leaves unknown ones alone", () => {
   assert.equal(formatIPLocation("Tokyo", "Some Local ISP"), "Tokyo Some Local ISP");
 });
 
-test("formatTcpConnections shows only numeric active connection count in compact list mode", () => {
-  const { formatTcpConnections } = component("../src/screens/hub/HubSessions.tsx", "formatTcpConnections", [], {
+test("formatSessionPorts formats server and client ports including byte-swapped SoftEther NODE_INFO values", () => {
+  const { formatSessionPorts } = component("../src/screens/hub/HubSessions.tsx", "formatSessionPorts", [], {
     "../../lib/api": {},
     "../../lib/router": {},
     "../../lib/se": {},
     "../../lib/util": {},
     "../../ui/Status": {},
   });
-  const t = v => v;
-  const session = { Name_str: "SID-SEAN-[L2TP]-2", ActiveNatTcp_u32: 7 };
-  assert.equal(formatTcpConnections(session, t, true), "7");
-  assert.equal(formatTcpConnections(session, t), "UDP (7 active sessions)");
-  assert.equal(formatTcpConnections({ Name_str: "SID-SEAN-[L2TP]-2", ActiveNatTcp_u32: 0 }, t, true), "0");
-  assert.equal(formatTcpConnections({ Name_str: "SID-SEAN-1", NumTcpConnections_u32: 1, MaxTcpConnections_u32: 1 }, t, true), "1");
-  assert.equal(formatTcpConnections({ Name_str: "SID-SEAN-1", NumTcpConnections_u32: 1, MaxTcpConnections_u32: 1 }, t), "1 / 1");
-  assert.equal(formatTcpConnections({ Name_str: "SID-SEAN-2", NumTcpConnections_u32: 0, MaxTcpConnections_u32: 0 }, t, true), "0");
+  assert.equal(formatSessionPorts({ ServerPort_u32: 1701, ClientPort_u32: 1701 }), "1701 / 1701");
+  assert.equal(formatSessionPorts({ ServerPort2_u32: 2768633856, ServerPort_u32: 0, ClientPort_u32: 2768633856 }), "1701 / 1701");
+  assert.equal(formatSessionPorts({ ServerPort2_u32: 0xbb010000 >>> 0, ClientPort_u32: 54321 }), "443 / 54321");
+  assert.equal(formatSessionPorts({ ServerPort_u32: 443, ClientPort_u32: 0 }), "443 / —");
+  assert.equal(formatSessionPorts({ ServerPort_u32: 0, ClientPort_u32: 51820 }), "— / 51820");
+  assert.equal(formatSessionPorts({}), "—");
 });
 
 test("groupWireGuardPeers and config helpers handle keys and filenames safely", () => {

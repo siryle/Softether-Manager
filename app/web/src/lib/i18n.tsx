@@ -1295,6 +1295,7 @@ const zhCN: Record<string, string> = {
   "Received (Download)": "已接收 (下载)",
   "Client software": "客户端软件",
   "UDP / Compress": "UDP 加速 / 压缩",
+  "Server / Client port": "服务器端口 / 客户端端口",
   "UDP accel": "UDP 加速",
   "in use": "使用中",
   "half connection": "半双工（半连接）",

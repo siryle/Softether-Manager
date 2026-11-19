@@ -49,20 +49,20 @@ export function cleanHost(d: Wire): string {
   return h;
 }
 
-export function formatTcpConnections(d: Wire, t: (s: string) => string, compact = false): string {
-  const proto = String(d.UnderlayProtocol_str || d.Name_str || "");
-  const isUdp = proto.includes("L2TP") || proto.includes("UDP") || proto.includes("IPsec");
-  if (isUdp) {
-    const active = Math.max(0, Number(d.ActiveNatTcp_u32 ?? 0) || 0);
-    if (compact) return String(active);
-    if (active > 0) return `UDP (${active} ${t("active sessions")})`;
-    return t("UDP tunnel");
-  }
-  const num = Math.max(0, Number(d.NumTcpConnections_u32 ?? d.CurrentNumTcp_u32 ?? 0) || 0);
-  const max = Math.max(0, Number(d.MaxTcpConnections_u32 ?? d.MaxNumTcp_u32 ?? 0) || 0);
-  if (compact) return String(num);
-  if (num === 0 && max === 0) return "—";
-  return `${num} / ${max}`;
+function normalizePort(v: unknown): number {
+  const n = Number(v ?? 0);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  if (n <= 65535) return Math.trunc(n);
+  const u = n >>> 0;
+  const swapped = (((u & 0xff) << 24) | ((u & 0xff00) << 8) | ((u >>> 8) & 0xff00) | ((u >>> 24) & 0xff)) >>> 0;
+  return swapped > 0 && swapped <= 65535 ? swapped : 0;
+}
+
+export function formatSessionPorts(d: Wire): string {
+  const serverPort = normalizePort(d.ServerPort2_u32) || normalizePort(d.ServerPort_u32);
+  const clientPort = normalizePort(d.ClientPort_u32);
+  if (!serverPort && !clientPort) return "—";
+  return `${serverPort || "—"} / ${clientPort || "—"}`;
 }
 
 export function parseClientInfo(d: Wire) {
@@ -206,7 +206,7 @@ export function SessionsTable({
                   <th>{t("User")}</th>
                   <th>{t("Kind")}</th>
                   <th>{t("IP / Host")}</th>
-                  <th style={{ width: 80 }}>{t("Connection count")}</th>
+                  <th>{t("Server / Client port")}</th>
                   <th>{t("Packets")}</th>
                   <th>{t("Transfer")}</th>
                   <th>{t("Started")}</th>
@@ -250,7 +250,7 @@ export function SessionsTable({
                           host={cleanHost(s)}
                         />
                       </td>
-                      <td className="tmono" title={formatTcpConnections(s, t)}>{formatTcpConnections(s, t, true)}</td>
+                      <td className="tmono">{formatSessionPorts(s)}</td>
                       <td className="tmono">{formatCount(Number(s.PacketNum_u64))}</td>
                       <td className="tmono">{formatBytes(Number(s.PacketSize_u64))}</td>
                       <td className="tmono">{timeAgo(s.CreatedTime_dt as string)}</td>
@@ -461,8 +461,8 @@ export function SessionSheet({ hub,
                     <div className="mono" style={{ fontSize: "var(--t-data)" }}>{String(detail.CipherName_str || "plain")}</div>
                   </div>
                   <div>
-                    <div className="micro">{t("Connection count")}</div>
-                    <div className="mono" style={{ fontSize: "var(--t-data)" }}>{formatTcpConnections(detail, t)}</div>
+                    <div className="micro">{t("Server / Client port")}</div>
+                    <div className="mono" style={{ fontSize: "var(--t-data)" }}>{formatSessionPorts(detail)}</div>
                   </div>
                   <div>
                     <div className="micro">{t("UDP / Compress")}</div>

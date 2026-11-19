@@ -172,10 +172,19 @@ func TestEnrichSessions(t *testing.T) {
 		"ServerName_str":                   "S20M",
 		"SessionStatus_ClientHostName_str": "123.182.152.119",
 		"ClientHostname_str":               "I4P228986", // Reported client host
+		"ServerPort_u32":                   0,
+		"ServerPort2_u32":                  2768633856, // Endian32(1701)
+		"ClientPort_u32":                   2768633856, // Endian32(1701)
 	})
 
 	if status["ClientHostname_str"] != "I4P228986" {
 		t.Fatalf("expected client reported hostname 'I4P228986', got %v", status["ClientHostname_str"])
+	}
+	if integer(status["ServerPort_u32"]) != 1701 || integer(status["ClientPort_u32"]) != 1701 {
+		t.Fatalf("expected decoded ports 1701/1701, got %v/%v", status["ServerPort_u32"], status["ClientPort_u32"])
+	}
+	if sPort, cPort := extractSessionPorts(M{"ServerPort_u32": 443, "ClientPort_u32": 54321}); sPort != 443 || cPort != 54321 {
+		t.Fatalf("expected direct ports 443/54321, got %d/%d", sPort, cPort)
 	}
 
 	// Ensure IPv4 check helper
