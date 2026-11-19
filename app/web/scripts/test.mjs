@@ -305,7 +305,7 @@ test("IP location localizes a known ISP and leaves unknown ones alone", () => {
   assert.equal(formatIPLocation("Tokyo", "Some Local ISP"), "Tokyo Some Local ISP");
 });
 
-test("formatTcpConnections shows numeric count in compact list mode for UDP/L2TP sessions", () => {
+test("formatTcpConnections shows only numeric active connection count in compact list mode", () => {
   const { formatTcpConnections } = component("../src/screens/hub/HubSessions.tsx", "formatTcpConnections", [], {
     "../../lib/api": {},
     "../../lib/router": {},
@@ -317,7 +317,10 @@ test("formatTcpConnections shows numeric count in compact list mode for UDP/L2TP
   const session = { Name_str: "SID-SEAN-[L2TP]-2", ActiveNatTcp_u32: 7 };
   assert.equal(formatTcpConnections(session, t, true), "7");
   assert.equal(formatTcpConnections(session, t), "UDP (7 active sessions)");
-  assert.equal(formatTcpConnections({ Name_str: "SID-SEAN-[L2TP]-2", ActiveNatTcp_u32: 0 }, t, true), "UDP tunnel");
+  assert.equal(formatTcpConnections({ Name_str: "SID-SEAN-[L2TP]-2", ActiveNatTcp_u32: 0 }, t, true), "0");
+  assert.equal(formatTcpConnections({ Name_str: "SID-SEAN-1", NumTcpConnections_u32: 1, MaxTcpConnections_u32: 1 }, t, true), "1");
+  assert.equal(formatTcpConnections({ Name_str: "SID-SEAN-1", NumTcpConnections_u32: 1, MaxTcpConnections_u32: 1 }, t), "1 / 1");
+  assert.equal(formatTcpConnections({ Name_str: "SID-SEAN-2", NumTcpConnections_u32: 0, MaxTcpConnections_u32: 0 }, t, true), "0");
 });
 
 test("groupWireGuardPeers and config helpers handle keys and filenames safely", () => {

@@ -53,14 +53,14 @@ export function formatTcpConnections(d: Wire, t: (s: string) => string, compact 
   const proto = String(d.UnderlayProtocol_str || d.Name_str || "");
   const isUdp = proto.includes("L2TP") || proto.includes("UDP") || proto.includes("IPsec");
   if (isUdp) {
-    if (d.ActiveNatTcp_u32 != null && Number(d.ActiveNatTcp_u32) > 0) {
-      if (compact) return String(Number(d.ActiveNatTcp_u32));
-      return `UDP (${d.ActiveNatTcp_u32} ${t("active sessions")})`;
-    }
+    const active = Math.max(0, Number(d.ActiveNatTcp_u32 ?? 0) || 0);
+    if (compact) return String(active);
+    if (active > 0) return `UDP (${active} ${t("active sessions")})`;
     return t("UDP tunnel");
   }
-  const num = d.NumTcpConnections_u32 ?? d.CurrentNumTcp_u32 ?? 0;
-  const max = d.MaxTcpConnections_u32 ?? d.MaxNumTcp_u32 ?? 0;
+  const num = Math.max(0, Number(d.NumTcpConnections_u32 ?? d.CurrentNumTcp_u32 ?? 0) || 0);
+  const max = Math.max(0, Number(d.MaxTcpConnections_u32 ?? d.MaxNumTcp_u32 ?? 0) || 0);
+  if (compact) return String(num);
   if (num === 0 && max === 0) return "—";
   return `${num} / ${max}`;
 }
