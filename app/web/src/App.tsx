@@ -14,6 +14,7 @@ import { AllUsers } from "./screens/AllUsers";
 import { Connect } from "./screens/Connect";
 import { ServerSettings } from "./screens/ServerSettings";
 import { AllClients } from "./screens/AllClients";
+import { AuditReport } from "./screens/AuditReport";
 import { Logs } from "./screens/Logs";
 import { HubDetail } from "./screens/HubDetail";
 import { Hubs } from "./screens/Hubs";
@@ -54,6 +55,7 @@ export default function App() {
  *   /hub/:hub/user/:name      one user
  *   /server-settings[/:sec]   server-wide SoftEther settings
  *   /connections              TCP connections into the server
+ *   /audit-report             historical session audit report
  *   /logs                     log browser
  *   /settings[/:section]      the panel itself
  */
@@ -85,6 +87,8 @@ function Routed() {
     screen = <ServerSettings section={p[1]} />;
   } else if (p[0] === "clients" || p[0] === "connections") {
     screen = <AllClients />;
+  } else if (p[0] === "audit-report") {
+    screen = <AuditReport />;
   } else if (p[0] === "logs") {
     screen = <Logs />;
 

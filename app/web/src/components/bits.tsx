@@ -113,7 +113,7 @@ export function CheckRow({
 }
 
 /** Search input with the icon, for tables. */
-export function SearchBox({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+export function SearchBox({ value, onChange, placeholder, id }: { value: string; onChange: (v: string) => void; placeholder: string; id?: string }) {
   const { t } = useI18n();
   return (
     <div style={{ position: "relative", flex: "1 1 220px", maxWidth: 340, minWidth: 0 }}>
@@ -121,6 +121,7 @@ export function SearchBox({ value, onChange, placeholder }: { value: string; onC
         <IconSearch size={15} />
       </span>
       <input
+        id={id}
         className="input"
         style={{ paddingInlineStart: 34 }}
         value={value}

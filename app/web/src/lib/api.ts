@@ -248,6 +248,48 @@ export interface QuotaIn {
   reset?: boolean;
 }
 
+export interface SessionReportQuery {
+  from?: string;
+  to?: string;
+  hub?: string;
+  q?: string;
+  status?: "all" | "active" | "ended";
+  limit?: number;
+  offset?: number;
+}
+
+export interface SessionReportSummary {
+  total_sessions: number;
+  active_sessions: number;
+  unique_users: number;
+  total_bytes: number;
+  download_bytes: number;
+  upload_bytes: number;
+}
+
+export interface SessionReportResponse {
+  items: Wire[];
+  total: number;
+  summary: SessionReportSummary;
+  hubs: string[];
+}
+
+function sessionReportQuery(params: SessionReportQuery & { lang?: string; tz?: string; tz_offset?: number }): string {
+  const sp = new URLSearchParams();
+  if (params.from) sp.set("from", params.from);
+  if (params.to) sp.set("to", params.to);
+  if (params.hub) sp.set("hub", params.hub);
+  if (params.q) sp.set("q", params.q);
+  if (params.status && params.status !== "all") sp.set("status", params.status);
+  if (params.limit !== undefined) sp.set("limit", String(params.limit));
+  if (params.offset !== undefined && params.offset > 0) sp.set("offset", String(params.offset));
+  if (params.lang) sp.set("lang", params.lang);
+  if (params.tz) sp.set("tz", params.tz);
+  if (params.tz_offset !== undefined) sp.set("tz_offset", String(params.tz_offset));
+  const s = sp.toString();
+  return s ? `?${s}` : "";
+}
+
 /** The panel's own domain and certificate, every stage reported on its own. */
 export interface DomainStatus {
   configured: boolean;
@@ -663,6 +705,10 @@ function apiMethods(request: typeof sendRequest) {
       "GET",
       `${hubPath(hub)}/users/${encodeURIComponent(name)}/session-history?limit=100${beforeId ? `&before_id=${beforeId}` : ""}`,
     ),
+  sessionReport: (params: SessionReportQuery = {}) =>
+    request<SessionReportResponse>("GET", `/server/session-history${sessionReportQuery(params)}`),
+  exportSessionReport: (params: SessionReportQuery & { lang?: string; tz?: string; tz_offset?: number } = {}) =>
+    request<Blob>("GET", `/server/session-history/export${sessionReportQuery(params)}`, undefined, true),
   groups: (hub: string) => request("GET", `${hubPath(hub)}/groups`),
   createGroup: (hub: string, body: Wire) => request("POST", `${hubPath(hub)}/groups`, body),
   group: (hub: string, name: string) =>

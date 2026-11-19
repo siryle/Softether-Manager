@@ -8,7 +8,7 @@ import { useServer } from "../lib/server";
 import { Link, navigate, seg } from "../lib/router";
 import { useToast } from "../lib/toast";
 import { formatBytes, formatIPLocation, hasIPLocation, timeAgo } from "../lib/util";
-import { IconClose, IconRefresh } from "../ui/Icon";
+import { IconClose, IconRefresh, IconReport } from "../ui/Icon";
 import { Pill } from "../ui/Status";
 import { cleanHost, EndpointCell, parseClientInfo, SessionSheet } from "./hub/HubSessions";
 
@@ -83,6 +83,9 @@ export function AllClients() {
         actions={
           <div className="users-toolbar">
             <SearchBox value={query} onChange={setQuery} placeholder={t("user, host, IP…")} />
+            <Link to="/audit-report" className="btn btn--sm" title={t("Audit report")}>
+              <IconReport size={14} /> <span className="btn__label">{t("Audit report")}</span>
+            </Link>
             <button
               className="btn btn--sm"
               onClick={() => {

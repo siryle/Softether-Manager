@@ -151,6 +151,7 @@ CREATE INDEX IF NOT EXISTS "IX_HubTrafficSample_Date" ON "HubTrafficSample"("Sam
 CREATE INDEX IF NOT EXISTS "IX_AuditLog_Date" ON "AuditLog"("CreatedDate");
 CREATE INDEX IF NOT EXISTS "IX_VpnSessionSample_Open" ON "VpnSessionSample"("ServerID", "HubName", "EndedDate");
 CREATE INDEX IF NOT EXISTS "IX_VpnSessionSample_User" ON "VpnSessionSample"("ServerID", "HubName", "UserName", "StartedDate");
+CREATE INDEX IF NOT EXISTS "IX_VpnSessionSample_ServerStarted" ON "VpnSessionSample"("ServerID", julianday("StartedDate"));
 CREATE INDEX IF NOT EXISTS "IX_VpnSessionTrafficSample_Session" ON "VpnSessionTrafficSample"("VpnSessionSampleID", "SampledDate");
 CREATE INDEX IF NOT EXISTS "IX_VpnSessionTrafficSample_Date" ON "VpnSessionTrafficSample"("SampledDate");
 CREATE INDEX IF NOT EXISTS "IX_VpnSessionTrafficSample_Retention" ON "VpnSessionTrafficSample"(datetime("SampledDate"));

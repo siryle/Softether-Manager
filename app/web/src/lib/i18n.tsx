@@ -1939,6 +1939,41 @@ const zhCN: Record<string, string> = {
   "Default WireGuard port 51820 is not in the UDP listeners above.": "默认 WireGuard 端口 51820 尚未加入上方的 UDP 监听端口。",
   "Manage in Listening ports ↑": "前往「监听端口」管理 ↑",
   "No UDP ports configured": "未配置 UDP 端口",
+
+  // Audit Report
+  "Audit report": "审计报表",
+  "Historical VPN user sessions, connect/disconnect times, and IP geolocation.": "查看 VPN 用户历史会话记录、上线与下线时间、IP 属地与流量明细，支持按时间筛选并导出 CSV。",
+  "Export CSV": "导出 CSV",
+  "Audit report CSV exported.": "审计报表 CSV 已导出。",
+  "All time": "全部时间",
+  "Today": "今天",
+  "Last 24h": "近 24 小时",
+  "Last 7d": "近 7 天",
+  "Last 30d": "近 30 天",
+  "Reset filters": "重置筛选",
+  "Start time": "开始时间",
+  "End time": "结束时间",
+  "Session status": "会话状态",
+  "All hubs": "全部 HUB",
+  "All statuses": "全部状态",
+  "Active only": "仅在线中",
+  "Ended only": "仅已下线",
+  "Start time must be earlier than end time.": "开始时间不能晚于结束时间。",
+  "Total sessions": "会话总数",
+  "{count} active now": "当前 {count} 个在线",
+  "Unique users": "涉及用户数",
+  "Matched by filter": "按当前筛选统计",
+  "Downloaded": "下载流量",
+  "Uploaded": "上传流量",
+  "Total: {size}": "总流量：{size}",
+  "Connected at": "上线时间",
+  "Disconnected at": "下线时间",
+  "loading session history": "正在加载会话历史...",
+  "No session history matches the selected time range or filter.": "当前时间范围或筛选条件下没有匹配的历史会话记录。",
+  "Session history is recorded periodically while users connect. Make sure session monitoring is enabled in Panel settings.": "当用户连接 VPN 时，面板会定期记录会话历史。若长期无数据，请确认已在面板设置中开启「记录会话历史」。",
+  "Monitoring settings": "监控设置",
+  "Session audit records": "会话审计记录",
+  "IP / Location": "IP / 属地",
 };
 
 interface I18nApi {
@@ -2036,7 +2071,7 @@ export function LanguageButton({ className }: { className?: string }) {
       className={className || "btn btn--sm"}
       onClick={toggleLang}
       title={lang === "zh-CN" ? "Switch to English" : "切换为简体中文"}
-      style={{ minWidth: 44, fontSize: 13, fontWeight: 500 }}
+      style={className ? undefined : { minWidth: 44, fontSize: 13, fontWeight: 500 }}
     >
       {lang === "zh-CN" ? "中" : "EN"}
     </button>

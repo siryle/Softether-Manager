@@ -73,7 +73,7 @@ function filterIpv4(ipStr?: any): string {
   return v4.join(", ");
 }
 
-function cleanClientHost(host?: any, ip?: any): string {
+export function cleanClientHost(host?: any, ip?: any): string {
   const h = String(host || "").trim();
   const cIp = String(ip || "").trim();
   if (!h || h === "—" || h === cIp || /^(\d{1,3}\.){3}\d{1,3}$/.test(h) || h.includes(":")) {
@@ -88,7 +88,7 @@ function cleanClientHost(host?: any, ip?: any): string {
  * session shorter than one tick has totals but no curve to draw, which the
  * chart says rather than drawing a flat line that means nothing.
  */
-function SessionUsageSheet({ hub, row, onClose }: { hub: string; row: Wire; onClose: () => void }) {
+export function SessionUsageSheet({ hub, row, onClose }: { hub: string; row: Wire; onClose: () => void }) {
   const [usage, setUsage] = useState<(Usage & { session: Wire } & Wire) | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {

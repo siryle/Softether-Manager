@@ -50,6 +50,23 @@ export function formatDate(iso: string | null | undefined): string {
   });
 }
 
+/** Exact date and time with seconds for audit records. */
+export function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (!isFinite(d.getTime()) || d.getFullYear() < 1990) return "—";
+  const lang = typeof document !== "undefined" ? document.documentElement.lang || undefined : undefined;
+  return d.toLocaleString(lang, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
 export function timeAgo(iso: string | null | undefined): string {
   if (!iso) return "never";
   const then = new Date(iso).getTime();
@@ -76,14 +93,19 @@ export function downloadBase64(filename: string, base64: string, mime = "applica
   URL.revokeObjectURL(url);
 }
 
-/** Trigger a browser download of a text file. */
-export function downloadText(filename: string, content: string, mime = "application/octet-stream") {
-  const url = URL.createObjectURL(new Blob([content], { type: mime }));
+/** Trigger a browser download of a Blob. */
+export function downloadBlob(filename: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
   a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Trigger a browser download of a text file. */
+export function downloadText(filename: string, content: string, mime = "application/octet-stream") {
+  downloadBlob(filename, new Blob([content], { type: mime }));
 }
 
 export function fileToBase64(file: File): Promise<string> {

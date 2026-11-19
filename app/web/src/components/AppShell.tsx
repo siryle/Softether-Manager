@@ -17,6 +17,7 @@ import {
   IconPanels,
   IconPlus,
   IconPulse,
+  IconReport,
   IconSearch,
   IconSettings,
   IconSignOut,
@@ -140,7 +141,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span className="keycap">⌘K</span>
           </button>
 
-          <LanguageButton />
+          <LanguageButton className="btn btn--sm topbar__lang" />
           <ThemeToggle />
 
           {user && (
@@ -175,6 +176,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 {navLink("/hubs", "Virtual Hubs", <IconHub size={17} />)}
                 {navLink("/clients", "Online clients", <IconPulse size={17} />)}
                 {navLink("/users", "Users", <IconUsers size={17} />)}
+                {navLink("/audit-report", "Audit report", <IconReport size={17} />)}
               </nav>
             </div>
             <div className="side__section">
@@ -255,6 +257,7 @@ function CommandPalette({ onClose, hubs }: { onClose: () => void; hubs: Wire[] }
     { label: t("Virtual Hubs"), to: "/hubs", meta: "/hubs" },
     { label: t("Online clients"), to: "/clients", meta: "/clients" },
     { label: t("Users"), to: "/users", meta: "/users" },
+    { label: t("Audit report"), to: "/audit-report", meta: "/audit-report" },
     { label: t("Server list"), to: "/servers", meta: "/servers" },
     { label: t("Server config"), to: "/server-settings", meta: "/server-settings" },
     { label: t("Logs"), to: "/logs", meta: "/logs" },

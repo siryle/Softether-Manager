@@ -272,6 +272,14 @@ export const IconLogs = (p: P) => (
   </S>
 );
 
+/** Audit report — sheet with activity bars. */
+export const IconReport = (p: P) => (
+  <S {...p}>
+    <rect x="4.5" y="3.5" width="15" height="17" rx="2" />
+    <path d="M8.5 16v-4M12 16V9.5M15.5 16v-2.5M8.5 7.5h7" />
+  </S>
+);
+
 /** Search. */
 export const IconSearch = (p: P) => (
   <S {...p}>

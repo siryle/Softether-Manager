@@ -2,10 +2,12 @@ package manager
 
 import (
 	"context"
+	"encoding/csv"
 	"fmt"
 	"golang.org/x/text/cases"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -42,6 +44,146 @@ func usage(rows []M, hours int64, sendKey, recvKey string, sessions bool) M {
 	}
 	return M{"hours": hours, "points": points, "total_send": sent, "total_recv": recv, "samples": len(rows)}
 }
+func (a *App) enrichSessionRowsGeo(ctx context.Context, rows []M) {
+	if len(rows) == 0 {
+		return
+	}
+	ips := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if ip := str(row["client_ip"]); ip != "" {
+			ips = append(ips, ip)
+		}
+	}
+	geoMap := a.batchLookupIPs(ctx, ips)
+	for _, row := range rows {
+		geo := geoMap[cleanIP(str(row["client_ip"]))]
+		row["ip_location"] = geo.Location
+		row["ip_isp"] = geo.ISP
+		row["ip_full"] = geo.Full
+	}
+}
+
+func parseTimeQuery(raw string, endOfDay bool) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t.UTC().Format(time.RFC3339Nano)
+		}
+	}
+	for _, layout := range []string{"2006-01-02T15:04:05", "2006-01-02T15:04", "2006-01-02 15:04:05"} {
+		if t, err := time.ParseInLocation(layout, s, time.Local); err == nil {
+			return t.UTC().Format(time.RFC3339Nano)
+		}
+	}
+	if t, err := time.ParseInLocation("2006-01-02", s, time.Local); err == nil {
+		if endOfDay {
+			t = t.Add(24*time.Hour - time.Nanosecond)
+		}
+		return t.UTC().Format(time.RFC3339Nano)
+	}
+	fail(422, "Invalid time filter.")
+	return ""
+}
+
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
+}
+
+func buildSessionReportFilter(serverID int64, r *http.Request) (string, []any) {
+	q := r.URL.Query()
+	clauses := []string{"ServerID=?"}
+	args := []any{serverID}
+	if from := parseTimeQuery(q.Get("from"), false); from != "" {
+		clauses = append(clauses, "julianday(StartedDate)>=julianday(?)")
+		args = append(args, from)
+	}
+	if to := parseTimeQuery(q.Get("to"), true); to != "" {
+		clauses = append(clauses, "julianday(StartedDate)<=julianday(?)")
+		args = append(args, to)
+	}
+	if hub := strings.TrimSpace(q.Get("hub")); hub != "" {
+		clauses = append(clauses, "HubName=?")
+		args = append(args, hub)
+	}
+	switch strings.TrimSpace(q.Get("status")) {
+	case "", "all":
+	case "active":
+		clauses = append(clauses, "EndedDate IS NULL")
+	case "ended":
+		clauses = append(clauses, "EndedDate IS NOT NULL")
+	default:
+		fail(422, "Invalid status filter.")
+	}
+	if search := strings.TrimSpace(q.Get("q")); search != "" {
+		pat := "%" + escapeLike(search) + "%"
+		clauses = append(clauses, `(UserName LIKE ? ESCAPE '\' OR ClientIP LIKE ? ESCAPE '\' OR VirtualIP LIKE ? ESCAPE '\' OR ClientHostname LIKE ? ESCAPE '\' OR HubName LIKE ? ESCAPE '\')`)
+		args = append(args, pat, pat, pat, pat, pat)
+	}
+	return strings.Join(clauses, " AND "), args
+}
+
+func safeCSVCell(s string) string {
+	if s == "" {
+		return ""
+	}
+	switch s[0] {
+	case '=', '+', '-', '@', '\t', '\r':
+		return "'" + s
+	}
+	return s
+}
+
+func resolveExportLocation(r *http.Request) *time.Location {
+	if tz := strings.TrimSpace(r.URL.Query().Get("tz")); tz != "" {
+		if loc, err := time.LoadLocation(tz); err == nil {
+			return loc
+		}
+	}
+	if raw := strings.TrimSpace(r.URL.Query().Get("tz_offset")); raw != "" {
+		if mins, err := strconv.Atoi(raw); err == nil && mins >= -840 && mins <= 840 {
+			return time.FixedZone("", -mins*60)
+		}
+	}
+	return time.Local
+}
+
+func formatExportTime(iso string, loc *time.Location) string {
+	if iso == "" {
+		return ""
+	}
+	t := parseTime(iso)
+	if t.IsZero() {
+		return iso
+	}
+	return t.In(loc).Format("2006-01-02 15:04:05")
+}
+
+func formatExportDuration(seconds int64) string {
+	if seconds < 0 {
+		seconds = 0
+	}
+	d := seconds / 86400
+	h := (seconds % 86400) / 3600
+	m := (seconds % 3600) / 60
+	s := seconds % 60
+	if d > 0 {
+		return fmt.Sprintf("%dd %dh", d, h)
+	}
+	if h > 0 {
+		return fmt.Sprintf("%dh %02dm", h, m)
+	}
+	if m > 0 {
+		return fmt.Sprintf("%dm %02ds", m, s)
+	}
+	return fmt.Sprintf("%ds", s)
+}
+
 func (a *App) registerHistory() {
 	for _, kind := range []string{"server", "hub", "user"} {
 		path := "/server/traffic"
@@ -56,6 +198,97 @@ func (a *App) registerHistory() {
 			return a.trafficUsage(a.serverIDFromContext(r.Context()), kind, r.PathValue("hub"), r.PathValue("name"), hours)
 		})
 	}
+	a.endpoint("GET /server/session-history", func(_ http.ResponseWriter, r *http.Request, _ M) any {
+		serverID := a.serverIDFromContext(r.Context())
+		where, args := buildSessionReportFilter(serverID, r)
+		limit := queryInt(r, "limit", 100, 1, 500)
+		offset := queryInt(r, "offset", 0, 0, 1000000)
+
+		summary := one(a.db, `SELECT COUNT(*) total_sessions, COALESCE(SUM(CASE WHEN EndedDate IS NULL THEN 1 ELSE 0 END), 0) active_sessions, COUNT(DISTINCT LOWER(UserName)) unique_users, COALESCE(SUM(BytesTotal), 0) total_bytes, COALESCE(SUM(DownloadBytes), 0) download_bytes, COALESCE(SUM(UploadBytes), 0) upload_bytes FROM VpnSessionSample WHERE `+where, args...)
+		if summary == nil {
+			summary = M{"total_sessions": 0, "active_sessions": 0, "unique_users": 0, "total_bytes": 0, "download_bytes": 0, "upload_bytes": 0}
+		}
+
+		hubRows := query(a.db, `SELECT DISTINCT HubName hub FROM VpnSessionSample WHERE ServerID=? ORDER BY HubName`, serverID)
+		hubs := make([]string, 0, len(hubRows))
+		for _, hr := range hubRows {
+			if h := str(hr["hub"]); h != "" {
+				hubs = append(hubs, h)
+			}
+		}
+
+		itemArgs := append(append([]any{}, args...), limit, offset)
+		rows := query(a.db, `SELECT VpnSessionSampleID id,HubName hub,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,LastSeenDate last_seen_date,BytesTotal bytes_total,PacketsTotal packets_total,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE `+where+` ORDER BY julianday(StartedDate) DESC, VpnSessionSampleID DESC LIMIT ? OFFSET ?`, itemArgs...)
+		a.enrichSessionRowsGeo(r.Context(), rows)
+		return M{"items": rows, "total": integer(summary["total_sessions"]), "summary": summary, "hubs": hubs}
+	})
+	a.endpoint("GET /server/session-history/export", func(w http.ResponseWriter, r *http.Request, _ M) any {
+		serverID := a.serverIDFromContext(r.Context())
+		where, args := buildSessionReportFilter(serverID, r)
+		loc := resolveExportLocation(r)
+		zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.URL.Query().Get("lang"))), "zh")
+
+		rows := query(a.db, `SELECT VpnSessionSampleID id,HubName hub,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,LastSeenDate last_seen_date,BytesTotal bytes_total,PacketsTotal packets_total,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE `+where+` ORDER BY julianday(StartedDate) DESC, VpnSessionSampleID DESC LIMIT 50000`, args...)
+		a.enrichSessionRowsGeo(r.Context(), rows)
+
+		filename := fmt.Sprintf("session-audit-report-%s.csv", time.Now().In(loc).Format("20060102-150405"))
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("\xef\xbb\xbf"))
+
+		cw := csv.NewWriter(w)
+		headers := []string{"Session ID", "User", "Virtual Hub", "Status", "Started", "Ended", "Duration (s)", "Duration", "Client IP", "IP Location", "ISP", "Virtual IP", "Hostname", "Download (Bytes)", "Upload (Bytes)", "Total (Bytes)", "Packets"}
+		activeText, endedText := "Active", "Ended"
+		if zh {
+			headers = []string{"会话 ID", "用户名", "虚拟 HUB", "状态", "上线时间", "下线时间", "在线时长(秒)", "在线时长", "客户端 IP", "IP 属地", "运营商", "虚拟 IP", "主机名", "下载流量(Bytes)", "上传流量(Bytes)", "总流量(Bytes)", "数据包"}
+			activeText, endedText = "在线中", "已下线"
+		}
+		_ = cw.Write(headers)
+
+		nowTime := time.Now()
+		for _, row := range rows {
+			startedRaw := str(row["started_date"])
+			endedRaw := str(row["ended_date"])
+			startedAt := parseTime(startedRaw)
+			endAt := nowTime
+			statusText := activeText
+			endedCell := ""
+			if endedRaw != "" {
+				statusText = endedText
+				endedCell = formatExportTime(endedRaw, loc)
+				if parsedEnd := parseTime(endedRaw); !parsedEnd.IsZero() {
+					endAt = parsedEnd
+				}
+			}
+			var durSec int64
+			if !startedAt.IsZero() {
+				durSec = max(int64(0), int64(endAt.Sub(startedAt).Seconds()))
+			}
+			_ = cw.Write([]string{
+				strconv.FormatInt(integer(row["id"]), 10),
+				safeCSVCell(str(row["username"])),
+				safeCSVCell(str(row["hub"])),
+				statusText,
+				formatExportTime(startedRaw, loc),
+				endedCell,
+				strconv.FormatInt(durSec, 10),
+				formatExportDuration(durSec),
+				safeCSVCell(str(row["client_ip"])),
+				safeCSVCell(str(row["ip_location"])),
+				safeCSVCell(str(row["ip_isp"])),
+				safeCSVCell(str(row["virtual_ip"])),
+				safeCSVCell(str(row["client_hostname"])),
+				strconv.FormatInt(integer(row["download_bytes"]), 10),
+				strconv.FormatInt(integer(row["upload_bytes"]), 10),
+				strconv.FormatInt(integer(row["bytes_total"]), 10),
+				strconv.FormatInt(integer(row["packets_total"]), 10),
+			})
+		}
+		cw.Flush()
+		return nil
+	})
 	for _, userOnly := range []bool{false, true} {
 		path := "/hubs/{hub}/session-history"
 		if userOnly {
@@ -76,19 +309,7 @@ func (a *App) registerHistory() {
 			statement += " ORDER BY VpnSessionSampleID DESC LIMIT ?"
 			args = append(args, queryInt(r, "limit", 100, 1, 500))
 			rows := query(a.db, statement, args...)
-			ips := make([]string, 0, len(rows))
-			for _, row := range rows {
-				if ip := str(row["client_ip"]); ip != "" {
-					ips = append(ips, ip)
-				}
-			}
-			geoMap := a.batchLookupIPs(r.Context(), ips)
-			for _, row := range rows {
-				geo := geoMap[cleanIP(str(row["client_ip"]))]
-				row["ip_location"] = geo.Location
-				row["ip_isp"] = geo.ISP
-				row["ip_full"] = geo.Full
-			}
+			a.enrichSessionRowsGeo(r.Context(), rows)
 			return rows
 		})
 	}

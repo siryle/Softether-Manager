@@ -28,6 +28,7 @@ function backend(text = async () => "{}") {
   let serverId = "1";
   const requests = [];
   const api = load("../src/lib/api.ts", {
+    URLSearchParams,
     window: { dispatchEvent() {} },
     sessionStorage: { getItem: () => serverId },
     localStorage: { getItem: () => null, removeItem() {} },
@@ -347,4 +348,28 @@ test("encodeQrCode builds valid finder patterns and SVG paths for WireGuard conf
   assert.equal(m.modules[(m.size - 8) * m.size + 8], 1);
   const path = qrSvgPath(m, 4);
   assert.ok(path.startsWith("M4 4h"));
+});
+
+test("sessionReport and exportSessionReport encode filters and use server scope", async () => {
+  const client = backend(() => Promise.resolve('{"items":[],"total":0,"summary":{},"hubs":[]}'));
+  await client.api.sessionReport({
+    from: "2026-11-01T00:00:00.000Z",
+    to: "2026-11-19T23:59:59.000Z",
+    hub: "DEFAULT",
+    q: "alice",
+    status: "active",
+    limit: 50,
+    offset: 100,
+  });
+  assert.equal(
+    client.requests[0].url,
+    "api/v1/server/session-history?from=2026-11-01T00%3A00%3A00.000Z&to=2026-11-19T23%3A59%3A59.000Z&hub=DEFAULT&q=alice&status=active&limit=50&offset=100",
+  );
+  assert.equal(client.requests[0].headers["X-Server-ID"], "1");
+
+  await client.api.exportSessionReport({ hub: "OFFICE", status: "all", lang: "zh-CN", tz_offset: -480 });
+  assert.equal(
+    client.requests[1].url,
+    "api/v1/server/session-history/export?hub=OFFICE&lang=zh-CN&tz_offset=-480",
+  );
 });
