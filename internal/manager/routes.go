@@ -467,7 +467,7 @@ func (a *App) registerCustomRPC() {
 		hub, name := r.PathValue("hub"), r.PathValue("name")
 		out := []M{}
 		for _, s := range list(a.rpc(r.Context(), "EnumSession", M{"HubName_str": hub})["SessionList"]) {
-			if fold(str(s["Username_str"])) == fold(name) {
+			if isClientSessionRPC(s) && fold(str(s["Username_str"])) == fold(name) {
 				out = append(out, s)
 			}
 		}
@@ -514,7 +514,7 @@ func (a *App) registerCustomRPC() {
 				sessList := list(a.rpc(r.Context(), "EnumSession", M{"HubName_str": hub})["SessionList"])
 				clientSess := []M{}
 				for _, s := range sessList {
-					if !boolean(s["LinkMode_bool"]) && !boolean(s["SecureNATMode_bool"]) && !boolean(s["BridgeMode_bool"]) && !boolean(s["Layer3Mode_bool"]) {
+					if isClientSessionRPC(s) {
 						s["HubName_str"] = hub
 						clientSess = append(clientSess, s)
 					}
@@ -530,7 +530,7 @@ func (a *App) onlineUsers(r *http.Request, hub string) (out map[string]bool) {
 	out = map[string]bool{}
 	defer func() { _ = recover() }()
 	for _, s := range list(a.rpc(r.Context(), "EnumSession", M{"HubName_str": hub})["SessionList"]) {
-		if boolean(s["SecureNATMode_bool"]) || boolean(s["BridgeMode_bool"]) || boolean(s["LinkMode_bool"]) {
+		if !isClientSessionRPC(s) {
 			continue
 		}
 		if name := fold(strings.TrimSpace(str(s["Username_str"]))); name != "" {

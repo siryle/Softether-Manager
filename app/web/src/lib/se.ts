@@ -35,7 +35,27 @@ export const SESSION_TYPE = (s: Wire): string => {
   if (s["SecureNATMode_bool"]) return "SecureNAT";
   if (s["BridgeMode_bool"]) return "bridge";
   if (s["Layer3Mode_bool"]) return "L3 switch";
+  const u = String(s.username || s.UserName || s.Username_str || "").trim().toLowerCase();
+  if (u === "securenat") return "SecureNAT";
+  if (u === "local bridge" || u.startsWith("sid-local-bridge")) return "bridge";
+  if (u.startsWith("link_")) return "cascade";
+  if (u.startsWith("l3_")) return "L3 switch";
   return "client";
+};
+
+export const isSystemSession = (s: Wire): boolean => {
+  if (Boolean(s["LinkMode_bool"] || s["SecureNATMode_bool"] || s["BridgeMode_bool"] || s["Layer3Mode_bool"])) {
+    return true;
+  }
+  const u = String(s.username || s.UserName || s.Username_str || "").trim().toLowerCase();
+  if (u === "securenat" || u === "local bridge" || u.startsWith("sid-local-bridge") || u.startsWith("link_") || u.startsWith("l3_")) {
+    return true;
+  }
+  const name = String(s.name || s.Name_str || "").trim().toLowerCase();
+  if (name.startsWith("sid-securenat") || name.startsWith("sid-local-bridge") || name.startsWith("sid-link-") || name.startsWith("sid-l3-")) {
+    return true;
+  }
+  return false;
 };
 
 export interface PolicyField {

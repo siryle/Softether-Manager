@@ -95,9 +95,12 @@ func escapeLike(s string) string {
 	return s
 }
 
+const clientSessionSQLClause = `LOWER(UserName) NOT IN ('securenat', 'local bridge') AND LOWER(UserName) NOT LIKE 'sid-local-bridge%' AND LOWER(UserName) NOT LIKE 'link_%' AND LOWER(UserName) NOT LIKE 'l3_%'`
+const nonClientSessionDeleteClause = `LOWER(UserName) IN ('securenat', 'local bridge') OR LOWER(UserName) LIKE 'sid-local-bridge%' OR LOWER(UserName) LIKE 'link_%' OR LOWER(UserName) LIKE 'l3_%'`
+
 func buildSessionReportFilter(serverID int64, r *http.Request) (string, []any) {
 	q := r.URL.Query()
-	clauses := []string{"ServerID=?"}
+	clauses := []string{"ServerID=?", clientSessionSQLClause}
 	args := []any{serverID}
 	if from := parseTimeQuery(q.Get("from"), false); from != "" {
 		clauses = append(clauses, "julianday(StartedDate)>=julianday(?)")
@@ -209,7 +212,7 @@ func (a *App) registerHistory() {
 			summary = M{"total_sessions": 0, "active_sessions": 0, "unique_users": 0, "total_bytes": 0, "download_bytes": 0, "upload_bytes": 0}
 		}
 
-		hubRows := query(a.db, `SELECT DISTINCT HubName hub FROM VpnSessionSample WHERE ServerID=? ORDER BY HubName`, serverID)
+		hubRows := query(a.db, `SELECT DISTINCT HubName hub FROM VpnSessionSample WHERE ServerID=? AND `+clientSessionSQLClause+` ORDER BY HubName`, serverID)
 		hubs := make([]string, 0, len(hubRows))
 		for _, hr := range hubRows {
 			if h := str(hr["hub"]); h != "" {
@@ -296,7 +299,7 @@ func (a *App) registerHistory() {
 		}
 		a.endpoint("GET "+path, func(_ http.ResponseWriter, r *http.Request, _ M) any {
 			serverID := a.serverIDFromContext(r.Context())
-			statement := `SELECT VpnSessionSampleID id,HubName hub,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,LastSeenDate last_seen_date,BytesTotal bytes_total,PacketsTotal packets_total,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE ServerID=? AND HubName=?`
+			statement := `SELECT VpnSessionSampleID id,HubName hub,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,LastSeenDate last_seen_date,BytesTotal bytes_total,PacketsTotal packets_total,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE ServerID=? AND HubName=? AND ` + clientSessionSQLClause
 			args := []any{serverID, r.PathValue("hub")}
 			if userOnly {
 				statement += " AND UserName=? COLLATE NOCASE"
@@ -315,7 +318,7 @@ func (a *App) registerHistory() {
 	}
 	a.endpoint("GET /hubs/{hub}/session-history/{session_id}/usage", func(_ http.ResponseWriter, r *http.Request, _ M) any {
 		serverID := a.serverIDFromContext(r.Context())
-		session := one(a.db, `SELECT VpnSessionSampleID id,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE ServerID=? AND VpnSessionSampleID=? AND HubName=?`, serverID, r.PathValue("session_id"), r.PathValue("hub"))
+		session := one(a.db, `SELECT VpnSessionSampleID id,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE ServerID=? AND VpnSessionSampleID=? AND HubName=? AND `+clientSessionSQLClause, serverID, r.PathValue("session_id"), r.PathValue("hub"))
 		if session == nil {
 			fail(404, "No such session in this hub's history.")
 		}
@@ -393,6 +396,10 @@ func bytesFor(m M, prefix string) (int64, int64) {
 	return integer(m[prefix+"Send.UnicastBytes_u64"]) + integer(m[prefix+"Send.BroadcastBytes_u64"]), integer(m[prefix+"Recv.UnicastBytes_u64"]) + integer(m[prefix+"Recv.BroadcastBytes_u64"])
 }
 func (a *App) prune() {
+	// Purge any legacy non-client session records (e.g. SecureNAT, Local Bridge, Cascade, L3 switch)
+	execute(a.db, `DELETE FROM VpnSessionTrafficSample WHERE VpnSessionSampleID IN (SELECT VpnSessionSampleID FROM VpnSessionSample WHERE `+nonClientSessionDeleteClause+`)`)
+	execute(a.db, `DELETE FROM VpnSessionSample WHERE `+nonClientSessionDeleteClause)
+
 	days := max(int64(1), integer(a.setting("sample_retention_days")))
 	for _, table := range []string{"HubTrafficSample", "UserTrafficSample"} {
 		execute(a.db, `DELETE FROM `+table+` WHERE datetime(SampledDate)<datetime('now',?)`, fmt.Sprintf("-%d days", days))
@@ -542,7 +549,13 @@ type liveSessionData struct {
 }
 
 func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string) {
-	live := list(a.rpc(ctx, "EnumSession", M{"HubName_str": hub})["SessionList"])
+	rawLive := list(a.rpc(ctx, "EnumSession", M{"HubName_str": hub})["SessionList"])
+	live := make([]M, 0, len(rawLive))
+	for _, s := range rawLive {
+		if isClientSessionRPC(s) {
+			live = append(live, s)
+		}
+	}
 	seen := map[string]bool{}
 	stamp := now()
 	series := boolean(a.setting("session_traffic_enabled"))
@@ -658,7 +671,7 @@ func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string)
 		}
 	}
 
-	rows, err := tx.Query(`SELECT SessionKey FROM VpnSessionSample WHERE ServerID=? AND HubName=? AND EndedDate IS NULL`, serverID, hub)
+	rows, err := tx.Query(`SELECT SessionKey FROM VpnSessionSample WHERE ServerID=? AND HubName=? AND EndedDate IS NULL AND `+clientSessionSQLClause, serverID, hub)
 	check(err)
 	var endedKeys []string
 	for rows.Next() {

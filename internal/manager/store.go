@@ -352,6 +352,10 @@ func initSchema(db *sql.DB) error {
 		return err
 	}
 
+	// Clean up any legacy non-client session data (e.g. SecureNAT, Local Bridge, Cascade, L3 switch)
+	_, _ = tx.Exec(`DELETE FROM VpnSessionTrafficSample WHERE VpnSessionSampleID IN (SELECT VpnSessionSampleID FROM VpnSessionSample WHERE LOWER(UserName) IN ('securenat', 'local bridge') OR LOWER(UserName) LIKE 'sid-local-bridge%' OR LOWER(UserName) LIKE 'link_%' OR LOWER(UserName) LIKE 'l3_%')`)
+	_, _ = tx.Exec(`DELETE FROM VpnSessionSample WHERE LOWER(UserName) IN ('securenat', 'local bridge') OR LOWER(UserName) LIKE 'sid-local-bridge%' OR LOWER(UserName) LIKE 'link_%' OR LOWER(UserName) LIKE 'l3_%')`)
+
 	return tx.Commit()
 }
 

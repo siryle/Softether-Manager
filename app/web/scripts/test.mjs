@@ -373,3 +373,36 @@ test("sessionReport and exportSessionReport encode filters and use server scope"
     "api/v1/server/session-history/export?hub=OFFICE&lang=zh-CN&tz_offset=-480",
   );
 });
+
+test("SESSION_TYPE and isSystemSession identify system vs client sessions", () => {
+  const { SESSION_TYPE, isSystemSession } = load("../src/lib/se.ts");
+
+  // Client sessions
+  assert.equal(SESSION_TYPE({ Username_str: "sean", Name_str: "SID-SEAN-1" }), "client");
+  assert.equal(isSystemSession({ Username_str: "sean", Name_str: "SID-SEAN-1" }), false);
+  assert.equal(isSystemSession({ username: "alice" }), false);
+
+  // SecureNAT
+  assert.equal(SESSION_TYPE({ SecureNATMode_bool: true }), "SecureNAT");
+  assert.equal(isSystemSession({ SecureNATMode_bool: true }), true);
+  assert.equal(SESSION_TYPE({ username: "SecureNAT" }), "SecureNAT");
+  assert.equal(isSystemSession({ username: "SecureNAT" }), true);
+  assert.equal(isSystemSession({ Username_str: "securenat" }), true);
+  assert.equal(isSystemSession({ Name_str: "SID-SECURENAT-1" }), true);
+
+  // Local Bridge
+  assert.equal(SESSION_TYPE({ BridgeMode_bool: true }), "bridge");
+  assert.equal(isSystemSession({ BridgeMode_bool: true }), true);
+  assert.equal(isSystemSession({ username: "Local Bridge" }), true);
+  assert.equal(isSystemSession({ username: "sid-local-bridge-1" }), true);
+
+  // Cascade
+  assert.equal(SESSION_TYPE({ LinkMode_bool: true }), "cascade");
+  assert.equal(isSystemSession({ LinkMode_bool: true }), true);
+  assert.equal(isSystemSession({ username: "link_office" }), true);
+
+  // L3 switch
+  assert.equal(SESSION_TYPE({ Layer3Mode_bool: true }), "L3 switch");
+  assert.equal(isSystemSession({ Layer3Mode_bool: true }), true);
+  assert.equal(isSystemSession({ username: "l3_switch" }), true);
+});

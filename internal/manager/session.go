@@ -11,9 +11,31 @@ func isIP(s string) bool {
 	return net.ParseIP(strings.TrimSpace(s)) != nil
 }
 
+// isIPv4 returns true if s is a valid IPv4 address string.
 func isIPv4(s string) bool {
 	ip := net.ParseIP(strings.TrimSpace(s))
 	return ip != nil && ip.To4() != nil
+}
+
+// isClientSessionRPC returns true if the session item from EnumSession represents
+// an actual end-user VPN client session, rather than an internal/system session
+// such as SecureNAT, Local Bridge, Cascade connection, or Layer-3 Virtual Router.
+func isClientSessionRPC(s M) bool {
+	if s == nil {
+		return false
+	}
+	if boolean(s["LinkMode_bool"]) || boolean(s["SecureNATMode_bool"]) || boolean(s["BridgeMode_bool"]) || boolean(s["Layer3Mode_bool"]) {
+		return false
+	}
+	u := strings.ToLower(strings.TrimSpace(str(s["Username_str"])))
+	if u == "securenat" || u == "local bridge" || strings.HasPrefix(u, "sid-local-bridge") || strings.HasPrefix(u, "link_") || strings.HasPrefix(u, "l3_") {
+		return false
+	}
+	name := strings.ToLower(strings.TrimSpace(str(s["Name_str"])))
+	if strings.HasPrefix(name, "sid-securenat") || strings.HasPrefix(name, "sid-local-bridge") || strings.HasPrefix(name, "sid-link-") || strings.HasPrefix(name, "sid-l3-") {
+		return false
+	}
+	return true
 }
 
 // decodeNodePort normalizes SoftEther port fields. NODE_INFO stores ClientPort

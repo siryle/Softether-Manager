@@ -18,6 +18,7 @@ import {
 } from "../lib/util";
 import { IconDownload, IconRefresh, IconSearch } from "../ui/Icon";
 import { Pill } from "../ui/Status";
+import { isSystemSession } from "../lib/se";
 import { EndpointCell, filterIpv4 } from "./hub/HubSessions";
 import { cleanClientHost, SessionUsageSheet } from "./UserDetail";
 
@@ -97,6 +98,11 @@ export function AuditReport() {
     if (!fromLocal || !toLocal) return false;
     return new Date(fromLocal).getTime() > new Date(toLocal).getTime();
   }, [fromLocal, toLocal]);
+
+  const displayItems = useMemo(() => {
+    if (!items) return null;
+    return items.filter((item) => !isSystemSession(item));
+  }, [items]);
 
   const filterParams = useMemo<SessionReportQuery>(() => ({
     from: localInputToIso(fromLocal),
@@ -368,9 +374,9 @@ export function AuditReport() {
 
       {error && <ErrorAlert>{error}</ErrorAlert>}
 
-      {items === null ? (
+      {displayItems === null ? (
         <LoadingBlock label="loading session history" />
-      ) : items.length === 0 ? (
+      ) : displayItems.length === 0 ? (
         <Empty
           title={hasFilters ? t("nothing matches") : t("no logins recorded yet")}
           action={
@@ -407,7 +413,7 @@ export function AuditReport() {
                     </tr>
                   </thead>
                   <tbody>
-                    {items.map((h) => {
+                    {displayItems.map((h) => {
                       const rowHub = String(h.hub || "");
                       const username = String(h.username || "");
                       const started = new Date(String(h.started_date)).getTime();
@@ -480,16 +486,16 @@ export function AuditReport() {
                 </table>
               </div>
 
-              {items.length < total && (
+              {displayItems.length < total && (
                 <div className="morebar">
                   <span className="micro">
-                    {items.length} / {total} {t("logins")}
+                    {displayItems.length} / {total} {t("logins")}
                   </span>
                   <button
                     type="button"
                     className="btn btn--sm"
                     disabled={loadingMore}
-                    onClick={() => void fetchReport(items.length, true)}
+                    onClick={() => void fetchReport(items?.length ?? 0, true)}
                   >
                     {loadingMore && <span className="spin" />} {t("Show more")}
                   </button>
@@ -500,7 +506,7 @@ export function AuditReport() {
 
           {/* Mobile Card List */}
           <div className="rows only-mobile-b">
-            {items.map((h) => {
+            {displayItems.map((h) => {
               const rowHub = String(h.hub || "");
               const username = String(h.username || "");
               const started = new Date(String(h.started_date)).getTime();
@@ -553,16 +559,16 @@ export function AuditReport() {
               );
             })}
 
-            {items.length < total && (
+            {displayItems.length < total && (
               <div className="morebar card">
                 <span className="micro">
-                  {items.length} / {total} {t("logins")}
+                  {displayItems.length} / {total} {t("logins")}
                 </span>
                 <button
                   type="button"
                   className="btn btn--sm"
                   disabled={loadingMore}
-                  onClick={() => void fetchReport(items.length, true)}
+                  onClick={() => void fetchReport(items?.length ?? 0, true)}
                 >
                   {loadingMore && <span className="spin" />} {t("Show more")}
                 </button>
