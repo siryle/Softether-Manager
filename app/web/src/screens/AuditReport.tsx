@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Empty, ErrorAlert, LoadingBlock, PageHead, SearchBox } from "../components/bits";
+import { Empty, ErrorAlert, LoadingBlock, PageHead } from "../components/bits";
 import { api, type SessionReportQuery, type SessionReportSummary, type Wire } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { Link, seg } from "../lib/router";
@@ -16,7 +16,7 @@ import {
   hasIPLocation,
   timeAgo,
 } from "../lib/util";
-import { IconDownload, IconRefresh } from "../ui/Icon";
+import { IconDownload, IconRefresh, IconSearch } from "../ui/Icon";
 import { Pill } from "../ui/Status";
 import { EndpointCell, filterIpv4 } from "./hub/HubSessions";
 import { cleanClientHost, SessionUsageSheet } from "./UserDetail";
@@ -236,7 +236,7 @@ export function AuditReport() {
                 <button
                   key={opt.id}
                   type="button"
-                  className={preset === opt.id ? "on" : ""}
+                  className={`filterseg__btn${preset === opt.id ? " on" : ""}`}
                   onClick={() => applyPreset(opt.id)}
                 >
                   {opt.label}
@@ -282,11 +282,11 @@ export function AuditReport() {
             </div>
 
             <div className="audit-field">
-              <label htmlFor="audit-hub">{t("Virtual HUB")}</label>
+              <label htmlFor="audit-hub">{t("Virtual Hub")}</label>
               <select
                 id="audit-hub"
                 name="hub"
-                className="input"
+                className="select"
                 value={hub}
                 onChange={(e) => setHub(e.target.value)}
               >
@@ -302,7 +302,7 @@ export function AuditReport() {
               <select
                 id="audit-status"
                 name="status"
-                className="input"
+                className="select"
                 value={status}
                 onChange={(e) => setStatus(e.target.value as StatusFilter)}
               >
@@ -314,12 +314,23 @@ export function AuditReport() {
 
             <div className="audit-field audit-field--search">
               <label htmlFor="audit-q">{t("Search")}</label>
-              <SearchBox
-                id="audit-q"
-                value={queryInput}
-                onChange={setQueryInput}
-                placeholder="user, host, IP…"
-              />
+              <div className="audit-search-wrap">
+                <span className="audit-search-icon" aria-hidden="true">
+                  <IconSearch size={15} />
+                </span>
+                <input
+                  id="audit-q"
+                  name="q"
+                  type="search"
+                  className="input"
+                  value={queryInput}
+                  onChange={(e) => setQueryInput(e.target.value)}
+                  placeholder={t("user, host, IP…")}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                />
+              </div>
             </div>
           </div>
 
