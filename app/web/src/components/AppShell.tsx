@@ -121,12 +121,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Link
             to="/clients"
             className={`topbar__clients${liveClients ? " topbar__clients--live" : ""}`}
-            title={t("Online clients")}
-            aria-label={`${t("Online clients")}: ${onlineClients ?? "—"}`}
+            title={t("Online Clients")}
+            aria-label={`${t("Online Clients")}: ${onlineClients ?? "—"}`}
           >
             <span className="topbar__clients-dot" aria-hidden="true" />
             <span className="topbar__clients-count">{onlineClients ?? "—"}</span>
-            <span className="topbar__clients-label">{t("Online clients")}</span>
+            <span className="topbar__clients-label">{t("Online Clients")}</span>
           </Link>
 
           <button
@@ -172,25 +172,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="side__section">
               <div className="side__gtitle">{t("Core Network")}</div>
               <nav className="side__nav">
-                {navLink("/", "Console overview", <IconPanels size={17} />)}
+                {navLink("/", "Console Overview", <IconPanels size={17} />)}
                 {navLink("/hubs", "Virtual Hubs", <IconHub size={17} />)}
-                {navLink("/clients", "Online clients", <IconPulse size={17} />)}
+                {navLink("/clients", "Online Clients", <IconPulse size={17} />)}
                 {navLink("/users", "Users", <IconUsers size={17} />)}
-                {navLink("/audit-report", "Audit report", <IconReport size={17} />)}
+                {navLink("/audit-report", "Audit Report", <IconReport size={17} />)}
               </nav>
             </div>
             <div className="side__section">
               <div className="side__gtitle">{t("Server management")}</div>
               <nav className="side__nav">
-                {navLink("/servers", "Server list", <IconNode size={17} />)}
-                {navLink("/server-settings", "Server config", <IconSettings size={17} />)}
+                {navLink("/servers", "Server List", <IconNode size={17} />)}
+                {navLink("/server-settings", "Server Config", <IconSettings size={17} />)}
                 {navLink("/logs", "Logs", <IconLogs size={17} />)}
               </nav>
             </div>
             <div className="side__section">
               <div className="side__gtitle">{t("Panel navigation")}</div>
               <nav className="side__nav">
-                {navLink("/settings", "Panel settings", <IconSettings size={17} />)}
+                {navLink("/settings", "Panel Settings", <IconSettings size={17} />)}
               </nav>
             </div>
           </div>
@@ -253,15 +253,15 @@ function CommandPalette({ onClose, hubs }: { onClose: () => void; hubs: Wire[] }
   }, [onClose]);
 
   const pages = [
-    { label: t("Console overview"), to: "/", meta: "/" },
+    { label: t("Console Overview"), to: "/", meta: "/" },
     { label: t("Virtual Hubs"), to: "/hubs", meta: "/hubs" },
-    { label: t("Online clients"), to: "/clients", meta: "/clients" },
+    { label: t("Online Clients"), to: "/clients", meta: "/clients" },
     { label: t("Users"), to: "/users", meta: "/users" },
-    { label: t("Audit report"), to: "/audit-report", meta: "/audit-report" },
-    { label: t("Server list"), to: "/servers", meta: "/servers" },
-    { label: t("Server config"), to: "/server-settings", meta: "/server-settings" },
+    { label: t("Audit Report"), to: "/audit-report", meta: "/audit-report" },
+    { label: t("Server List"), to: "/servers", meta: "/servers" },
+    { label: t("Server Config"), to: "/server-settings", meta: "/server-settings" },
     { label: t("Logs"), to: "/logs", meta: "/logs" },
-    { label: t("Panel settings"), to: "/settings", meta: "/settings" },
+    { label: t("Panel Settings"), to: "/settings", meta: "/settings" },
   ].filter(item => !q || item.label.toLowerCase().includes(q) || item.meta.includes(q));
 
   const matchedHubs = hubs
@@ -420,7 +420,7 @@ function TabBar() {
       {tab((p) => p === "servers", "/servers", "Servers", <IconNode size={18} />)}
       {tab((p) => p === "hubs" || p === "hub", "/hubs", "Virtual Hubs", <IconHub size={18} />)}
       {tab((p) => p === "users", "/users", "Users", <IconUsers size={18} />)}
-      {tab((p) => p === "clients" || p === "connections", "/clients", "Online clients", <IconPulse size={18} />)}
+      {tab((p) => p === "clients" || p === "connections", "/clients", "Online Clients", <IconPulse size={18} />)}
       {tab((p) => p === "settings", "/settings", "Settings", <IconSettings size={18} />)}
     </nav>
   );

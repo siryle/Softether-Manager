@@ -71,7 +71,7 @@ export function AllClients() {
   return (
     <div className="page">
       <PageHead
-        title={t("Online clients")}
+        title={t("Online Clients")}
         sub={
           data
             ? t("{clients} across {hubs} hubs", {
@@ -83,8 +83,8 @@ export function AllClients() {
         actions={
           <div className="users-toolbar">
             <SearchBox value={query} onChange={setQuery} placeholder={t("user, host, IP…")} />
-            <Link to="/audit-report" className="btn btn--sm" title={t("Audit report")}>
-              <IconReport size={14} /> <span className="btn__label">{t("Audit report")}</span>
+            <Link to="/audit-report" className="btn btn--sm" title={t("Audit Report")}>
+              <IconReport size={14} /> <span className="btn__label">{t("Audit Report")}</span>
             </Link>
             <button
               className="btn btn--sm"

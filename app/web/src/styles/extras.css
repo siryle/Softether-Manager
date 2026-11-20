@@ -1288,6 +1288,58 @@
   font-size: 11.5px;
   color: var(--text-muted);
 }
+/* Latest session per user; earlier ones fold out beneath it. */
+.audit-expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--r-chip);
+  border: 1px solid var(--glass-line);
+  background: var(--glass-lo);
+  color: var(--text-muted);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.audit-expand:hover,
+.audit-expand.on {
+  color: var(--accent);
+  border-color: var(--accent-line);
+}
+.audit-expand__icon {
+  transition: transform var(--d-fast) ease;
+}
+.audit-expand.on .audit-expand__icon {
+  transform: rotate(90deg);
+}
+.audit-table-wrap .dtable tr.audit-history {
+  background: var(--glass-lo);
+}
+.audit-table-wrap .dtable tr.audit-history td {
+  color: var(--text-muted);
+}
+.audit-table-wrap .dtable tr.audit-history td:first-child {
+  padding-inline-start: calc(var(--s5) + var(--s4));
+}
+.audit-history__name {
+  color: var(--text-faint);
+  font-size: var(--t-data);
+}
+.audit-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.audit-expand--card {
+  align-self: flex-start;
+  margin-inline-start: var(--s4);
+}
+.audit-history-card {
+  margin-inline-start: var(--s4);
+  opacity: 0.85;
+}
 .logs-empty-stack {
   display: flex;
   flex-direction: column;

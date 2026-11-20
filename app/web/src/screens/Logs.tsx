@@ -132,7 +132,7 @@ export function Logs() {
             action={
               <div className="logs-empty-actions">
                 <Link to="/audit-report" className="btn btn--sm btn--primary">
-                  <IconReport size={14} /> {t("Audit report")}
+                  <IconReport size={14} /> {t("Audit Report")}
                 </Link>
                 <Link to="/hubs" className="btn btn--sm">
                   {t("Virtual Hubs")}

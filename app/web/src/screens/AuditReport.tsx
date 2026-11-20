@@ -16,7 +16,7 @@ import {
   hasIPLocation,
   timeAgo,
 } from "../lib/util";
-import { IconDownload, IconRefresh, IconSearch } from "../ui/Icon";
+import { IconChevron, IconDownload, IconRefresh, IconSearch } from "../ui/Icon";
 import { Pill } from "../ui/Status";
 import { isSystemSession } from "../lib/se";
 import { EndpointCell, filterIpv4 } from "./hub/HubSessions";
@@ -26,6 +26,20 @@ type TimePreset = "all" | "today" | "24h" | "7d" | "30d" | "custom";
 type StatusFilter = "all" | "active" | "ended";
 
 const PAGE_SIZE = 50;
+
+type SessionGroup = { key: string; latest: Wire; earlier: Wire[] };
+
+function rowInfo(h: Wire) {
+  const started = new Date(String(h.started_date)).getTime();
+  const endedAt = h.ended_date ? new Date(String(h.ended_date)).getTime() : null;
+  return {
+    rowHub: String(h.hub || ""),
+    username: String(h.username || ""),
+    duration: endedAt ? (endedAt - started) / 1000 : (Date.now() - started) / 1000,
+    v4: filterIpv4(h.virtual_ip),
+    location: hasIPLocation(h.ip_location, h.ip_isp) ? formatIPLocation(h.ip_location, h.ip_isp) : "",
+  };
+}
 
 const EMPTY_SUMMARY: SessionReportSummary = {
   total_sessions: 0,
@@ -103,6 +117,28 @@ export function AuditReport() {
     if (!items) return null;
     return items.filter((item) => !isSystemSession(item));
   }, [items]);
+
+  // One group per hub+user. Rows arrive newest-first, so the first one seen is the latest.
+  const groups = useMemo(() => {
+    if (!displayItems) return [];
+    const byKey = new Map<string, SessionGroup>();
+    for (const item of displayItems) {
+      const key = `${String(item.hub || "")}\u0000${String(item.username || "")}`;
+      const group = byKey.get(key);
+      if (group) group.earlier.push(item);
+      else byKey.set(key, { key, latest: item, earlier: [] });
+    }
+    return [...byKey.values()];
+  }, [displayItems]);
+
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const toggleGroup = (key: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   const filterParams = useMemo<SessionReportQuery>(() => ({
     from: localInputToIso(fromLocal),
@@ -198,10 +234,140 @@ export function AuditReport() {
     { id: "30d", label: t("Last 30d") },
   ];
 
+  const expandButton = (group: SessionGroup, className: string) => {
+    const open = expanded.has(group.key);
+    return (
+      <button
+        type="button"
+        className={`${className}${open ? " on" : ""}`}
+        aria-expanded={open}
+        title={t(open ? "Hide earlier sessions" : "Show earlier sessions")}
+        onClick={(e) => {
+          e.stopPropagation();
+          toggleGroup(group.key);
+        }}
+      >
+        <IconChevron size={12} className="audit-expand__icon" />
+        {t("{count} earlier", { count: group.earlier.length })}
+      </button>
+    );
+  };
+
+  const desktopRow = (h: Wire, group?: SessionGroup) => {
+    const { rowHub, username, duration, v4, location } = rowInfo(h);
+    const host = cleanClientHost(h.client_hostname, h.client_ip);
+    return (
+      <tr
+        key={String(h.id)}
+        className={`clickable${group ? "" : " audit-history"}`}
+        onClick={() => setOpenSession(h)}
+      >
+        <td>
+          {group ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              {username ? (
+                <Link
+                  to={`/hub/${seg(rowHub)}/user/${seg(username)}`}
+                  className="linkish mono bold"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {username}
+                </Link>
+              ) : (
+                <span className="tmono">—</span>
+              )}
+              {rowHub && (
+                <Link
+                  to={`/hub/${seg(rowHub)}`}
+                  className="chip mono"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {rowHub}
+                </Link>
+              )}
+              {group.earlier.length > 0 && expandButton(group, "audit-expand")}
+            </div>
+          ) : (
+            <span className="audit-history__name mono">↳ {username || "—"}</span>
+          )}
+        </td>
+        <td className="tmono" title={timeAgo(String(h.started_date))}>
+          <div>{formatDateTime(String(h.started_date))}</div>
+          <span className="tsub">{timeAgo(String(h.started_date))}</span>
+        </td>
+        <td className="tmono">
+          {h.ended_date ? (
+            <>
+              <div>{formatDateTime(String(h.ended_date))}</div>
+              <span className="tsub">{timeAgo(String(h.ended_date))}</span>
+            </>
+          ) : (
+            <Pill kind="ok" label="connected" />
+          )}
+        </td>
+        <td className="tmono">{formatDuration(duration)}</td>
+        <td className="tmono">
+          <EndpointCell virtualIp={v4} clientIp={h.client_ip} location={location} host={host} />
+        </td>
+        <td className="tmono">
+          <div>{formatBytes(Number(h.bytes_total))}</div>
+          <span className="tsub">
+            ↓ {formatBytes(Number(h.download_bytes))} · ↑ {formatBytes(Number(h.upload_bytes))}
+          </span>
+        </td>
+      </tr>
+    );
+  };
+
+  const mobileRow = (h: Wire, history = false) => {
+    const { rowHub, username, duration, v4, location } = rowInfo(h);
+    return (
+      <button
+        key={String(h.id)}
+        type="button"
+        className={`row${history ? " audit-history-card" : ""}`}
+        onClick={() => setOpenSession(h)}
+      >
+        <div className="row__main">
+          <div className="row__name">
+            <span className="mono truncate">{username || "—"}</span>
+            {rowHub && <span className="chip mono" style={{ fontSize: "10px" }}>{rowHub}</span>}
+            {h.ended_date ? (
+              <span className="chip">{formatDuration(duration)}</span>
+            ) : (
+              <Pill kind="ok" label="connected" />
+            )}
+          </div>
+
+          <div className="audit-card-times mono">
+            <span>{t("Connected at")}: {formatDateTime(String(h.started_date))}</span>
+            <span>
+              {t("Disconnected at")}: {h.ended_date ? formatDateTime(String(h.ended_date)) : t("still connected")}
+            </span>
+          </div>
+
+          <div className="spec">
+            {h.client_ip ? <span className="chip mono">{String(h.client_ip)}</span> : null}
+            {location ? (
+              <span className="chip" style={{ color: "var(--accent)", borderColor: "var(--accent-line)" }}>
+                {location}
+              </span>
+            ) : null}
+            {v4 ? <span className="chip mono" style={{ color: "var(--ok)" }}>{v4}</span> : null}
+          </div>
+        </div>
+        <div className="row__meta">
+          <span className="mono bold">{formatBytes(Number(h.bytes_total))}</span>
+          <span className="micro">{t("Duration")}: {formatDuration(duration)}</span>
+        </div>
+      </button>
+    );
+  };
+
   return (
     <div className="page audit-page">
       <PageHead
-        title={t("Audit report")}
+        title={t("Audit Report")}
         sub={t("Historical VPN user sessions, connect/disconnect times, and IP geolocation.")}
         actions={
           <div className="audit-head-actions">
@@ -413,75 +579,10 @@ export function AuditReport() {
                     </tr>
                   </thead>
                   <tbody>
-                    {displayItems.map((h) => {
-                      const rowHub = String(h.hub || "");
-                      const username = String(h.username || "");
-                      const started = new Date(String(h.started_date)).getTime();
-                      const endedAt = h.ended_date ? new Date(String(h.ended_date)).getTime() : null;
-                      const duration = endedAt ? (endedAt - started) / 1000 : (Date.now() - started) / 1000;
-                      const v4 = filterIpv4(h.virtual_ip);
-                      const host = cleanClientHost(h.client_hostname, h.client_ip);
-                      const location = hasIPLocation(h.ip_location, h.ip_isp)
-                        ? formatIPLocation(h.ip_location, h.ip_isp)
-                        : "";
-                      return (
-                        <tr key={String(h.id)} className="clickable" onClick={() => setOpenSession(h)}>
-                          <td>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                              {username ? (
-                                <Link
-                                  to={`/hub/${seg(rowHub)}/user/${seg(username)}`}
-                                  className="linkish mono bold"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  {username}
-                                </Link>
-                              ) : (
-                                <span className="tmono">—</span>
-                              )}
-                              {rowHub && (
-                                <Link
-                                  to={`/hub/${seg(rowHub)}`}
-                                  className="chip mono"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  {rowHub}
-                                </Link>
-                              )}
-                            </div>
-                          </td>
-                          <td className="tmono" title={timeAgo(String(h.started_date))}>
-                            <div>{formatDateTime(String(h.started_date))}</div>
-                            <span className="tsub">{timeAgo(String(h.started_date))}</span>
-                          </td>
-                          <td className="tmono">
-                            {h.ended_date ? (
-                              <>
-                                <div>{formatDateTime(String(h.ended_date))}</div>
-                                <span className="tsub">{timeAgo(String(h.ended_date))}</span>
-                              </>
-                            ) : (
-                              <Pill kind="ok" label="connected" />
-                            )}
-                          </td>
-                          <td className="tmono">{formatDuration(duration)}</td>
-                          <td className="tmono">
-                            <EndpointCell
-                              virtualIp={v4}
-                              clientIp={h.client_ip}
-                              location={location}
-                              host={host}
-                            />
-                          </td>
-                          <td className="tmono">
-                            <div>{formatBytes(Number(h.bytes_total))}</div>
-                            <span className="tsub">
-                              ↓ {formatBytes(Number(h.download_bytes))} · ↑ {formatBytes(Number(h.upload_bytes))}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {groups.flatMap((g) => [
+                      desktopRow(g.latest, g),
+                      ...(expanded.has(g.key) ? g.earlier.map((h) => desktopRow(h)) : []),
+                    ])}
                   </tbody>
                 </table>
               </div>
@@ -506,58 +607,13 @@ export function AuditReport() {
 
           {/* Mobile Card List */}
           <div className="rows only-mobile-b">
-            {displayItems.map((h) => {
-              const rowHub = String(h.hub || "");
-              const username = String(h.username || "");
-              const started = new Date(String(h.started_date)).getTime();
-              const endedAt = h.ended_date ? new Date(String(h.ended_date)).getTime() : null;
-              const duration = endedAt ? (endedAt - started) / 1000 : (Date.now() - started) / 1000;
-              const v4 = filterIpv4(h.virtual_ip);
-              const location = hasIPLocation(h.ip_location, h.ip_isp)
-                ? formatIPLocation(h.ip_location, h.ip_isp)
-                : "";
-              return (
-                <button
-                  key={String(h.id)}
-                  type="button"
-                  className="row"
-                  onClick={() => setOpenSession(h)}
-                >
-                  <div className="row__main">
-                    <div className="row__name">
-                      <span className="mono truncate">{username || "—"}</span>
-                      {rowHub && <span className="chip mono" style={{ fontSize: "10px" }}>{rowHub}</span>}
-                      {h.ended_date ? (
-                        <span className="chip">{formatDuration(duration)}</span>
-                      ) : (
-                        <Pill kind="ok" label="connected" />
-                      )}
-                    </div>
-
-                    <div className="audit-card-times mono">
-                      <span>{t("Connected at")}: {formatDateTime(String(h.started_date))}</span>
-                      <span>
-                        {t("Disconnected at")}: {h.ended_date ? formatDateTime(String(h.ended_date)) : t("still connected")}
-                      </span>
-                    </div>
-
-                    <div className="spec">
-                      {h.client_ip ? <span className="chip mono">{String(h.client_ip)}</span> : null}
-                      {location ? (
-                        <span className="chip" style={{ color: "var(--accent)", borderColor: "var(--accent-line)" }}>
-                          {location}
-                        </span>
-                      ) : null}
-                      {v4 ? <span className="chip mono" style={{ color: "var(--ok)" }}>{v4}</span> : null}
-                    </div>
-                  </div>
-                  <div className="row__meta">
-                    <span className="mono bold">{formatBytes(Number(h.bytes_total))}</span>
-                    <span className="micro">{t("Duration")}: {formatDuration(duration)}</span>
-                  </div>
-                </button>
-              );
-            })}
+            {groups.map((g) => (
+              <div key={g.key} className="audit-group">
+                {mobileRow(g.latest)}
+                {g.earlier.length > 0 && expandButton(g, "audit-expand audit-expand--card")}
+                {expanded.has(g.key) && g.earlier.map((h) => mobileRow(h, true))}
+              </div>
+            ))}
 
             {displayItems.length < total && (
               <div className="morebar card">

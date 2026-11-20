@@ -88,9 +88,9 @@ export function ServerSettings({ section }: { section?: string }) {
 
   return (
     <div className="page">
-      <PageHead title={t("Server settings")} sub={<Link to="/" className="linkish">{t("← dashboard")}</Link>} />
+      <PageHead title={t("Server Settings")} sub={<Link to="/" className="linkish">{t("← dashboard")}</Link>} />
       <div className="doclayout">
-        <nav className="docnav" aria-label={t("Server settings")}>
+        <nav className="docnav" aria-label={t("Server Settings")}>
           {sections.map((s) => (
             <button
               key={s.id}

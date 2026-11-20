@@ -122,7 +122,7 @@ export function HubSessions({ hub }: { hub: string }) {
         count={sessions?.length}
         actions={<SearchBox value={query} onChange={setQuery} placeholder={t("user, host, IP…")} />}
       >
-        {t("Online clients")}
+        {t("Online Clients")}
       </SectionTitle>
 
       {filtered == null ? (

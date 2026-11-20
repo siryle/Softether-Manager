@@ -76,7 +76,7 @@ export function Dashboard() {
   }
 
   if (health === "probing") return <LoadingBlock label={t("Checking server connection")} />;
-  if (health === "offline") return <div className="page"><h1>{t("Server overview")} · {currentServer?.name}</h1><ErrorAlert><div className="alert__t">{t("The VPN server is not answering.")}</div>{probe?.error}</ErrorAlert><div className="server-actions"><button className="btn" onClick={() => void refresh()}>{t("Retry")}</button><Link className="btn" to="/connect">{t("Edit connection")}</Link><Link className="btn" to="/servers">{t("Choose another server")}</Link></div></div>;
+  if (health === "offline") return <div className="page"><h1>{t("Server Overview")} · {currentServer?.name}</h1><ErrorAlert><div className="alert__t">{t("The VPN server is not answering.")}</div>{probe?.error}</ErrorAlert><div className="server-actions"><button className="btn" onClick={() => void refresh()}>{t("Retry")}</button><Link className="btn" to="/connect">{t("Edit connection")}</Link><Link className="btn" to="/servers">{t("Choose another server")}</Link></div></div>;
 
   const activeSessions = Number(status?.NumSessionsTotal_u32) || 0;
   const totalUsers = Number(status?.NumUsers_u32) || 0;
@@ -128,7 +128,7 @@ export function Dashboard() {
       <PageHead
         title={
           <span className="flex items-center gap-3 flex-wrap">
-            <span>{t("Server overview")} · {currentServer?.name || probe?.hostname || "vpnserver"}</span>
+            <span>{t("Server Overview")} · {currentServer?.name || probe?.hostname || "vpnserver"}</span>
             <span className="live-badge">
               <span className="live-badge__dot" />
               {t("Running")}{uptimeSeconds ? ` · ${formatDuration(uptimeSeconds)}` : ""}
@@ -143,7 +143,7 @@ export function Dashboard() {
         actions={
           <>
             <Link to="/server-settings" className="btn-secondary">
-              <IconSettings size={14} /> {t("Server config")}
+              <IconSettings size={14} /> {t("Server Config")}
             </Link>
             <button onClick={() => setCreatingHub(true)} className="btn-primary">
               <IconPlus size={14} /> {t("New Virtual HUB")}
@@ -158,7 +158,7 @@ export function Dashboard() {
           <div className="stat-card__l flex items-center justify-between">
             <span className="flex items-center gap-2">
               <span className="stat-card__dot" />
-              <span>{t("Online clients")}</span>
+              <span>{t("Online Clients")}</span>
             </span>
             <IconChevron size={12} className="stat-card__chevron" />
           </div>
