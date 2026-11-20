@@ -63,7 +63,7 @@ export function HubUsers({ hub }: { hub: string }) {
   // Case-folded, because SoftEther matches usernames without case.
   const [online, setOnline] = useState<Set<string>>(new Set());
   const quotas = useQuotaIndex([hub]);
-  const { sort, toggle } = useSort();
+  const { sort, toggle } = useSort({ key: "login", dir: "desc" });
   const quotaOf = (u: Wire) => quotas.get(quotaKey("user", hub, String(u.Name_str)));
   // Transfer is the lifetime counter less whatever a reset put behind us, so
   // the column and the meter next to it are the same number.
@@ -220,6 +220,8 @@ export function HubUsers({ hub }: { hub: string }) {
                   <thead>
                     <tr>
                       <SortTh sortKey="user" sort={sort} onSort={toggle}>{t("User")}</SortTh>
+                      <SortTh sortKey="realname" sort={sort} onSort={toggle}>{t("Real name")}</SortTh>
+                      <SortTh sortKey="note" sort={sort} onSort={toggle}>{t("Note")}</SortTh>
                       <SortTh sortKey="status" sort={sort} onSort={toggle} style={{ width: 110 }}>{t("Status")}</SortTh>
                       <SortTh sortKey="group" sort={sort} onSort={toggle}>{t("Group")}</SortTh>
                       <SortTh sortKey="auth" sort={sort} onSort={toggle}>{t("Auth")}</SortTh>
@@ -376,7 +378,22 @@ function UserRow({
     <tr className="clickable" onClick={onOpen}>
       <td>
         <span className="tname mono">{String(u.Name_str)}</span>
-        {u.Realname_utf ? <span className="tsub">{String(u.Realname_utf)}</span> : null}
+      </td>
+      <td style={{ whiteSpace: "nowrap" }}>
+        {u.Realname_utf ? (
+          <span>{String(u.Realname_utf)}</span>
+        ) : (
+          <span className="tmono" style={{ color: "var(--text-faint)" }}>—</span>
+        )}
+      </td>
+      <td>
+        {u.Note_utf ? (
+          <div className="truncate" style={{ maxWidth: 160, color: "var(--text-muted)", fontSize: "12.5px" }} title={String(u.Note_utf)}>
+            {String(u.Note_utf)}
+          </div>
+        ) : (
+          <span className="tmono" style={{ color: "var(--text-faint)" }}>—</span>
+        )}
       </td>
       <td>
         <UserStatePill user={u} online={online} />

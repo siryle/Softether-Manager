@@ -59,7 +59,7 @@ export function AllUsers() {
   const [downloadingWgKey, setDownloadingWgKey] = useState<string | null>(null);
   const [downloadingOvpnKey, setDownloadingOvpnKey] = useState<string | null>(null);
   const quotas = useQuotaIndex([]);
-  const { sort, toggle } = useSort();
+  const { sort, toggle } = useSort({ key: "login", dir: "desc" });
   const quotaOf = (u: Wire) =>
     quotas.get(quotaKey("user", String(u.HubName_str), String(u.Name_str)));
   // Transfer is the lifetime counter less whatever a reset put behind us, so
@@ -263,6 +263,8 @@ export function AllUsers() {
                   <thead>
                     <tr>
                       <SortTh sortKey="user" sort={sort} onSort={toggle}>{t("User")}</SortTh>
+                      <SortTh sortKey="realname" sort={sort} onSort={toggle}>{t("Real name")}</SortTh>
+                      <SortTh sortKey="note" sort={sort} onSort={toggle}>{t("Note")}</SortTh>
                       <SortTh sortKey="hub" sort={sort} onSort={toggle}>{t("Hub")}</SortTh>
                       <SortTh sortKey="status" sort={sort} onSort={toggle} style={{ width: 110 }}>{t("Status")}</SortTh>
                       <SortTh sortKey="group" sort={sort} onSort={toggle}>{t("Group")}</SortTh>
@@ -287,7 +289,22 @@ export function AllUsers() {
                         <tr key={`${u.HubName_str}/${u.Name_str}`} className="clickable" onClick={() => open(u)}>
                           <td>
                             <span className="tname mono">{String(u.Name_str)}</span>
-                            {u.Realname_utf ? <span className="tsub">{String(u.Realname_utf)}</span> : null}
+                          </td>
+                          <td style={{ whiteSpace: "nowrap" }}>
+                            {u.Realname_utf ? (
+                              <span>{String(u.Realname_utf)}</span>
+                            ) : (
+                              <span className="tmono" style={{ color: "var(--text-faint)" }}>—</span>
+                            )}
+                          </td>
+                          <td>
+                            {u.Note_utf ? (
+                              <div className="truncate" style={{ maxWidth: 160, color: "var(--text-muted)", fontSize: "12.5px" }} title={String(u.Note_utf)}>
+                                {String(u.Note_utf)}
+                              </div>
+                            ) : (
+                              <span className="tmono" style={{ color: "var(--text-faint)" }}>—</span>
+                            )}
                           </td>
                           <td><span className="chip chip--brand">{String(u.HubName_str)}</span></td>
                           <td><UserStatePill user={u} /></td>

@@ -460,7 +460,7 @@ const zhCN: Record<string, string> = {
   "Client IP": "客户端 IP",
   "Transferred": "传输流量",
   "Auth type": "认证类型",
-  "Real name": "真实姓名",
+  "Real name": "姓名",
   "Full name": "真实姓名",
   "Note": "备注",
   "Authentication": "认证方式",

@@ -10,7 +10,7 @@ import { useToast } from "../lib/toast";
 import { formatBytes, formatIPLocation, hasIPLocation, timeAgo } from "../lib/util";
 import { IconClose, IconRefresh, IconReport } from "../ui/Icon";
 import { Pill } from "../ui/Status";
-import { cleanHost, EndpointCell, parseClientInfo, SessionSheet } from "./hub/HubSessions";
+import { cleanHost, EndpointCell, SessionSheet } from "./hub/HubSessions";
 
 /**
  * Aggregated online clients view across all Virtual Hubs.
@@ -124,8 +124,9 @@ export function AllClients() {
                 <table className="dtable">
                   <thead>
                     <tr>
-                      <th>{t("Session / Client")}</th>
-                      <th>{t("User")}</th>
+                      <th style={{ minWidth: 120 }}>{t("User")}</th>
+                      <th style={{ minWidth: 100 }}>{t("Real name")}</th>
+                      <th style={{ minWidth: 120 }}>{t("Note")}</th>
                       <th>{t("Virtual HUB")}</th>
                       <th>{t("IP / Host")}</th>
                       <th>{t("Packets")}</th>
@@ -136,7 +137,6 @@ export function AllClients() {
                   </thead>
                   <tbody>
                     {filtered.map((s) => {
-                      const clientInfo = parseClientInfo(s);
                       const hub = String(s.HubName_str || "");
                       const name = String(s.Name_str || "");
                       return (
@@ -145,37 +145,33 @@ export function AllClients() {
                           className="clickable"
                           onClick={() => setOpenSession({ hub, name })}
                         >
-                          <td className="tmono">
-                            <div className="bold">{name}</div>
-                            {clientInfo.app && clientInfo.app !== "—" && (
-                              <div className="tsub truncate" style={{ maxWidth: 220, fontSize: "11px", color: "var(--text-muted)" }}>
-                                {clientInfo.app}
-                              </div>
+                          <td style={{ minWidth: 120 }}>
+                            {s.Username_str ? (
+                              <Link
+                                to={`/hub/${seg(hub)}/user/${seg(String(s.Username_str))}`}
+                                className="linkish mono bold"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {String(s.Username_str)}
+                              </Link>
+                            ) : (
+                              <span className="tmono">{name || "—"}</span>
                             )}
                           </td>
-                          <td>
-                            {s.Username_str ? (
-                              <div>
-                                <Link
-                                  to={`/hub/${seg(hub)}/user/${seg(String(s.Username_str))}`}
-                                  className="linkish mono bold"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  {String(s.Username_str)}
-                                </Link>
-                                {s.Realname_utf ? (
-                                  <span style={{ marginLeft: 6, fontSize: "12px", color: "var(--fg)" }}>
-                                    ({String(s.Realname_utf)})
-                                  </span>
-                                ) : null}
-                                {s.Note_utf ? (
-                                  <div className="tsub truncate" style={{ maxWidth: 160, color: "var(--muted)" }}>
-                                    {String(s.Note_utf)}
-                                  </div>
-                                ) : null}
+                          <td style={{ minWidth: 100, whiteSpace: "nowrap" }}>
+                            {s.Realname_utf ? (
+                              <span>{String(s.Realname_utf)}</span>
+                            ) : (
+                              <span className="tmono" style={{ color: "var(--text-faint)" }}>—</span>
+                            )}
+                          </td>
+                          <td style={{ minWidth: 120 }}>
+                            {s.Note_utf ? (
+                              <div className="truncate" style={{ maxWidth: 220, color: "var(--text-muted)", fontSize: "12.5px" }} title={String(s.Note_utf)}>
+                                {String(s.Note_utf)}
                               </div>
                             ) : (
-                              <span className="tmono">—</span>
+                              <span className="tmono" style={{ color: "var(--text-faint)" }}>—</span>
                             )}
                           </td>
                           <td>

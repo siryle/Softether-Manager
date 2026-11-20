@@ -35,6 +35,8 @@ function rowInfo(h: Wire) {
   return {
     rowHub: String(h.hub || ""),
     username: String(h.username || ""),
+    realName: String(h.real_name || h.Realname_utf || ""),
+    note: String(h.note || h.Note_utf || ""),
     duration: endedAt ? (endedAt - started) / 1000 : (Date.now() - started) / 1000,
     v4: filterIpv4(h.virtual_ip),
     location: hasIPLocation(h.ip_location, h.ip_isp) ? formatIPLocation(h.ip_location, h.ip_isp) : "",
@@ -254,7 +256,7 @@ export function AuditReport() {
   };
 
   const desktopRow = (h: Wire, group?: SessionGroup) => {
-    const { rowHub, username, duration, v4, location } = rowInfo(h);
+    const { rowHub, username, realName, note, duration, v4, location } = rowInfo(h);
     const host = cleanClientHost(h.client_hostname, h.client_ip);
     return (
       <tr
@@ -291,6 +293,22 @@ export function AuditReport() {
             <span className="audit-history__name mono">↳ {username || "—"}</span>
           )}
         </td>
+        <td style={{ whiteSpace: "nowrap" }}>
+          {realName ? (
+            <span>{realName}</span>
+          ) : (
+            <span className="tmono" style={{ color: "var(--text-faint)" }}>—</span>
+          )}
+        </td>
+        <td>
+          {note ? (
+            <div className="truncate" style={{ maxWidth: 180, color: "var(--text-muted)", fontSize: "12.5px" }} title={note}>
+              {note}
+            </div>
+          ) : (
+            <span className="tmono" style={{ color: "var(--text-faint)" }}>—</span>
+          )}
+        </td>
         <td className="tmono" title={timeAgo(String(h.started_date))}>
           <div>{formatDateTime(String(h.started_date))}</div>
           <span className="tsub">{timeAgo(String(h.started_date))}</span>
@@ -320,7 +338,7 @@ export function AuditReport() {
   };
 
   const mobileRow = (h: Wire, history = false) => {
-    const { rowHub, username, duration, v4, location } = rowInfo(h);
+    const { rowHub, username, realName, note, duration, v4, location } = rowInfo(h);
     return (
       <button
         key={String(h.id)}
@@ -331,6 +349,7 @@ export function AuditReport() {
         <div className="row__main">
           <div className="row__name">
             <span className="mono truncate">{username || "—"}</span>
+            {realName ? <span style={{ fontSize: "12px", color: "var(--muted)" }}>({realName})</span> : null}
             {rowHub && <span className="chip mono" style={{ fontSize: "10px" }}>{rowHub}</span>}
             {h.ended_date ? (
               <span className="chip">{formatDuration(duration)}</span>
@@ -338,6 +357,11 @@ export function AuditReport() {
               <Pill kind="ok" label="connected" />
             )}
           </div>
+          {note ? (
+            <div className="tsub truncate" style={{ fontSize: "12px", color: "var(--muted)", marginBottom: 4 }}>
+              {note}
+            </div>
+          ) : null}
 
           <div className="audit-card-times mono">
             <span>{t("Connected at")}: {formatDateTime(String(h.started_date))}</span>
@@ -571,6 +595,8 @@ export function AuditReport() {
                   <thead>
                     <tr>
                       <th scope="col">{t("User")}</th>
+                      <th scope="col">{t("Real name")}</th>
+                      <th scope="col">{t("Note")}</th>
                       <th scope="col">{t("Connected at")}</th>
                       <th scope="col">{t("Disconnected at")}</th>
                       <th scope="col">{t("Duration")}</th>

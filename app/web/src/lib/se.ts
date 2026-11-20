@@ -185,6 +185,10 @@ export function userSortValue(u: Wire, key: string, online?: boolean): string | 
   switch (key) {
     case "user":
       return String(u.Name_str ?? "").toLowerCase();
+    case "realname":
+      return String(u.Realname_utf ?? "").toLowerCase();
+    case "note":
+      return String(u.Note_utf ?? "").toLowerCase();
     case "hub":
       return String(u.HubName_str ?? "").toLowerCase();
     case "status":

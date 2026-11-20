@@ -63,6 +63,46 @@ func (a *App) enrichSessionRowsGeo(ctx context.Context, rows []M) {
 	}
 }
 
+func (a *App) enrichSessionRowsUser(ctx context.Context, rows []M) {
+	if len(rows) == 0 {
+		return
+	}
+	hubSet := make(map[string]struct{})
+	for _, row := range rows {
+		if h := str(row["hub"]); h != "" {
+			hubSet[h] = struct{}{}
+		}
+	}
+	userMap := make(map[string]M)
+	for hub := range hubSet {
+		func() {
+			defer func() { _ = recover() }()
+			out := a.rpc(ctx, "EnumUser", M{"HubName_str": hub})
+			for _, u := range list(out["UserList"]) {
+				name := strings.ToLower(strings.TrimSpace(str(u["Name_str"])))
+				if name != "" {
+					userMap[strings.ToLower(hub)+":"+name] = u
+				}
+			}
+		}()
+	}
+	for _, row := range rows {
+		hub := strings.ToLower(str(row["hub"]))
+		username := strings.ToLower(strings.TrimSpace(str(row["username"])))
+		if u, ok := userMap[hub+":"+username]; ok {
+			row["real_name"] = str(u["Realname_utf"])
+			row["note"] = str(u["Note_utf"])
+		} else {
+			if _, exists := row["real_name"]; !exists {
+				row["real_name"] = ""
+			}
+			if _, exists := row["note"]; !exists {
+				row["note"] = ""
+			}
+		}
+	}
+}
+
 func parseTimeQuery(raw string, endOfDay bool) string {
 	s := strings.TrimSpace(raw)
 	if s == "" {
@@ -223,6 +263,7 @@ func (a *App) registerHistory() {
 		itemArgs := append(append([]any{}, args...), limit, offset)
 		rows := query(a.db, `SELECT VpnSessionSampleID id,HubName hub,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,LastSeenDate last_seen_date,BytesTotal bytes_total,PacketsTotal packets_total,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE `+where+` ORDER BY julianday(StartedDate) DESC, VpnSessionSampleID DESC LIMIT ? OFFSET ?`, itemArgs...)
 		a.enrichSessionRowsGeo(r.Context(), rows)
+		a.enrichSessionRowsUser(r.Context(), rows)
 		return M{"items": rows, "total": integer(summary["total_sessions"]), "summary": summary, "hubs": hubs}
 	})
 	a.endpoint("GET /server/session-history/export", func(w http.ResponseWriter, r *http.Request, _ M) any {
@@ -233,6 +274,7 @@ func (a *App) registerHistory() {
 
 		rows := query(a.db, `SELECT VpnSessionSampleID id,HubName hub,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,LastSeenDate last_seen_date,BytesTotal bytes_total,PacketsTotal packets_total,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE `+where+` ORDER BY julianday(StartedDate) DESC, VpnSessionSampleID DESC LIMIT 50000`, args...)
 		a.enrichSessionRowsGeo(r.Context(), rows)
+		a.enrichSessionRowsUser(r.Context(), rows)
 
 		filename := fmt.Sprintf("session-audit-report-%s.csv", time.Now().In(loc).Format("20060102-150405"))
 		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
@@ -313,6 +355,7 @@ func (a *App) registerHistory() {
 			args = append(args, queryInt(r, "limit", 100, 1, 500))
 			rows := query(a.db, statement, args...)
 			a.enrichSessionRowsGeo(r.Context(), rows)
+			a.enrichSessionRowsUser(r.Context(), rows)
 			return rows
 		})
 	}
