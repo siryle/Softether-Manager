@@ -262,15 +262,26 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
   const { visible: historyVisible, reveal: revealHistory, reset: resetHistory } = useReveal(5);
 
   const loadHistory = useCallback(async (beforeId = 0) => {
-    const batch = await api.userSessionHistory(hub, name, beforeId).catch(() => []);
-    setHistory((current) => (beforeId ? [...(current ?? []), ...batch] : batch));
+    const batch = await api.userSessionHistory(hub, name, beforeId).catch(() => null);
+    if (!batch) return;
+    if (beforeId) {
+      setHistory((current) => [...(current ?? []), ...batch]);
+      if (batch.length < 100) setHistoryExhausted(true);
+      return;
+    }
+    setHistory((current) => {
+      if (!current || current.length <= 100 || batch.length === 0) return batch;
+      const oldestNewId = Number(batch[batch.length - 1].id);
+      return [...batch, ...current.filter((item) => Number(item.id) < oldestNewId)];
+    });
     if (batch.length < 100) setHistoryExhausted(true);
   }, [hub, name]);
   useEffect(() => {
+    setHistory(null);
     setHistoryExhausted(false);
     resetHistory();
-    void loadHistory();
-  }, [loadHistory, resetHistory]);
+  }, [hub, name, resetHistory]);
+  usePoll(() => loadHistory(0), "list", [hub, name]);
   const shownHistory = history ? history.slice(0, historyVisible) : [];
 
   const savePolicy = async () => {

@@ -118,3 +118,54 @@ func TestIncompleteTrafficResponseDoesNotCreateZeroHistory(t *testing.T) {
 		}
 	}
 }
+
+func TestTrafficHistoryPreservesZeroStartPostRestartAndPreWindowBaseline(t *testing.T) {
+	t.Run("zero baseline to real traffic", func(t *testing.T) {
+		a := testApp(t)
+		token := admin(t, a)
+		base := time.Now().UTC().Truncate(time.Second)
+		insertHistoryCounter(a, base.Add(-15*time.Minute).Format(time.RFC3339), 0, 0)
+		insertHistoryCounter(a, base.Add(-10*time.Minute).Format(time.RFC3339), 7_140_000, 51_300_000)
+		insertHistoryCounter(a, base.Add(-5*time.Minute).Format(time.RFC3339), 8_000_000, 55_000_000)
+		for _, path := range []string{"/api/v1/server/traffic", "/api/v1/hubs/DEFAULT/traffic", "/api/v1/hubs/DEFAULT/users/admin/usage"} {
+			status, out, _ := call(t, a, "GET", path+"?hours=6", nil, token)
+			if status != 200 || integer(out["total_send"]) != 8_000_000 || integer(out["total_recv"]) != 55_000_000 {
+				t.Fatalf("%s dropped traffic starting from zero: status=%d out=%v", path, status, out)
+			}
+		}
+	})
+
+	t.Run("post restart increments are retained", func(t *testing.T) {
+		a := testApp(t)
+		token := admin(t, a)
+		base := time.Now().UTC().Truncate(time.Second)
+		vals := [][2]int64{{100_000, 200_000}, {150_000, 300_000}, {5_000, 10_000}, {25_000, 50_000}}
+		for i, v := range vals {
+			insertHistoryCounter(a, base.Add(time.Duration(-20+i*5)*time.Minute).Format(time.RFC3339), v[0], v[1])
+		}
+		status, out, _ := call(t, a, "GET", "/api/v1/hubs/DEFAULT/users/admin/usage?hours=6", nil, token)
+		// (150k-100k) + (25k-5k) = 70k send; (300k-200k) + (50k-10k) = 140k recv
+		if status != 200 || integer(out["total_send"]) != 70_000 || integer(out["total_recv"]) != 140_000 {
+			t.Fatalf("post-restart delta dropped: status=%d out=%v", status, out)
+		}
+	})
+
+	t.Run("pre-window baseline covers first interval and interval shrink preserves history", func(t *testing.T) {
+		a := testApp(t)
+		token := admin(t, a)
+		base := time.Now().UTC().Truncate(time.Second)
+		// Baseline is 2 minutes before the 6h window start; first in-window sample is 3 minutes after start.
+		insertHistoryCounter(a, base.Add(-6*time.Hour-2*time.Minute).Format(time.RFC3339), 1_000, 2_000)
+		insertHistoryCounter(a, base.Add(-6*time.Hour+3*time.Minute).Format(time.RFC3339), 1_500, 3_000)
+		insertHistoryCounter(a, base.Add(-6*time.Hour+8*time.Minute).Format(time.RFC3339), 2_000, 4_500)
+		// Lower sample_interval_minutes from 5 to 1 after historical 5-minute samples were recorded.
+		a.set("sample_interval_minutes", 1)
+		status, out, _ := call(t, a, "GET", "/api/v1/hubs/DEFAULT/traffic?hours=6", nil, token)
+		if status != 200 || integer(out["total_send"]) != 1_000 || integer(out["total_recv"]) != 2_500 {
+			t.Fatalf("lost pre-window or historical cadence traffic: status=%d out=%v", status, out)
+		}
+		if integer(out["sample_interval_seconds"]) < 300 {
+			t.Fatalf("expected effective sample_interval_seconds >= 300 for 5m history, got %v", out["sample_interval_seconds"])
+		}
+	})
+}

@@ -150,6 +150,8 @@ type App struct {
 	xdbPath                                  string
 	geoNegMu                                 sync.Mutex
 	geoNegCache                              map[string]time.Time
+	loginObsMu                               sync.Mutex
+	loginObs                                 map[string]userLoginObservation
 }
 
 func New(cfg Config) (app *App, err error) {

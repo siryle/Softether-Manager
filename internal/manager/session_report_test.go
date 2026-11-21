@@ -2,11 +2,15 @@ package manager
 
 import (
 	"bytes"
+	"context"
 	"encoding/csv"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func seedSessionReportRows(t *testing.T, a *App) {
@@ -265,5 +269,114 @@ func TestSessionReportExcludesNonClientSessions(t *testing.T) {
 	clientCount := integer(one(a.db, `SELECT COUNT(*) n FROM VpnSessionSample WHERE UserName='sean'`)["n"])
 	if clientCount != 1 {
 		t.Fatalf("expected sean to still be in database after prune, got %d", clientCount)
+	}
+}
+
+func TestSampleSessionsHandlesEmptyZeroReusedKeysOfflineHubsAndShortLogins(t *testing.T) {
+	a := testApp(t)
+	token := admin(t, a)
+	ctx := context.Background()
+
+	var mu sync.Mutex
+	hub1Online := false
+	sessions := []M{}
+	users := []M{}
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req M
+		check(json.NewDecoder(r.Body).Decode(&req))
+		mu.Lock()
+		defer mu.Unlock()
+		switch req["method"] {
+		case "EnumHub":
+			writeJSON(w, 200, M{"id": req["id"], "result": M{"HubList": []M{
+				{"HubName_str": "OFFLINE_HUB", "Online_bool": hub1Online},
+				{"HubName_str": "DEFAULT", "Online_bool": true},
+			}}})
+		case "EnumSession":
+			if str(object(req["params"])["HubName_str"]) == "OFFLINE_HUB" && !hub1Online {
+				writeJSON(w, 200, M{"id": req["id"], "error": M{"code": 1, "message": "ERR_HUB_IS_NOT_ONLINE"}})
+				return
+			}
+			writeJSON(w, 200, M{"id": req["id"], "result": M{"SessionList": sessions}})
+		case "EnumUser":
+			if str(object(req["params"])["HubName_str"]) == "DEFAULT" {
+				writeJSON(w, 200, M{"id": req["id"], "result": M{"UserList": users}})
+				return
+			}
+			writeJSON(w, 200, M{"id": req["id"], "result": M{"UserList": []M{}}})
+		case "EnumIpTable":
+			writeJSON(w, 200, M{"id": req["id"], "result": M{"IpTable": []M{}}})
+		case "EnumDHCP":
+			writeJSON(w, 200, M{"id": req["id"], "result": M{"DhcpTable": []M{}}})
+		case "GetSessionStatus":
+			writeJSON(w, 200, M{"id": req["id"], "result": M{
+				"Send.UnicastBytes_u64": 1200,
+				"Recv.UnicastBytes_u64": 3400,
+			}})
+		default:
+			writeJSON(w, 200, M{"id": req["id"], "result": M{}})
+		}
+	}))
+	defer server.Close()
+	connectAuditServer(t, a, server, 1)
+
+	// Seed an open session on OFFLINE_HUB to verify going offline closes it without blocking DEFAULT.
+	execute(a.db, `INSERT INTO VpnSessionSample(ServerID,HubName,UserName,SessionKey,StartedDate,LastSeenDate) VALUES(1,'OFFLINE_HUB','alice','old-offline-key',?,?)`, now(), now())
+
+	t0 := time.Now().UTC().Add(-45 * time.Second).Truncate(time.Second)
+	mu.Lock()
+	sessions = []M{
+		{"Name_str": "SID-WG-1", "Username_str": "alice", "UniqueId_bin": "", "ClientIP_ip": "1.1.1.1", "CreatedTime_dt": t0.Format(time.RFC3339), "PacketSize_u64": 500},
+		{"Name_str": "SID-OVPN-1", "Username_str": "bob", "UniqueId_bin": "AAAAAAAAAAAAAAAAAAAAAA==", "ClientIP_ip": "2.2.2.2", "CreatedTime_dt": t0.Format(time.RFC3339), "PacketSize_u64": 700},
+	}
+	users = []M{
+		{"Name_str": "alice", "NumLogin_u32": 1, "LastLoginTime_dt": t0.Format(time.RFC3339), "Ex.Send.UnicastBytes_u64": 1000, "Ex.Recv.UnicastBytes_u64": 2000},
+		{"Name_str": "bob", "NumLogin_u32": 1, "LastLoginTime_dt": t0.Format(time.RFC3339), "Ex.Send.UnicastBytes_u64": 3000, "Ex.Recv.UnicastBytes_u64": 4000},
+		{"Name_str": "carol", "NumLogin_u32": 2, "LastLoginTime_dt": t0.Add(-5 * time.Minute).Format(time.RFC3339), "Ex.Send.UnicastBytes_u64": 500, "Ex.Recv.UnicastBytes_u64": 600},
+	}
+	mu.Unlock()
+
+	a.sampleSessions(ctx)
+
+	if row := one(a.db, `SELECT EndedDate FROM VpnSessionSample WHERE HubName='OFFLINE_HUB' AND SessionKey='old-offline-key'`); row == nil || str(row["EndedDate"]) == "" {
+		t.Fatalf("expected offline hub open session to be closed, got %v", row)
+	}
+	if n := integer(one(a.db, `SELECT COUNT(*) n FROM VpnSessionSample WHERE HubName='DEFAULT'`)["n"]); n != 2 {
+		t.Fatalf("expected both empty-UID and zero-UID sessions on DEFAULT to be recorded, got %d", n)
+	}
+
+	// Disconnect both sessions, then reconnect bob with the same all-zero UID and have carol complete a short session between polls.
+	mu.Lock()
+	sessions = []M{}
+	mu.Unlock()
+	a.sampleSessions(ctx)
+
+	t2 := time.Now().UTC().Add(-10 * time.Second).Truncate(time.Second)
+	mu.Lock()
+	sessions = []M{
+		{"Name_str": "SID-OVPN-2", "Username_str": "bob", "UniqueId_bin": "AAAAAAAAAAAAAAAAAAAAAA==", "ClientIP_ip": "2.2.2.2", "CreatedTime_dt": t2.Format(time.RFC3339), "PacketSize_u64": 900},
+	}
+	users = []M{
+		{"Name_str": "alice", "NumLogin_u32": 1, "LastLoginTime_dt": t0.Format(time.RFC3339), "Ex.Send.UnicastBytes_u64": 1000, "Ex.Recv.UnicastBytes_u64": 2000},
+		{"Name_str": "bob", "NumLogin_u32": 2, "LastLoginTime_dt": t2.Format(time.RFC3339), "Ex.Send.UnicastBytes_u64": 3500, "Ex.Recv.UnicastBytes_u64": 4800},
+		{"Name_str": "carol", "NumLogin_u32": 3, "LastLoginTime_dt": t2.Add(-20 * time.Second).Format(time.RFC3339), "Ex.Send.UnicastBytes_u64": 1500, "Ex.Recv.UnicastBytes_u64": 5600},
+	}
+	mu.Unlock()
+	a.sampleSessions(ctx)
+
+	if bobCount := integer(one(a.db, `SELECT COUNT(*) n FROM VpnSessionSample WHERE HubName='DEFAULT' AND UserName='bob'`)["n"]); bobCount != 2 {
+		t.Fatalf("expected bob's second session with zero UID to create a second row, got %d", bobCount)
+	}
+	carolRow := one(a.db, `SELECT * FROM VpnSessionSample WHERE HubName='DEFAULT' AND UserName='carol'`)
+	if carolRow == nil || integer(carolRow["DownloadBytes"]) != 5000 || integer(carolRow["UploadBytes"]) != 1000 {
+		t.Fatalf("expected carol's short session between polls to be captured with byte deltas, got %v", carolRow)
+	}
+
+	// Verify session usage chart includes the initial interval from StartedDate -> first sample.
+	aliceRow := one(a.db, `SELECT VpnSessionSampleID id FROM VpnSessionSample WHERE HubName='DEFAULT' AND UserName='alice'`)
+	code, body, _ := call(t, a, "GET", "/api/v1/hubs/DEFAULT/session-history/"+str(aliceRow["id"])+"/usage", nil, token)
+	if code != 200 || !boolean(body["split_available"]) || integer(body["total_recv"]) != 1200 || integer(body["total_send"]) != 3400 {
+		t.Fatalf("expected session usage to include initial interval from StartedDate, got code=%d body=%v", code, body)
 	}
 }
