@@ -440,7 +440,7 @@ func (a *App) upsertIPGeoCache(entries []IPGeoInfo) {
 	}
 }
 
-func (a *App) lookupIPResult(ctx context.Context, ipStr string, useNegCache bool) (IPGeoInfo, bool) {
+func (a *App) lookupIPResult(ctx context.Context, ipStr string, useNegCache bool, offlineOnly ...bool) (IPGeoInfo, bool) {
 	ip := cleanIP(ipStr)
 	if ip == "" {
 		return IPGeoInfo{}, false
@@ -454,8 +454,8 @@ func (a *App) lookupIPResult(ctx context.Context, ipStr string, useNegCache bool
 		}, false
 	}
 
-	// 1. Check local SQLite cache
-	row := one(a.db, `SELECT Country, Region, City, ISP, Location, Full, UpdatedDate FROM IPGeoCache WHERE IP=?`, ip)
+	// 1. Check local SQLite cache (use read-only pool)
+	row := one(a.readDB(), `SELECT Country, Region, City, ISP, Location, Full, UpdatedDate FROM IPGeoCache WHERE IP=?`, ip)
 	if row != nil && time.Since(parseTime(str(row["UpdatedDate"]))) < 30*24*time.Hour {
 		isp := str(row["ISP"])
 		loc := str(row["Location"])
@@ -473,10 +473,12 @@ func (a *App) lookupIPResult(ctx context.Context, ipStr string, useNegCache bool
 		}
 	}
 
+	skipOnline := len(offlineOnly) > 0 && offlineOnly[0]
+
 	// 2. Query offline ip2region database (high precision, microsecond latency, zero network)
 	if info, ok := a.lookupXDB(ip); ok {
-		// If domestic or overseas with city known, we have authoritative results
-		if info.Country == "中国" || info.City != "" {
+		// If domestic, overseas with city known, or offline-only mode, return offline result immediately
+		if info.Country == "中国" || info.City != "" || skipOnline {
 			return info, true
 		}
 
@@ -500,6 +502,10 @@ func (a *App) lookupIPResult(ctx context.Context, ipStr string, useNegCache bool
 			}
 		}
 		return info, true
+	}
+
+	if skipOnline {
+		return IPGeoInfo{IP: ip}, false
 	}
 
 	// 3. Fallback to HTTPS online API (with negative caching on batch polling)
@@ -560,11 +566,12 @@ func fetchIPGeo(ctx context.Context, ip string) IPGeoInfo {
 	return IPGeoInfo{IP: ip}
 }
 
-func (a *App) batchLookupIPs(ctx context.Context, ips []string) map[string]IPGeoInfo {
+func (a *App) batchLookupIPs(ctx context.Context, ips []string, offlineOnly ...bool) map[string]IPGeoInfo {
 	out := make(map[string]IPGeoInfo)
 	if len(ips) == 0 {
 		return out
 	}
+	skipOnline := len(offlineOnly) > 0 && offlineOnly[0]
 	var needed []string
 	seen := make(map[string]bool)
 	for _, raw := range ips {
@@ -601,7 +608,7 @@ func (a *App) batchLookupIPs(ctx context.Context, ips []string) map[string]IPGeo
 			}()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			info, shouldCache := a.lookupIPResult(ctx, targetIP, true)
+			info, shouldCache := a.lookupIPResult(ctx, targetIP, true, skipOnline)
 			mu.Lock()
 			out[targetIP] = info
 			if shouldCache {

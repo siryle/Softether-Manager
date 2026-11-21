@@ -266,6 +266,33 @@ func (a *App) enforceQuota(ctx context.Context, row M) {
 		a.releaseQuota(ctx, row)
 	}
 }
+func (a *App) applyQuotaReading(ctx context.Context, serverID int64, client *RPCClient, row M, send, recv int64) {
+	subject, hub, name := str(row["SubjectType"]), str(row["HubName"]), str(row["UserName"])
+	lock := a.quotaLock(serverID)
+	lock.Lock()
+	defer lock.Unlock()
+	defer func() {
+		if p := recover(); p != nil {
+			log.Printf("quota enforcement: %v", p)
+		}
+	}()
+	current := a.quotaRow(serverID, subject, hub, name)
+	if current == nil || integer(current["TrafficQuotaID"]) != integer(row["TrafficQuotaID"]) {
+		return
+	}
+	// A reset or newer reading makes this in-flight snapshot obsolete.
+	for _, key := range []string{"CycleStartDate", "BaseSendBytes", "BaseRecvBytes", "LastSendBytes", "LastRecvBytes"} {
+		if str(current[key]) != str(row[key]) {
+			return
+		}
+	}
+	a.observeQuotaLocked(serverID, subject, hub, name, send, recv, client)
+	current = a.quotaRow(serverID, subject, hub, name)
+	if current != nil && (a.quotaOver(current) || str(current["RestoreState"]) != "") {
+		a.enforceQuota(ctx, current)
+	}
+}
+
 func (a *App) quotaTick(ctx context.Context) {
 	var jobs sync.WaitGroup
 	for _, server := range query(a.db, `SELECT DISTINCT s.ServerID FROM Server s JOIN TrafficQuota q ON q.ServerID=s.ServerID WHERE s.IsEnabled=1`) {
@@ -282,8 +309,56 @@ func (a *App) quotaTick(ctx context.Context) {
 			check(err)
 			serverCtx := context.WithValue(ctx, serverIDKey, id)
 			quotaCtx := context.WithValue(serverCtx, rpcClientKey, client)
-			for _, row := range query(a.db, `SELECT * FROM TrafficQuota WHERE ServerID=?`, id) {
+			rows := query(a.db, `SELECT * FROM TrafficQuota WHERE ServerID=?`, id)
+
+			userQuotaCountByHub := map[string]int{}
+			for _, row := range rows {
+				if str(row["SubjectType"]) == "user" {
+					userQuotaCountByHub[str(row["HubName"])]++
+				}
+			}
+
+			// Batch-fetch EnumUser once per hub when >=2 user quotas exist on that hub,
+			// avoiding O(N) GetUser RPCs while keeping single-quota direct GetUser behavior.
+			hubUserCounters := map[string]map[string][2]int64{}
+			transportFailed := false
+			for hub, count := range userQuotaCountByHub {
+				if count < 2 {
+					continue
+				}
+				out, err := client.Call(quotaCtx, "EnumUser", M{"HubName_str": hub})
+				if err != nil {
+					log.Printf("quota reading %d/%s: %v", id, hub, err)
+					if e, ok := err.(httpError); !ok || e.Status >= 500 || e.Status == 409 {
+						transportFailed = true
+						break
+					}
+					continue
+				}
+				users := list(out["UserList"])
+				a.updateUserMetaCache(id, hub, users)
+				counters := make(map[string][2]int64, len(users))
+				for _, u := range users {
+					if s, r, ok := userTrafficCounters(u); ok {
+						counters[fold(str(u["Name_str"]))] = [2]int64{s, r}
+					}
+				}
+				hubUserCounters[hub] = counters
+			}
+			if transportFailed {
+				return
+			}
+
+			for _, row := range rows {
 				subject, hub, name := str(row["SubjectType"]), str(row["HubName"]), str(row["UserName"])
+				if subject == "user" {
+					if counters, ok := hubUserCounters[hub]; ok {
+						if pair, found := counters[fold(name)]; found {
+							a.applyQuotaReading(quotaCtx, id, client, row, pair[0], pair[1])
+							continue
+						}
+					}
+				}
 				send, recv, err := a.fetchQuotaCounters(quotaCtx, client, subject, hub, name)
 				if err != nil {
 					if explicitMissing(err) {
@@ -296,31 +371,7 @@ func (a *App) quotaTick(ctx context.Context) {
 					}
 					continue
 				}
-				func() {
-					lock := a.quotaLock(id)
-					lock.Lock()
-					defer lock.Unlock()
-					defer func() {
-						if p := recover(); p != nil {
-							log.Printf("quota enforcement: %v", p)
-						}
-					}()
-					current := a.quotaRow(id, subject, hub, name)
-					if current == nil || integer(current["TrafficQuotaID"]) != integer(row["TrafficQuotaID"]) {
-						return
-					}
-					// A reset or newer reading makes this in-flight snapshot obsolete.
-					for _, key := range []string{"CycleStartDate", "BaseSendBytes", "BaseRecvBytes", "LastSendBytes", "LastRecvBytes"} {
-						if str(current[key]) != str(row[key]) {
-							return
-						}
-					}
-					a.observeQuotaLocked(id, subject, hub, name, send, recv, client)
-					current = a.quotaRow(id, subject, hub, name)
-					if current != nil && (a.quotaOver(current) || str(current["RestoreState"]) != "") {
-						a.enforceQuota(quotaCtx, current)
-					}
-				}()
+				a.applyQuotaReading(quotaCtx, id, client, row, send, recv)
 			}
 		}()
 	}

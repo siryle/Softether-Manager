@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"database/sql"
 	"fmt"
 	"strconv"
 	"time"
@@ -50,22 +51,123 @@ func trafficDifference(current, previous trafficCounter, maxGap time.Duration) (
 }
 
 type trafficSampleRow struct {
-	source     string
-	send, recv int64
-	count      int64
-	at         time.Time
-	nextStep   time.Duration
+	source              string
+	send, recv          int64
+	deltaSend, deltaRecv int64
+	hasDelta            bool
+	count               int64
+	at                  time.Time
+	nextStep            time.Duration
+}
+
+func (a *App) trafficUsageFromRollup(serverID int64, kind, hub, name string, hours int64, start, end time.Time) (M, bool) {
+	subject := "hub"
+	where := "ServerID=? AND SubjectType=?"
+	args := []any{serverID, subject}
+	rawTable := "HubTrafficSample"
+	rawWhere := "ServerID=?"
+	rawArgs := []any{serverID}
+	if kind != "server" {
+		where += " AND HubName=?"
+		args = append(args, hub)
+		rawWhere += " AND HubName=?"
+		rawArgs = append(rawArgs, hub)
+	}
+	if kind == "user" {
+		subject = "user"
+		args[1] = "user"
+		where += " AND UserKey=?"
+		args = append(args, fold(name))
+		rawTable = "UserTrafficSample"
+		rawWhere += " AND UserName=? COLLATE NOCASE"
+		rawArgs = append(rawArgs, name)
+	}
+
+	rdb := a.readDB()
+	var minBucket sql.NullInt64
+	var cnt int64
+	err := rdb.QueryRow("SELECT MIN(BucketTs), COUNT(*) FROM TrafficRollupHourly WHERE "+where+" AND BucketTs>=? AND BucketTs<=?", append(append([]any{}, args...), start.Unix()-start.Unix()%3600, end.Unix())...).Scan(&minBucket, &cnt)
+	if err != nil || cnt == 0 || !minBucket.Valid {
+		return nil, false
+	}
+
+	startTs := start.Unix()
+	if minBucket.Int64 > startTs {
+		// Check if un-rolled-up raw samples exist in [start, minBucket).
+		var preCnt int64
+		_ = rdb.QueryRow("SELECT COUNT(*) FROM "+rawTable+" WHERE "+rawWhere+" AND ((SampledTs>0 AND SampledTs>=? AND SampledTs<?) OR (SampledTs=0 AND julianday(SampledDate)>=julianday(?) AND julianday(SampledDate)<julianday(?)))",
+			append(append([]any{}, rawArgs...), startTs, minBucket.Int64, start.Format(time.RFC3339Nano), time.Unix(minBucket.Int64, 0).UTC().Format(time.RFC3339Nano))...).Scan(&preCnt)
+		if preCnt > 0 {
+			return nil, false
+		}
+	}
+
+	startBucket := startTs - (startTs % 3600)
+	endBucket := end.Unix()
+	qArgs := append(append([]any{}, args...), startBucket, endBucket)
+	rows, err := rdb.Query("SELECT BucketTs, SUM(SendBytes), SUM(RecvBytes), MAX(MaxSessions), SUM(SampleCount) FROM TrafficRollupHourly WHERE "+where+" AND BucketTs>=? AND BucketTs<=? GROUP BY BucketTs ORDER BY BucketTs", qArgs...)
+	if err != nil {
+		return nil, false
+	}
+	defer rows.Close()
+
+	points := make([]M, 0, 256)
+	var sent, received int64
+	var prevBucket int64
+	var sampleCount int64
+	for rows.Next() {
+		var bTs, sBytes, rBytes, sess, n int64
+		if err := rows.Scan(&bTs, &sBytes, &rBytes, &sess, &n); err != nil {
+			return nil, false
+		}
+		if n <= 0 {
+			continue
+		}
+		if prevBucket > 0 && bTs-prevBucket > 3600 {
+			gapT := time.Unix(prevBucket+3600, 0).UTC()
+			if !gapT.After(end) {
+				points = append(points, M{"t": gapT.Format(time.RFC3339Nano), "send": nil, "recv": nil})
+			}
+		}
+		bt := time.Unix(bTs+1800, 0).UTC()
+		if bt.Before(start) {
+			bt = start
+		}
+		if bt.After(end) {
+			bt = end
+		}
+		p := M{"t": bt.Format(time.RFC3339Nano), "send": sBytes, "recv": rBytes}
+		if kind != "user" {
+			p["sessions"] = sess
+		}
+		points = append(points, p)
+		sent += sBytes
+		received += rBytes
+		sampleCount += n
+		prevBucket = bTs
+	}
+	if rows.Err() != nil || len(points) == 0 {
+		return nil, false
+	}
+	points, effectiveInterval := downsampleTrafficPoints(points, hours, 3600, start, end)
+	return M{"hours": hours, "start": start.Format(time.RFC3339Nano), "end": end.Format(time.RFC3339Nano), "sample_interval_seconds": effectiveInterval, "points": points, "total_send": sent, "total_recv": received, "samples": sampleCount}, true
 }
 
 func (a *App) trafficUsage(serverID int64, kind, hub, name string, hours int64) M {
 	end := time.Now().UTC()
 	start := end.Add(-time.Duration(hours) * time.Hour)
+	if hours > 24 {
+		if fast, ok := a.trafficUsageFromRollup(serverID, kind, hub, name, hours, start, end); ok {
+			return fast
+		}
+	}
 	interval := max(int64(1), integer(a.setting("sample_interval_minutes"))) * 60
 	maxGap := time.Duration(interval)*time.Second*3/2 + 30*time.Second
 	lookback := max(maxGap, 15*time.Minute)
 	table, id, sessions := "HubTrafficSample", "HubTrafficSampleID", "NumSessions"
-	where := "ServerID=? AND julianday(SampledDate)>=julianday(?) AND julianday(SampledDate)<=julianday(?)"
-	args := []any{serverID, start.Add(-lookback).Format(time.RFC3339Nano), end.Format(time.RFC3339Nano)}
+	lookbackStart := start.Add(-lookback)
+	where := "ServerID=? AND ((SampledTs>0 AND SampledTs>=? AND SampledTs<=?) OR (SampledTs=0 AND julianday(SampledDate)>=julianday(?) AND julianday(SampledDate)<=julianday(?)))"
+	args := []any{serverID, lookbackStart.Unix(), end.Unix(), lookbackStart.Format(time.RFC3339Nano), end.Format(time.RFC3339Nano)}
 	if kind != "server" {
 		where += " AND HubName=?"
 		args = append(args, hub)
@@ -75,19 +177,22 @@ func (a *App) trafficUsage(serverID int64, kind, hub, name string, hours int64) 
 		where += " AND UserName=? COLLATE NOCASE"
 		args = append(args, name)
 	}
-	rows, err := a.readDB().Query("SELECT HubName,SendBytes,RecvBytes,"+sessions+",SampledDate FROM "+table+" WHERE "+where+" ORDER BY julianday(SampledDate),"+id, args...)
+	rows, err := a.readDB().Query("SELECT HubName,SendBytes,RecvBytes,"+sessions+",SampledDate,SampledTs,DeltaSendBytes,DeltaRecvBytes,HasDelta FROM "+table+" WHERE "+where+" ORDER BY COALESCE(NULLIF(SampledTs,0), unixepoch(SampledDate)),"+id, args...)
 	check(err)
 	defer rows.Close()
 	var scanned []trafficSampleRow
 	for rows.Next() {
 		var source, stamp string
-		var send, recv, count int64
-		check(rows.Scan(&source, &send, &recv, &count, &stamp))
+		var send, recv, count, ts, dSend, dRecv, hasDelta int64
+		check(rows.Scan(&source, &send, &recv, &count, &stamp, &ts, &dSend, &dRecv, &hasDelta))
 		at := parseTime(stamp).UTC()
+		if at.IsZero() && ts > 0 {
+			at = time.Unix(ts, 0).UTC()
+		}
 		if at.IsZero() || send < 0 || recv < 0 {
 			continue
 		}
-		scanned = append(scanned, trafficSampleRow{source: source, send: send, recv: recv, count: count, at: at})
+		scanned = append(scanned, trafficSampleRow{source: source, send: send, recv: recv, deltaSend: dSend, deltaRecv: dRecv, hasDelta: hasDelta != 0, count: count, at: at})
 	}
 	check(rows.Err())
 	nextAt := map[string]time.Time{}
@@ -132,7 +237,18 @@ func (a *App) trafficUsage(serverID int64, kind, hub, name string, hours int64) 
 		if kind != "user" {
 			point["sessions"] = integer(point["sessions"]) + row.count
 		}
-		if hasBefore {
+		if row.hasDelta {
+			up, down := max(int64(0), row.deltaSend), max(int64(0), row.deltaRecv)
+			point["send"] = integer(point["send"]) + up
+			point["recv"] = integer(point["recv"]) + down
+			sent += up
+			received += down
+			if hasBefore {
+				if step := int64(current.rawStep.Seconds()); step > effectiveInterval && current.rawStep <= maxGap {
+					effectiveInterval = step
+				}
+			}
+		} else if hasBefore {
 			if up, down, valid := trafficDifference(current, before, maxGap); valid {
 				point["send"] = integer(point["send"]) + up
 				point["recv"] = integer(point["recv"]) + down

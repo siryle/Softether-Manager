@@ -40,7 +40,7 @@ export function Dashboard() {
 
   const serverUsage = useTrafficUsage(
     () => health === "online" ? api.serverTraffic(trafficHours) : Promise.resolve(null),
-    "detail", [health, trafficHours],
+    trafficHours >= 168 ? "list" : "detail", [health, trafficHours],
   );
 
   const section = (key: string): Wire | null =>

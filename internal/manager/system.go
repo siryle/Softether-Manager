@@ -11,7 +11,7 @@ import (
 )
 
 var settingBounds = map[string][2]int64{"resource_interval_seconds": {1, 3600}, "resource_history_points": {10, 2000}, "sample_interval_minutes": {1, 1440}, "sample_retention_days": {1, 3650}, "session_interval_seconds": {5, 3600}, "session_history_retention_days": {1, 3650}, "quota_interval_seconds": {10, 3600}, "ui_live_seconds": {1, 3600}, "ui_detail_seconds": {1, 3600}, "ui_list_seconds": {1, 3600}, "update_check_interval_hours": {1, 168}}
-var settingFlags = map[string]bool{"resource_monitor_enabled": true, "traffic_monitor_enabled": true, "session_monitor_enabled": true, "session_traffic_enabled": true, "quota_enforcement_enabled": true, "update_check_enabled": true}
+var settingFlags = map[string]bool{"resource_monitor_enabled": true, "traffic_monitor_enabled": true, "session_monitor_enabled": true, "session_traffic_enabled": true, "session_log_sync_enabled": true, "quota_enforcement_enabled": true, "update_check_enabled": true}
 
 func cleanWebPath(value string) string {
 	path := strings.Trim(strings.TrimSpace(value), "/")

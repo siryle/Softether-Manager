@@ -46,22 +46,31 @@ func usage(rows []M, hours int64, sendKey, recvKey string, sessions bool) M {
 	}
 	return M{"hours": hours, "points": points, "total_send": sent, "total_recv": recv, "samples": len(rows)}
 }
-func (a *App) enrichSessionRowsGeo(ctx context.Context, rows []M) {
+func (a *App) enrichSessionRowsGeo(ctx context.Context, rows []M, offlineOnly ...bool) {
 	if len(rows) == 0 {
 		return
 	}
 	ips := make([]string, 0, len(rows))
 	for _, row := range rows {
-		if ip := str(row["client_ip"]); ip != "" {
-			ips = append(ips, ip)
+		if str(row["ip_location"]) == "" {
+			if ip := str(row["client_ip"]); ip != "" {
+				ips = append(ips, ip)
+			}
 		}
 	}
-	geoMap := a.batchLookupIPs(ctx, ips)
+	if len(ips) == 0 {
+		return
+	}
+	geoMap := a.batchLookupIPs(ctx, ips, offlineOnly...)
 	for _, row := range rows {
-		geo := geoMap[cleanIP(str(row["client_ip"]))]
-		row["ip_location"] = geo.Location
-		row["ip_isp"] = geo.ISP
-		row["ip_full"] = geo.Full
+		if str(row["ip_location"]) != "" {
+			continue
+		}
+		if geo, ok := geoMap[cleanIP(str(row["client_ip"]))]; ok {
+			row["ip_location"] = geo.Location
+			row["ip_isp"] = geo.ISP
+			row["ip_full"] = geo.Full
+		}
 	}
 }
 
@@ -334,7 +343,7 @@ func (a *App) registerHistory() {
 		}
 
 		itemArgs := append(append([]any{}, args...), limit, offset)
-		rows := query(rdb, `SELECT VpnSessionSampleID id,HubName hub,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,LastSeenDate last_seen_date,BytesTotal bytes_total,PacketsTotal packets_total,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE `+where+` ORDER BY julianday(StartedDate) DESC, VpnSessionSampleID DESC LIMIT ? OFFSET ?`, itemArgs...)
+		rows := query(rdb, `SELECT VpnSessionSampleID id,HubName hub,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,LastSeenDate last_seen_date,BytesTotal bytes_total,PacketsTotal packets_total,DownloadBytes download_bytes,UploadBytes upload_bytes,RealName real_name,Note note,IpLocation ip_location,IpISP ip_isp,IpFull ip_full,Protocol protocol,DisconnectReason disconnect_reason,ServerPort server_port,ClientPort client_port FROM VpnSessionSample WHERE `+where+` ORDER BY julianday(StartedDate) DESC, VpnSessionSampleID DESC LIMIT ? OFFSET ?`, itemArgs...)
 		a.enrichSessionRowsGeo(r.Context(), rows)
 		a.enrichSessionRowsUser(r.Context(), rows)
 		return M{"items": rows, "total": integer(summary["total_sessions"]), "summary": summary, "hubs": hubs}
@@ -345,8 +354,8 @@ func (a *App) registerHistory() {
 		loc := resolveExportLocation(r)
 		zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.URL.Query().Get("lang"))), "zh")
 
-		rows := query(a.readDB(), `SELECT VpnSessionSampleID id,HubName hub,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,LastSeenDate last_seen_date,BytesTotal bytes_total,PacketsTotal packets_total,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE `+where+` ORDER BY julianday(StartedDate) DESC, VpnSessionSampleID DESC LIMIT 50000`, args...)
-		a.enrichSessionRowsGeo(r.Context(), rows)
+		rows := query(a.readDB(), `SELECT VpnSessionSampleID id,HubName hub,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,LastSeenDate last_seen_date,BytesTotal bytes_total,PacketsTotal packets_total,DownloadBytes download_bytes,UploadBytes upload_bytes,RealName real_name,Note note,IpLocation ip_location,IpISP ip_isp,IpFull ip_full,Protocol protocol,DisconnectReason disconnect_reason,ServerPort server_port,ClientPort client_port FROM VpnSessionSample WHERE `+where+` ORDER BY julianday(StartedDate) DESC, VpnSessionSampleID DESC LIMIT 50000`, args...)
+		a.enrichSessionRowsGeo(r.Context(), rows, len(rows) > 200)
 		a.enrichSessionRowsUser(r.Context(), rows)
 
 		filename := fmt.Sprintf("session-audit-report-%s.csv", time.Now().In(loc).Format("20060102-150405"))
@@ -357,10 +366,10 @@ func (a *App) registerHistory() {
 		_, _ = w.Write([]byte("\xef\xbb\xbf"))
 
 		cw := csv.NewWriter(w)
-		headers := []string{"Session ID", "User", "Virtual Hub", "Status", "Started", "Ended", "Duration (s)", "Duration", "Client IP", "IP Location", "ISP", "Virtual IP", "Hostname", "Download (Bytes)", "Upload (Bytes)", "Total (Bytes)", "Packets"}
+		headers := []string{"Session ID", "User", "Virtual Hub", "Status", "Started", "Ended", "Duration (s)", "Duration", "Client IP", "IP Location", "ISP", "Virtual IP", "Hostname", "Download (Bytes)", "Upload (Bytes)", "Total (Bytes)", "Packets", "Protocol", "Disconnect Reason"}
 		activeText, endedText := "Active", "Ended"
 		if zh {
-			headers = []string{"会话 ID", "用户名", "虚拟 HUB", "状态", "上线时间", "下线时间", "在线时长(秒)", "在线时长", "客户端 IP", "IP 属地", "运营商", "虚拟 IP", "主机名", "下载流量(Bytes)", "上传流量(Bytes)", "总流量(Bytes)", "数据包"}
+			headers = []string{"会话 ID", "用户名", "虚拟 HUB", "状态", "上线时间", "下线时间", "在线时长(秒)", "在线时长", "客户端 IP", "IP 属地", "运营商", "虚拟 IP", "主机名", "下载流量(Bytes)", "上传流量(Bytes)", "总流量(Bytes)", "数据包", "协议", "断开原因"}
 			activeText, endedText = "在线中", "已下线"
 		}
 		_ = cw.Write(headers)
@@ -402,6 +411,8 @@ func (a *App) registerHistory() {
 				strconv.FormatInt(integer(row["upload_bytes"]), 10),
 				strconv.FormatInt(integer(row["bytes_total"]), 10),
 				strconv.FormatInt(integer(row["packets_total"]), 10),
+				safeCSVCell(str(row["protocol"])),
+				safeCSVCell(str(row["disconnect_reason"])),
 			})
 		}
 		cw.Flush()
@@ -414,7 +425,7 @@ func (a *App) registerHistory() {
 		}
 		a.endpoint("GET "+path, func(_ http.ResponseWriter, r *http.Request, _ M) any {
 			serverID := a.serverIDFromContext(r.Context())
-			statement := `SELECT VpnSessionSampleID id,HubName hub,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,LastSeenDate last_seen_date,BytesTotal bytes_total,PacketsTotal packets_total,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE ServerID=? AND HubName=? AND ` + clientSessionSQLClause
+			statement := `SELECT VpnSessionSampleID id,HubName hub,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,LastSeenDate last_seen_date,BytesTotal bytes_total,PacketsTotal packets_total,DownloadBytes download_bytes,UploadBytes upload_bytes,RealName real_name,Note note,IpLocation ip_location,IpISP ip_isp,IpFull ip_full,Protocol protocol,DisconnectReason disconnect_reason,ServerPort server_port,ClientPort client_port FROM VpnSessionSample WHERE ServerID=? AND HubName=? AND ` + clientSessionSQLClause
 			args := []any{serverID, r.PathValue("hub")}
 			if userOnly {
 				statement += " AND UserName=? COLLATE NOCASE"
@@ -435,15 +446,17 @@ func (a *App) registerHistory() {
 	a.endpoint("GET /hubs/{hub}/session-history/{session_id}/usage", func(_ http.ResponseWriter, r *http.Request, _ M) any {
 		serverID := a.serverIDFromContext(r.Context())
 		rdb := a.readDB()
-		session := one(rdb, `SELECT VpnSessionSampleID id,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE ServerID=? AND VpnSessionSampleID=? AND HubName=? AND `+clientSessionSQLClause, serverID, r.PathValue("session_id"), r.PathValue("hub"))
+		session := one(rdb, `SELECT VpnSessionSampleID id,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,DownloadBytes download_bytes,UploadBytes upload_bytes,RealName real_name,Note note,IpLocation ip_location,IpISP ip_isp,IpFull ip_full,Protocol protocol,DisconnectReason disconnect_reason,ServerPort server_port,ClientPort client_port FROM VpnSessionSample WHERE ServerID=? AND VpnSessionSampleID=? AND HubName=? AND `+clientSessionSQLClause, serverID, r.PathValue("session_id"), r.PathValue("hub"))
 		if session == nil {
 			fail(404, "No such session in this hub's history.")
 		}
-		geo := a.lookupIP(r.Context(), str(session["client_ip"]))
-		session["ip_location"] = geo.Location
-		session["ip_isp"] = geo.ISP
-		session["ip_full"] = geo.Full
-		rows := query(rdb, `SELECT DownloadBytes,UploadBytes,TotalBytes,SampledDate FROM VpnSessionTrafficSample WHERE VpnSessionSampleID=? ORDER BY SampledDate`, session["id"])
+		if str(session["ip_location"]) == "" {
+			geo := a.lookupIP(r.Context(), str(session["client_ip"]))
+			session["ip_location"] = geo.Location
+			session["ip_isp"] = geo.ISP
+			session["ip_full"] = geo.Full
+		}
+		rows := query(rdb, `SELECT DownloadBytes,UploadBytes,TotalBytes,SampledDate FROM VpnSessionTrafficSample WHERE VpnSessionSampleID=? ORDER BY COALESCE(NULLIF(SampledTs,0), unixepoch(SampledDate)), VpnSessionTrafficSampleID`, session["id"])
 		end := time.Now()
 		if s := str(session["ended_date"]); s != "" {
 			end = parseTime(s)
@@ -525,22 +538,85 @@ func (a *App) startWorkers(ctx context.Context) {
 func bytesFor(m M, prefix string) (int64, int64) {
 	return integer(m[prefix+"Send.UnicastBytes_u64"]) + integer(m[prefix+"Send.BroadcastBytes_u64"]), integer(m[prefix+"Recv.UnicastBytes_u64"]) + integer(m[prefix+"Recv.BroadcastBytes_u64"])
 }
+func (a *App) maybePrune() {
+	a.pruneMu.Lock()
+	if !a.lastPruneAt.IsZero() && time.Since(a.lastPruneAt) < 30*time.Minute {
+		a.pruneMu.Unlock()
+		return
+	}
+	a.lastPruneAt = time.Now()
+	a.pruneMu.Unlock()
+	a.prune()
+}
+
 func (a *App) prune() {
 	// Purge any legacy non-client session records (e.g. SecureNAT, Local Bridge, Cascade, L3 switch)
 	execute(a.db, `DELETE FROM VpnSessionTrafficSample WHERE VpnSessionSampleID IN (SELECT VpnSessionSampleID FROM VpnSessionSample WHERE `+nonClientSessionDeleteClause+`)`)
 	execute(a.db, `DELETE FROM VpnSessionSample WHERE `+nonClientSessionDeleteClause)
 
 	days := max(int64(1), integer(a.setting("sample_retention_days")))
+	cutoffTs := time.Now().UTC().AddDate(0, 0, -int(days)).Unix()
+	cutoffArg := fmt.Sprintf("-%d days", days)
 	for _, table := range []string{"HubTrafficSample", "UserTrafficSample"} {
-		execute(a.db, `DELETE FROM `+table+` WHERE datetime(SampledDate)<datetime('now',?)`, fmt.Sprintf("-%d days", days))
+		execute(a.db, `DELETE FROM `+table+` WHERE (SampledTs>0 AND SampledTs<?) OR (SampledTs=0 AND datetime(SampledDate)<datetime('now',?))`, cutoffTs, cutoffArg)
 	}
+	rollupDays := max(int64(365), days)
+	rollupCutoffTs := time.Now().UTC().AddDate(0, 0, -int(rollupDays)).Unix()
+	execute(a.db, `DELETE FROM TrafficRollupHourly WHERE BucketTs<?`, rollupCutoffTs)
+
 	days = max(int64(1), integer(a.setting("session_history_retention_days")))
-	execute(a.db, `DELETE FROM VpnSessionTrafficSample WHERE datetime(SampledDate)<datetime('now',?)`, fmt.Sprintf("-%d days", days))
-	execute(a.db, `DELETE FROM VpnSessionTrafficSample WHERE VpnSessionSampleID IN (SELECT VpnSessionSampleID FROM VpnSessionSample WHERE datetime(COALESCE(EndedDate,LastSeenDate))<datetime('now',?))`, fmt.Sprintf("-%d days", days))
-	execute(a.db, `DELETE FROM VpnSessionSample WHERE datetime(COALESCE(EndedDate,LastSeenDate))<datetime('now',?)`, fmt.Sprintf("-%d days", days))
+	sessCutoffTs := time.Now().UTC().AddDate(0, 0, -int(days)).Unix()
+	sessCutoffArg := fmt.Sprintf("-%d days", days)
+	execute(a.db, `DELETE FROM VpnSessionTrafficSample WHERE (SampledTs>0 AND SampledTs<?) OR (SampledTs=0 AND datetime(SampledDate)<datetime('now',?))`, sessCutoffTs, sessCutoffArg)
+	execute(a.db, `DELETE FROM VpnSessionTrafficSample WHERE VpnSessionSampleID IN (SELECT VpnSessionSampleID FROM VpnSessionSample WHERE (COALESCE(EndedTs,0)>0 AND EndedTs<?) OR (COALESCE(EndedTs,0)=0 AND datetime(COALESCE(EndedDate,LastSeenDate))<datetime('now',?)))`, sessCutoffTs, sessCutoffArg)
+	execute(a.db, `DELETE FROM VpnSessionSample WHERE (COALESCE(EndedTs,0)>0 AND EndedTs<?) OR (COALESCE(EndedTs,0)=0 AND datetime(COALESCE(EndedDate,LastSeenDate))<datetime('now',?))`, sessCutoffTs, sessCutoffArg)
 }
+
+type trafficCursorState struct {
+	lastSend        int64
+	lastRecv        int64
+	serverStartTime string
+	lastSampledTs   int64
+}
+
+func computeTrafficSampleDelta(prev trafficCursorState, hasPrev bool, send, recv, stampTs int64, serverStartTime string) (deltaSend, deltaRecv int64, hasDelta bool, nextCursor trafficCursorState, updateCursor bool) {
+	nextCursor = trafficCursorState{
+		lastSend:        send,
+		lastRecv:        recv,
+		serverStartTime: serverStartTime,
+		lastSampledTs:   stampTs,
+	}
+	if !hasPrev {
+		// Baseline observation: never invent historical lifetime counters as interval traffic.
+		if send == 0 && recv == 0 {
+			return 0, 0, true, nextCursor, true
+		}
+		return 0, 0, false, nextCursor, true
+	}
+	elapsed := max(int64(1), stampTs-prev.lastSampledTs)
+	if send >= prev.lastSend && recv >= prev.lastRecv {
+		if prev.lastSend == 0 && prev.lastRecv == 0 && (send > 0 || recv > 0) && send+recv > maxSingleIntervalBytesPerSec*elapsed {
+			return 0, 0, false, nextCursor, false
+		}
+		return send - prev.lastSend, recv - prev.lastRecv, true, nextCursor, true
+	}
+	// Counter dropped (e.g. SoftEther service restart or transient zero read).
+	if send == 0 && recv == 0 {
+		if serverStartTime != "" && prev.serverStartTime != "" && serverStartTime == prev.serverStartTime {
+			// Server did not restart: ignore suspicious zero glitch without clobbering cursor.
+			return 0, 0, false, prev, false
+		}
+		return 0, 0, true, nextCursor, true
+	}
+	restarted := serverStartTime != "" && prev.serverStartTime != "" && serverStartTime != prev.serverStartTime
+	if restarted || send+recv <= maxSingleIntervalBytesPerSec*elapsed {
+		return send, recv, true, nextCursor, true
+	}
+	return 0, 0, false, prev, false
+}
+
 func (a *App) sampleTraffic(ctx context.Context) {
-	a.prune()
+	a.maybePrune()
 	if !boolean(a.setting("traffic_monitor_enabled")) {
 		return
 	}
@@ -548,16 +624,26 @@ func (a *App) sampleTraffic(ctx context.Context) {
 	if len(servers) == 0 {
 		return
 	}
-	stamp := now()
+	stampTime := time.Now().UTC().Truncate(time.Second)
+	stamp := stampTime.Format("2006-01-02T15:04:05+00:00")
+	stampTs := stampTime.Unix()
+	bucketTs := stampTs - (stampTs % 3600)
+
+	var wg sync.WaitGroup
 	for _, s := range servers {
 		serverID := integer(s["ServerID"])
-		serverCtx := context.WithValue(ctx, serverIDKey, serverID)
-		func() {
+		wg.Add(1)
+		go func(sid int64) {
+			defer wg.Done()
+			serverCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
+			defer cancel()
+			serverCtx = context.WithValue(serverCtx, serverIDKey, sid)
 			defer func() {
 				if p := recover(); p != nil {
-					log.Printf("traffic sample server %d: %v", serverID, p)
+					log.Printf("traffic sample server %d: %v", sid, p)
 				}
 			}()
+
 			type hubSampleRow struct {
 				hub             string
 				send, recv      int64
@@ -568,6 +654,14 @@ func (a *App) sampleTraffic(ctx context.Context) {
 				send, recv int64
 				numLogin   int64
 			}
+
+			var serverStartTime string
+			func() {
+				defer func() { _ = recover() }()
+				st := a.rpc(serverCtx, "GetServerStatus", nil)
+				serverStartTime = strings.TrimSpace(str(st["StartTime_dt"]))
+			}()
+
 			var hubSamples []hubSampleRow
 			var userSamples []userSampleRow
 			for _, h := range list(a.rpc(serverCtx, "EnumHub", nil)["HubList"]) {
@@ -578,70 +672,150 @@ func (a *App) sampleTraffic(ctx context.Context) {
 				func() {
 					defer func() {
 						if p := recover(); p != nil {
-							log.Printf("traffic sample %d/%s: %v", serverID, hub, p)
+							log.Printf("traffic sample %d/%s: %v", sid, hub, p)
 						}
 					}()
-					status := a.rpc(serverCtx, "GetHubStatus", M{"HubName_str": hub})
-					if send, recv, valid := sampledTraffic(status, ""); valid {
-						hubSamples = append(hubSamples, hubSampleRow{
-							hub:      hub,
-							send:     send,
-							recv:     recv,
-							sessions: integer(status["NumSessions_u32"]),
-							users:    integer(status["NumUsers_u32"]),
-						})
-					} else {
-						log.Printf("traffic sample %d/%s: missing or invalid hub counters", serverID, hub)
-					}
-					users := list(a.rpc(serverCtx, "EnumUser", M{"HubName_str": hub})["UserList"])
-					a.updateUserMetaCache(serverID, hub, users)
-					for _, u := range users {
-						name := str(u["Name_str"])
-						sBytes, rBytes, valid := userTrafficCounters(u)
-						if !valid {
-							log.Printf("traffic sample %d/%s/%s: missing or invalid user counters", serverID, hub, name)
-							continue
+					var status M
+					var users []M
+					var hubWG sync.WaitGroup
+					hubWG.Add(2)
+					go func() {
+						defer hubWG.Done()
+						defer func() { _ = recover() }()
+						status = a.rpc(serverCtx, "GetHubStatus", M{"HubName_str": hub})
+					}()
+					go func() {
+						defer hubWG.Done()
+						defer func() { _ = recover() }()
+						users = list(a.rpc(serverCtx, "EnumUser", M{"HubName_str": hub})["UserList"])
+					}()
+					hubWG.Wait()
+
+					if status != nil {
+						if send, recv, valid := sampledTraffic(status, ""); valid {
+							hubSamples = append(hubSamples, hubSampleRow{
+								hub:      hub,
+								send:     send,
+								recv:     recv,
+								sessions: integer(status["NumSessions_u32"]),
+								users:    integer(status["NumUsers_u32"]),
+							})
+						} else {
+							log.Printf("traffic sample %d/%s: missing or invalid hub counters", sid, hub)
 						}
-						userSamples = append(userSamples, userSampleRow{
-							hub:      hub,
-							name:     name,
-							send:     sBytes,
-							recv:     rBytes,
-							numLogin: integer(u["NumLogin_u32"]),
-						})
+					}
+					if len(users) > 0 {
+						a.updateUserMetaCache(sid, hub, users)
+						for _, u := range users {
+							name := str(u["Name_str"])
+							sBytes, rBytes, valid := userTrafficCounters(u)
+							if !valid {
+								log.Printf("traffic sample %d/%s/%s: missing or invalid user counters", sid, hub, name)
+								continue
+							}
+							userSamples = append(userSamples, userSampleRow{
+								hub:      hub,
+								name:     name,
+								send:     sBytes,
+								recv:     rBytes,
+								numLogin: integer(u["NumLogin_u32"]),
+							})
+						}
 					}
 				}()
 			}
 			if len(hubSamples) == 0 && len(userSamples) == 0 {
 				return
 			}
+
 			tx, err := a.db.Begin()
 			if err != nil {
-				log.Printf("traffic sample begin tx %d: %v", serverID, err)
+				log.Printf("traffic sample begin tx %d: %v", sid, err)
 				return
 			}
 			defer tx.Rollback()
+
+			cursors := map[string]trafficCursorState{}
+			cRows, err := tx.Query(`SELECT SubjectType,HubName,UserKey,LastSendBytes,LastRecvBytes,ServerStartTime,LastSampledTs FROM TrafficCursor WHERE ServerID=?`, sid)
+			if err == nil {
+				for cRows.Next() {
+					var subj, hubName, uKey, sStart string
+					var lSend, lRecv, lTs int64
+					if scanErr := cRows.Scan(&subj, &hubName, &uKey, &lSend, &lRecv, &sStart, &lTs); scanErr == nil {
+						cursors[subj+"\x00"+hubName+"\x00"+uKey] = trafficCursorState{
+							lastSend:        lSend,
+							lastRecv:        lRecv,
+							serverStartTime: sStart,
+							lastSampledTs:   lTs,
+						}
+					}
+				}
+				_ = cRows.Close()
+			}
+
+			cursorStmt, err := tx.Prepare(`INSERT INTO TrafficCursor(ServerID,SubjectType,HubName,UserKey,LastSendBytes,LastRecvBytes,ServerStartTime,LastSampledTs) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(ServerID,SubjectType,HubName,UserKey) DO UPDATE SET LastSendBytes=excluded.LastSendBytes,LastRecvBytes=excluded.LastRecvBytes,ServerStartTime=excluded.ServerStartTime,LastSampledTs=excluded.LastSampledTs`)
+			check(err)
+			defer cursorStmt.Close()
+
+			rollupStmt, err := tx.Prepare(`INSERT INTO TrafficRollupHourly(ServerID,SubjectType,HubName,UserKey,UserName,BucketTs,SendBytes,RecvBytes,MaxSessions,SampleCount) VALUES(?,?,?,?,?,?,?,?,?,1) ON CONFLICT(ServerID,SubjectType,HubName,UserKey,BucketTs) DO UPDATE SET UserName=CASE WHEN excluded.UserName!='' THEN excluded.UserName ELSE TrafficRollupHourly.UserName END,SendBytes=TrafficRollupHourly.SendBytes+excluded.SendBytes,RecvBytes=TrafficRollupHourly.RecvBytes+excluded.RecvBytes,MaxSessions=MAX(TrafficRollupHourly.MaxSessions,excluded.MaxSessions),SampleCount=TrafficRollupHourly.SampleCount+1`)
+			check(err)
+			defer rollupStmt.Close()
+
 			if len(hubSamples) > 0 {
-				hubStmt, err := tx.Prepare(`INSERT INTO HubTrafficSample(ServerID,HubName,SendBytes,RecvBytes,NumSessions,NumUsers,SampledDate) VALUES(?,?,?,?,?,?,?)`)
+				hubStmt, err := tx.Prepare(`INSERT INTO HubTrafficSample(ServerID,HubName,SendBytes,RecvBytes,NumSessions,NumUsers,SampledDate,SampledTs,DeltaSendBytes,DeltaRecvBytes,HasDelta) VALUES(?,?,?,?,?,?,?,?,?,?,?)`)
 				check(err)
 				defer hubStmt.Close()
 				for _, hs := range hubSamples {
-					_, err = hubStmt.Exec(serverID, hs.hub, hs.send, hs.recv, hs.sessions, hs.users, stamp)
+					cKey := "hub\x00" + hs.hub + "\x00"
+					prev, hasPrev := cursors[cKey]
+					dSend, dRecv, hasDelta, nextC, upd := computeTrafficSampleDelta(prev, hasPrev, hs.send, hs.recv, stampTs, serverStartTime)
+					hasDeltaInt := 0
+					if hasDelta {
+						hasDeltaInt = 1
+					}
+					_, err = hubStmt.Exec(sid, hs.hub, hs.send, hs.recv, hs.sessions, hs.users, stamp, stampTs, dSend, dRecv, hasDeltaInt)
 					check(err)
+					if upd {
+						cursors[cKey] = nextC
+						_, err = cursorStmt.Exec(sid, "hub", hs.hub, "", nextC.lastSend, nextC.lastRecv, nextC.serverStartTime, nextC.lastSampledTs)
+						check(err)
+					}
+					if hasDelta {
+						_, err = rollupStmt.Exec(sid, "hub", hs.hub, "", "", bucketTs, dSend, dRecv, hs.sessions)
+						check(err)
+					}
 				}
 			}
 			if len(userSamples) > 0 {
-				userStmt, err := tx.Prepare(`INSERT INTO UserTrafficSample(ServerID,HubName,UserName,SendBytes,RecvBytes,NumLogin,SampledDate) VALUES(?,?,?,?,?,?,?)`)
+				userStmt, err := tx.Prepare(`INSERT INTO UserTrafficSample(ServerID,HubName,UserName,SendBytes,RecvBytes,NumLogin,SampledDate,SampledTs,DeltaSendBytes,DeltaRecvBytes,HasDelta) VALUES(?,?,?,?,?,?,?,?,?,?,?)`)
 				check(err)
 				defer userStmt.Close()
 				for _, us := range userSamples {
-					_, err = userStmt.Exec(serverID, us.hub, us.name, us.send, us.recv, us.numLogin, stamp)
+					uKey := fold(us.name)
+					cKey := "user\x00" + us.hub + "\x00" + uKey
+					prev, hasPrev := cursors[cKey]
+					dSend, dRecv, hasDelta, nextC, upd := computeTrafficSampleDelta(prev, hasPrev, us.send, us.recv, stampTs, serverStartTime)
+					hasDeltaInt := 0
+					if hasDelta {
+						hasDeltaInt = 1
+					}
+					_, err = userStmt.Exec(sid, us.hub, us.name, us.send, us.recv, us.numLogin, stamp, stampTs, dSend, dRecv, hasDeltaInt)
 					check(err)
+					if upd {
+						cursors[cKey] = nextC
+						_, err = cursorStmt.Exec(sid, "user", us.hub, uKey, nextC.lastSend, nextC.lastRecv, nextC.serverStartTime, nextC.lastSampledTs)
+						check(err)
+					}
+					if hasDelta {
+						_, err = rollupStmt.Exec(sid, "user", us.hub, uKey, us.name, bucketTs, dSend, dRecv, 0)
+						check(err)
+					}
 				}
 			}
 			check(tx.Commit())
-		}()
+		}(serverID)
 	}
+	wg.Wait()
 }
 func userTrafficCounters(u M) (int64, int64, bool) {
 	if send, recv, valid := sampledTraffic(u, "Ex."); valid {
@@ -656,7 +830,7 @@ func userTrafficCounters(u M) (int64, int64, bool) {
 }
 
 func (a *App) closeHubOpenSessions(serverID int64, hub string) {
-	execute(a.db, `UPDATE VpnSessionSample SET EndedDate=LastSeenDate WHERE ServerID=? AND HubName=? AND EndedDate IS NULL AND `+clientSessionSQLClause, serverID, hub)
+	execute(a.db, `UPDATE VpnSessionSample SET EndedDate=LastSeenDate,EndedTs=COALESCE(NULLIF(EndedTs,0), unixepoch(LastSeenDate)) WHERE ServerID=? AND HubName=? AND EndedDate IS NULL AND `+clientSessionSQLClause, serverID, hub)
 }
 
 func (a *App) sampleSessions(ctx context.Context) {
@@ -664,13 +838,18 @@ func (a *App) sampleSessions(ctx context.Context) {
 		return
 	}
 	servers := query(a.db, `SELECT ServerID FROM Server WHERE IsEnabled=1`)
+	var wg sync.WaitGroup
 	for _, s := range servers {
 		serverID := integer(s["ServerID"])
-		serverCtx := context.WithValue(ctx, serverIDKey, serverID)
-		func() {
+		wg.Add(1)
+		go func(sid int64) {
+			defer wg.Done()
+			serverCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
+			defer cancel()
+			serverCtx = context.WithValue(serverCtx, serverIDKey, sid)
 			defer func() {
 				if p := recover(); p != nil {
-					log.Printf("session sample server %d: %v", serverID, p)
+					log.Printf("session sample server %d: %v", sid, p)
 				}
 			}()
 			for _, h := range list(a.rpc(serverCtx, "EnumHub", nil)["HubList"]) {
@@ -681,18 +860,20 @@ func (a *App) sampleSessions(ctx context.Context) {
 				func() {
 					defer func() {
 						if p := recover(); p != nil {
-							log.Printf("session sample %d/%s: %v", serverID, hub, p)
+							log.Printf("session sample %d/%s: %v", sid, hub, p)
 						}
 					}()
 					if _, hasOnline := h["Online_bool"]; hasOnline && !boolean(h["Online_bool"]) {
-						a.closeHubOpenSessions(serverID, hub)
+						a.closeHubOpenSessions(sid, hub)
 						return
 					}
-					a.sampleHubSessions(serverCtx, serverID, hub)
+					a.sampleHubSessions(serverCtx, sid, hub)
 				}()
 			}
-		}()
+			a.syncSessionLogs(serverCtx, sid)
+		}(serverID)
 	}
+	wg.Wait()
 }
 
 type userLoginObservation struct {
@@ -711,11 +892,20 @@ type liveSessionData struct {
 	virtualIP  string
 	clientHost string
 	started    string
+	startedTs  int64
 	packetSize int64
 	packetNum  int64
 	down       int64
 	up         int64
 	sampled    bool
+	realName   string
+	note       string
+	ipLocation string
+	ipISP      string
+	ipFull     string
+	protocol   string
+	serverPort int64
+	clientPort int64
 }
 
 func validSessionUID(raw string) bool {
@@ -819,18 +1009,69 @@ func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string)
 	if stampTime.IsZero() {
 		stampTime = time.Now().UTC()
 	}
+	stampTs := stampTime.Unix()
 	series := boolean(a.setting("session_traffic_enabled"))
+
+	// Preload open sessions so unchanged idle sessions can skip redundant GetSessionStatus RPCs.
+	type openSessState struct {
+		bytesTotal int64
+		down, up   int64
+		clientHost string
+		protocol   string
+		serverPort int64
+		clientPort int64
+	}
+	openByKey := map[string]openSessState{}
+	for _, row := range query(a.readDB(), `SELECT SessionKey,BytesTotal,DownloadBytes,UploadBytes,ClientHostname,Protocol,ServerPort,ClientPort FROM VpnSessionSample WHERE ServerID=? AND HubName=? AND EndedDate IS NULL AND `+clientSessionSQLClause, serverID, hub) {
+		openByKey[str(row["SessionKey"])] = openSessState{
+			bytesTotal: integer(row["BytesTotal"]),
+			down:       integer(row["DownloadBytes"]),
+			up:         integer(row["UploadBytes"]),
+			clientHost: str(row["ClientHostname"]),
+			protocol:   str(row["Protocol"]),
+			serverPort: integer(row["ServerPort"]),
+			clientPort: integer(row["ClientPort"]),
+		}
+	}
 
 	var sessionIPs map[string][]string
 	var ipToDhcpHost map[string]string
+	var enumUsers []M
+	var geoMap map[string]IPGeoInfo
+
+	var prepWG sync.WaitGroup
 	if len(live) > 0 {
-		sessionIPs, ipToDhcpHost = a.collectSessionNetMaps(ctx, hub)
+		prepWG.Add(2)
+		go func() {
+			defer prepWG.Done()
+			sessionIPs, ipToDhcpHost = a.collectSessionNetMaps(ctx, hub)
+		}()
+		go func() {
+			defer prepWG.Done()
+			ips := make([]string, 0, len(live))
+			for _, s := range live {
+				if cIP := str(s["ClientIP_ip"]); cIP != "" {
+					ips = append(ips, cIP)
+				}
+			}
+			geoMap = a.batchLookupIPs(ctx, ips, true)
+		}()
 	}
+	prepWG.Add(1)
+	go func() {
+		defer prepWG.Done()
+		defer func() { _ = recover() }()
+		enumUsers = list(a.rpc(ctx, "EnumUser", M{"HubName_str": hub})["UserList"])
+		a.updateUserMetaCache(serverID, hub, enumUsers)
+	}()
 
 	type sessDetail struct {
 		down, up   int64
 		sampled    bool
 		clientHost string
+		protocol   string
+		serverPort int64
+		clientPort int64
 	}
 	details := make(map[string]sessDetail)
 	if series && len(live) > 0 {
@@ -843,8 +1084,33 @@ func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string)
 			if sessName == "" {
 				continue
 			}
+			username := str(s["Username_str"])
+			started := str(s["CreatedTime_dt"])
+			if startedAt := parseTime(started); started == "" || startedAt.IsZero() || startedAt.Year() < 1990 {
+				started = stamp
+			}
+			key := strings.TrimSpace(str(s["UniqueId_bin"]))
+			if !validSessionUID(key) {
+				key = fallbackSessionKey(sessName, username, started)
+			}
+			packetSize := integer(s["PacketSize_u64"])
+			if prev, ok := openByKey[key]; ok && packetSize == prev.bytesTotal && (prev.down+prev.up == packetSize || packetSize == 0) && (prev.down+prev.up > 0 || prev.clientHost != "" || prev.protocol != "" || prev.serverPort > 0 || prev.clientPort > 0) {
+				// Traffic and identity are unchanged since last poll: reuse last known counters without an RPC.
+				mu.Lock()
+				details[sessName] = sessDetail{
+					down:       prev.down,
+					up:         prev.up,
+					sampled:    true,
+					clientHost: prev.clientHost,
+					protocol:   prev.protocol,
+					serverPort: prev.serverPort,
+					clientPort: prev.clientPort,
+				}
+				mu.Unlock()
+				continue
+			}
 			wg.Add(1)
-			go func(sn, cIP string) {
+			go func(sess M, sn, cIP string) {
 				defer wg.Done()
 				defer func() {
 					if p := recover(); p != nil {
@@ -861,12 +1127,34 @@ func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string)
 				if cH != "" && !isIP(cH) && cH != cIP && !strings.EqualFold(cH, sN) {
 					chHost = cH
 				}
+				sPort, cPort := extractSessionPorts(status)
+				proto := detectSessionProtocol(sess, status)
 				mu.Lock()
-				details[sn] = sessDetail{down: down, up: up, sampled: true, clientHost: chHost}
+				details[sn] = sessDetail{
+					down:       down,
+					up:         up,
+					sampled:    true,
+					clientHost: chHost,
+					protocol:   proto,
+					serverPort: sPort,
+					clientPort: cPort,
+				}
 				mu.Unlock()
-			}(sessName, clientIP)
+			}(s, sessName, clientIP)
 		}
 		wg.Wait()
+	}
+	prepWG.Wait()
+
+	userMetaByName := make(map[string]userMetaEntry, len(enumUsers))
+	for _, u := range enumUsers {
+		uName := strings.ToLower(strings.TrimSpace(str(u["Name_str"])))
+		if uName != "" {
+			userMetaByName[uName] = userMetaEntry{
+				realName: str(u["Realname_utf"]),
+				note:     str(u["Note_utf"]),
+			}
+		}
 	}
 
 	toWrite := make([]liveSessionData, 0, len(live))
@@ -875,8 +1163,10 @@ func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string)
 		sessName := str(s["Name_str"])
 		username := str(s["Username_str"])
 		started := str(s["CreatedTime_dt"])
-		if startedAt := parseTime(started); started == "" || startedAt.IsZero() || startedAt.Year() < 1990 {
+		startedAt := parseTime(started).UTC()
+		if started == "" || startedAt.IsZero() || startedAt.Year() < 1990 {
 			started = stamp
+			startedAt = stampTime
 		}
 		key := strings.TrimSpace(str(s["UniqueId_bin"]))
 		if !validSessionUID(key) {
@@ -905,10 +1195,15 @@ func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string)
 			}
 		}
 
-		if st := parseTime(started).UTC(); !st.IsZero() {
-			uKey := strings.ToLower(strings.TrimSpace(username))
-			liveUserStarted[uKey] = append(liveUserStarted[uKey], st)
+		uKey := strings.ToLower(strings.TrimSpace(username))
+		liveUserStarted[uKey] = append(liveUserStarted[uKey], startedAt)
+
+		proto := d.protocol
+		if proto == "" {
+			proto = detectSessionProtocol(s, nil)
 		}
+		geo := geoMap[cleanIP(clientIP)]
+		meta := userMetaByName[uKey]
 
 		toWrite = append(toWrite, liveSessionData{
 			key:        key,
@@ -918,43 +1213,73 @@ func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string)
 			virtualIP:  virtualIP,
 			clientHost: clientHost,
 			started:    started,
+			startedTs:  startedAt.Unix(),
 			packetSize: integer(s["PacketSize_u64"]),
 			packetNum:  integer(s["PacketNum_u64"]),
 			down:       d.down,
 			up:         d.up,
 			sampled:    d.sampled,
+			realName:   meta.realName,
+			note:       meta.note,
+			ipLocation: geo.Location,
+			ipISP:      geo.ISP,
+			ipFull:     geo.Full,
+			protocol:   proto,
+			serverPort: d.serverPort,
+			clientPort: d.clientPort,
 		})
 	}
 
-	var enumUsers []M
-	func() {
-		defer func() { _ = recover() }()
-		enumUsers = list(a.rpc(ctx, "EnumUser", M{"HubName_str": hub})["UserList"])
-		a.updateUserMetaCache(serverID, hub, enumUsers)
-	}()
 	sessionInterval := max(int64(5), integer(a.setting("session_interval_seconds")))
 
 	tx, err := a.db.Begin()
 	check(err)
 	defer tx.Rollback()
 
-	insertSample, err := tx.Prepare(`INSERT INTO VpnSessionSample(ServerID,HubName,UserName,SessionKey,ClientIP,VirtualIP,ClientHostname,StartedDate,LastSeenDate,BytesTotal,PacketsTotal,DownloadBytes,UploadBytes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(ServerID,HubName,SessionKey) DO UPDATE SET LastSeenDate=excluded.LastSeenDate,BytesTotal=excluded.BytesTotal,PacketsTotal=excluded.PacketsTotal,ClientIP=CASE WHEN excluded.ClientIP != '' THEN excluded.ClientIP ELSE VpnSessionSample.ClientIP END,VirtualIP=CASE WHEN excluded.VirtualIP != '' THEN excluded.VirtualIP ELSE VpnSessionSample.VirtualIP END,ClientHostname=CASE WHEN excluded.ClientHostname != '' THEN excluded.ClientHostname ELSE VpnSessionSample.ClientHostname END,DownloadBytes=CASE WHEN ? THEN excluded.DownloadBytes ELSE VpnSessionSample.DownloadBytes END,UploadBytes=CASE WHEN ? THEN excluded.UploadBytes ELSE VpnSessionSample.UploadBytes END`)
+	insertSample, err := tx.Prepare(`INSERT INTO VpnSessionSample(ServerID,HubName,UserName,SessionKey,ClientIP,VirtualIP,ClientHostname,StartedDate,LastSeenDate,BytesTotal,PacketsTotal,DownloadBytes,UploadBytes,StartedTs,RealName,Note,IpLocation,IpISP,IpFull,Protocol,ServerPort,ClientPort)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(ServerID,HubName,SessionKey) DO UPDATE SET
+		  LastSeenDate=excluded.LastSeenDate,
+		  BytesTotal=excluded.BytesTotal,
+		  PacketsTotal=excluded.PacketsTotal,
+		  StartedTs=CASE WHEN VpnSessionSample.StartedTs=0 THEN excluded.StartedTs ELSE VpnSessionSample.StartedTs END,
+		  ClientIP=CASE WHEN excluded.ClientIP != '' THEN excluded.ClientIP ELSE VpnSessionSample.ClientIP END,
+		  VirtualIP=CASE WHEN excluded.VirtualIP != '' THEN excluded.VirtualIP ELSE VpnSessionSample.VirtualIP END,
+		  ClientHostname=CASE WHEN excluded.ClientHostname != '' THEN excluded.ClientHostname ELSE VpnSessionSample.ClientHostname END,
+		  DownloadBytes=CASE WHEN ? THEN excluded.DownloadBytes ELSE VpnSessionSample.DownloadBytes END,
+		  UploadBytes=CASE WHEN ? THEN excluded.UploadBytes ELSE VpnSessionSample.UploadBytes END,
+		  RealName=CASE WHEN excluded.RealName != '' THEN excluded.RealName ELSE VpnSessionSample.RealName END,
+		  Note=CASE WHEN excluded.Note != '' THEN excluded.Note ELSE VpnSessionSample.Note END,
+		  IpLocation=CASE WHEN excluded.IpLocation != '' THEN excluded.IpLocation ELSE VpnSessionSample.IpLocation END,
+		  IpISP=CASE WHEN excluded.IpISP != '' THEN excluded.IpISP ELSE VpnSessionSample.IpISP END,
+		  IpFull=CASE WHEN excluded.IpFull != '' THEN excluded.IpFull ELSE VpnSessionSample.IpFull END,
+		  Protocol=CASE WHEN excluded.Protocol != '' THEN excluded.Protocol ELSE VpnSessionSample.Protocol END,
+		  ServerPort=CASE WHEN excluded.ServerPort > 0 THEN excluded.ServerPort ELSE VpnSessionSample.ServerPort END,
+		  ClientPort=CASE WHEN excluded.ClientPort > 0 THEN excluded.ClientPort ELSE VpnSessionSample.ClientPort END
+		RETURNING VpnSessionSampleID`)
 	check(err)
 	defer insertSample.Close()
+
+	trafficStmt, err := tx.Prepare(`INSERT INTO VpnSessionTrafficSample(VpnSessionSampleID,DownloadBytes,UploadBytes,TotalBytes,SampledDate,SampledTs) VALUES(?,?,?,?,?,?)`)
+	check(err)
+	defer trafficStmt.Close()
 
 	for _, d := range toWrite {
 		actualKey, err := resolveSessionKey(tx, serverID, hub, d, usedKeys)
 		check(err)
 		usedKeys[actualKey] = true
 		seen[actualKey] = true
-		_, err = insertSample.Exec(serverID, hub, d.username, actualKey, d.clientIP, d.virtualIP, d.clientHost, d.started, stamp, d.packetSize, d.packetNum, d.down, d.up, d.sampled, d.sampled)
+		var sampleID int64
+		err = insertSample.QueryRow(
+			serverID, hub, d.username, actualKey, d.clientIP, d.virtualIP, d.clientHost, d.started, stamp,
+			d.packetSize, d.packetNum, d.down, d.up, d.startedTs,
+			d.realName, d.note, d.ipLocation, d.ipISP, d.ipFull, d.protocol, d.serverPort, d.clientPort,
+			d.sampled, d.sampled,
+		).Scan(&sampleID)
 		check(err)
-		if d.sampled {
-			var sampleID int64
-			if err = tx.QueryRow(`SELECT VpnSessionSampleID FROM VpnSessionSample WHERE ServerID=? AND HubName=? AND SessionKey=?`, serverID, hub, actualKey).Scan(&sampleID); err == nil {
-				_, err = tx.Exec(`INSERT INTO VpnSessionTrafficSample(VpnSessionSampleID,DownloadBytes,UploadBytes,TotalBytes,SampledDate) VALUES(?,?,?,?,?)`, sampleID, d.down, d.up, d.packetSize, stamp)
-				check(err)
-			}
+		if d.sampled && sampleID > 0 {
+			_, err = trafficStmt.Exec(sampleID, d.down, d.up, d.packetSize, stamp, stampTs)
+			check(err)
 		}
 	}
 
@@ -969,14 +1294,18 @@ func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string)
 	}
 	_ = rows.Close()
 
-	if len(endedKeys) > 0 {
-		updateEnded, err := tx.Prepare(`UPDATE VpnSessionSample SET EndedDate=LastSeenDate WHERE ServerID=? AND HubName=? AND SessionKey=? AND EndedDate IS NULL`)
-		check(err)
-		defer updateEnded.Close()
-		for _, k := range endedKeys {
-			_, err = updateEnded.Exec(serverID, hub, k)
-			check(err)
+	for i := 0; i < len(endedKeys); i += 400 {
+		end := min(len(endedKeys), i+400)
+		chunk := endedKeys[i:end]
+		placeholders := strings.Repeat("?,", len(chunk))
+		placeholders = placeholders[:len(placeholders)-1]
+		args := make([]any, 0, 2+len(chunk))
+		args = append(args, serverID, hub)
+		for _, k := range chunk {
+			args = append(args, k)
 		}
+		_, err = tx.Exec(`UPDATE VpnSessionSample SET EndedDate=LastSeenDate,EndedTs=COALESCE(NULLIF(EndedTs,0), unixepoch(LastSeenDate)) WHERE ServerID=? AND HubName=? AND EndedDate IS NULL AND SessionKey IN (`+placeholders+`)`, args...)
+		check(err)
 	}
 
 	pendingObs := a.reconcileUserLogins(tx, serverID, hub, stamp, stampTime, sessionInterval, enumUsers, liveUserStarted)
@@ -1105,20 +1434,33 @@ func (a *App) reconcileUserLogins(tx *sql.Tx, serverID int64, hub, stamp string,
 
 		var down, up, total int64
 		if validCounters && prev.validCounters && recvBytes >= prev.recv && sendBytes >= prev.send {
-			var overlap int64
-			prevISO := prev.seenAt.UTC().Format(time.RFC3339Nano)
-			_ = tx.QueryRow(`SELECT COUNT(*) FROM VpnSessionSample WHERE ServerID=? AND HubName=? AND UserName=? COLLATE NOCASE AND julianday(COALESCE(EndedDate,LastSeenDate))>=julianday(?)`, serverID, hub, name, prevISO).Scan(&overlap)
-			if overlap == 0 {
-				down = recvBytes - prev.recv
-				up = sendBytes - prev.send
+			rawDown := recvBytes - prev.recv
+			rawUp := sendBytes - prev.send
+			prevTs := prev.seenAt.Unix()
+			// Subtract traffic already accounted for by concurrent/overlapping sessions of this user since prev.seenAt.
+			var coveredDown, coveredUp int64
+			_ = tx.QueryRow(
+				`SELECT COALESCE(SUM(CASE WHEN COALESCE(NULLIF(StartedTs,0), unixepoch(StartedDate)) >= ? THEN DownloadBytes ELSE 0 END), 0),
+				        COALESCE(SUM(CASE WHEN COALESCE(NULLIF(StartedTs,0), unixepoch(StartedDate)) >= ? THEN UploadBytes ELSE 0 END), 0)
+				 FROM VpnSessionSample WHERE ServerID=? AND HubName=? AND UserName=? COLLATE NOCASE AND COALESCE(EndedTs, unixepoch(COALESCE(EndedDate,LastSeenDate))) >= ?`,
+				prevTs, prevTs, serverID, hub, name, prevTs,
+			).Scan(&coveredDown, &coveredUp)
+			var activeOlder int64
+			_ = tx.QueryRow(
+				`SELECT COUNT(*) FROM VpnSessionSample WHERE ServerID=? AND HubName=? AND UserName=? COLLATE NOCASE AND COALESCE(NULLIF(StartedTs,0), unixepoch(StartedDate)) < ? AND COALESCE(EndedTs, unixepoch(COALESCE(EndedDate,LastSeenDate))) >= ?`,
+				serverID, hub, name, prevTs, prevTs,
+			).Scan(&activeOlder)
+			if activeOlder == 0 {
+				down = max(int64(0), rawDown-coveredDown)
+				up = max(int64(0), rawUp-coveredUp)
 				total = down + up
 			}
 		}
 
 		shortKey := fmt.Sprintf("short:%s:%s:%d", uLower, loginAt.UTC().Format("20060102T150405.000Z"), numLogin)
 		_, err = tx.Exec(
-			`INSERT INTO VpnSessionSample(ServerID,HubName,UserName,SessionKey,ClientIP,VirtualIP,ClientHostname,StartedDate,EndedDate,LastSeenDate,BytesTotal,PacketsTotal,DownloadBytes,UploadBytes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(ServerID,HubName,SessionKey) DO NOTHING`,
-			serverID, hub, name, shortKey, "", "", "", loginISO, stamp, stamp, total, 0, down, up,
+			`INSERT INTO VpnSessionSample(ServerID,HubName,UserName,SessionKey,ClientIP,VirtualIP,ClientHostname,StartedDate,EndedDate,LastSeenDate,BytesTotal,PacketsTotal,DownloadBytes,UploadBytes,StartedTs,EndedTs,RealName,Note) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(ServerID,HubName,SessionKey) DO NOTHING`,
+			serverID, hub, name, shortKey, "", "", "", loginISO, stamp, stamp, total, 0, down, up, loginAt.Unix(), stampTime.Unix(), str(u["Realname_utf"]), str(u["Note_utf"]),
 		)
 		check(err)
 	}

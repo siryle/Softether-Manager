@@ -455,8 +455,11 @@ func (a *App) registerCustomRPC() {
 	})
 	a.endpoint("GET /hubs/{hub}/sessions", func(_ http.ResponseWriter, r *http.Request, _ M) any {
 		hub := r.PathValue("hub")
-		sessions := list(a.rpc(r.Context(), "EnumSession", M{"HubName_str": hub})["SessionList"])
-		return M{"HubName_str": hub, "SessionList": a.enrichSessions(r.Context(), hub, sessions)}
+		serverID := a.serverIDFromContext(r.Context())
+		return a.singleflight("sessions:"+strconv.FormatInt(serverID, 10)+":"+hub, func() any {
+			sessions := list(a.rpc(r.Context(), "EnumSession", M{"HubName_str": hub})["SessionList"])
+			return M{"HubName_str": hub, "SessionList": a.enrichSessions(r.Context(), hub, sessions)}
+		})
 	})
 	a.endpoint("GET /hubs/{hub}/sessions/{name...}", func(_ http.ResponseWriter, r *http.Request, _ M) any {
 		hub, name := r.PathValue("hub"), r.PathValue("name")
@@ -498,32 +501,46 @@ func (a *App) registerCustomRPC() {
 		return M{"hubs": hubs, "users": users, "errors": errors}
 	})
 	a.endpoint("GET /clients", func(_ http.ResponseWriter, r *http.Request, _ M) any {
-		hubs, clients, errors := []string{}, []M{}, []M{}
-		for _, h := range list(a.rpc(r.Context(), "EnumHub", nil)["HubList"]) {
-			hub := str(h["HubName_str"])
-			if hub == "" {
-				continue
-			}
-			hubs = append(hubs, hub)
-			func() {
-				defer func() {
-					if p := recover(); p != nil {
-						errors = append(errors, M{"hub": hub, "error": fmtError(p)})
-					}
-				}()
-				sessList := list(a.rpc(r.Context(), "EnumSession", M{"HubName_str": hub})["SessionList"])
-				clientSess := []M{}
-				for _, s := range sessList {
-					if isClientSessionRPC(s) {
-						s["HubName_str"] = hub
-						clientSess = append(clientSess, s)
-					}
+		serverID := a.serverIDFromContext(r.Context())
+		return a.singleflight("clients:"+strconv.FormatInt(serverID, 10), func() any {
+			hubList := list(a.rpc(r.Context(), "EnumHub", nil)["HubList"])
+			hubs := make([]string, 0, len(hubList))
+			for _, h := range hubList {
+				if hub := str(h["HubName_str"]); hub != "" {
+					hubs = append(hubs, hub)
 				}
-				enriched := a.enrichSessions(r.Context(), hub, clientSess)
-				clients = append(clients, enriched...)
-			}()
-		}
-		return M{"hubs": hubs, "clients": clients, "errors": errors}
+			}
+			clients, errors := []M{}, []M{}
+			var mu sync.Mutex
+			var wg sync.WaitGroup
+			for _, hub := range hubs {
+				wg.Add(1)
+				go func(hubName string) {
+					defer wg.Done()
+					defer func() {
+						if p := recover(); p != nil {
+							mu.Lock()
+							errors = append(errors, M{"hub": hubName, "error": fmtError(p)})
+							mu.Unlock()
+						}
+					}()
+					sessList := list(a.rpc(r.Context(), "EnumSession", M{"HubName_str": hubName})["SessionList"])
+					clientSess := []M{}
+					for _, s := range sessList {
+						if isClientSessionRPC(s) {
+							s["HubName_str"] = hubName
+							clientSess = append(clientSess, s)
+						}
+					}
+					enriched := a.enrichSessions(r.Context(), hubName, clientSess)
+					mu.Lock()
+					clients = append(clients, enriched...)
+					mu.Unlock()
+				}(hub)
+			}
+			wg.Wait()
+			return M{"hubs": hubs, "clients": clients, "errors": errors}
+		})
 	})
 }
 func (a *App) onlineUsers(r *http.Request, hub string) (out map[string]bool) {

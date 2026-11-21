@@ -66,21 +66,60 @@ func extractSessionPorts(st M) (int64, int64) {
 	return serverPort, clientPort
 }
 
+// detectSessionProtocol infers a concise VPN protocol label from SoftEther session fields.
+func detectSessionProtocol(s, status M) string {
+	var parts []string
+	for _, m := range []M{status, s} {
+		if m == nil {
+			continue
+		}
+		for _, k := range []string{"UnderlayProtocol_str", "ClientProductName_str", "Name_str", "Username_str"} {
+			if v := strings.TrimSpace(str(m[k])); v != "" {
+				parts = append(parts, strings.ToLower(v))
+			}
+		}
+	}
+	joined := strings.Join(parts, " ")
+	switch {
+	case strings.Contains(joined, "wireguard") || strings.Contains(joined, "sid-wg-"):
+		return "WireGuard"
+	case strings.Contains(joined, "openvpn") || strings.Contains(joined, "sid-ovpn-") || strings.Contains(joined, "sid-openvpn"):
+		return "OpenVPN"
+	case strings.Contains(joined, "l2tp") || strings.Contains(joined, "ipsec") || strings.Contains(joined, "sid-l2tp"):
+		return "L2TP/IPsec"
+	case strings.Contains(joined, "sstp") || strings.Contains(joined, "sid-sstp"):
+		return "MS-SSTP"
+	case strings.Contains(joined, "rudp") || strings.Contains(joined, "udp acceleration"):
+		return "SoftEther RUDP"
+	case status != nil && boolean(status["IsUsingUdpAcceleration_bool"]):
+		return "SoftEther UDP"
+	case strings.Contains(joined, "ssl") || strings.Contains(joined, "tls") || strings.Contains(joined, "softether"):
+		return "SoftEther SSL-VPN"
+	case status != nil && strings.TrimSpace(str(status["UnderlayProtocol_str"])) != "":
+		return strings.TrimSpace(str(status["UnderlayProtocol_str"]))
+	default:
+		return ""
+	}
+}
+
 // collectSessionNetMaps resolves per-session IPv4 virtual IPs and DHCP hostnames for a hub.
 func (a *App) collectSessionNetMaps(ctx context.Context, hub string) (sessionIPs map[string][]string, ipToDhcpHost map[string]string) {
-	var ipTable []M
-	func() {
+	var ipTable, dhcpTable []M
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
 		defer func() { _ = recover() }()
 		out := a.rpc(ctx, "EnumIpTable", M{"HubName_str": hub})
 		ipTable = list(out["IpTable"])
 	}()
-
-	var dhcpTable []M
-	func() {
+	go func() {
+		defer wg.Done()
 		defer func() { _ = recover() }()
 		out := a.rpc(ctx, "EnumDHCP", M{"HubName_str": hub})
 		dhcpTable = list(out["DhcpTable"])
 	}()
+	wg.Wait()
 
 	sessionIPs = make(map[string][]string)
 	for _, entry := range ipTable {
@@ -126,10 +165,32 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 	if len(sessions) == 0 {
 		return sessions
 	}
-	sessionIPs, ipToDhcpHost := a.collectSessionNetMaps(ctx, hub)
 
+	var sessionIPs map[string][]string
+	var ipToDhcpHost map[string]string
 	natTcpByIP := make(map[string]int)
-	func() {
+	userMap := make(map[string]M)
+	var geoMap map[string]IPGeoInfo
+
+	type sessStatusRes struct {
+		name       string
+		clientHost string
+		serverPort int64
+		clientPort int64
+		protocol   string
+	}
+	sessStatusMap := make(map[string]sessStatusRes)
+
+	var topWG sync.WaitGroup
+	topWG.Add(4)
+
+	go func() {
+		defer topWG.Done()
+		sessionIPs, ipToDhcpHost = a.collectSessionNetMaps(ctx, hub)
+	}()
+
+	go func() {
+		defer topWG.Done()
 		defer func() { _ = recover() }()
 		out := a.rpc(ctx, "EnumNAT", M{"HubName_str": hub})
 		for _, entry := range list(out["NatTable"]) {
@@ -141,13 +202,31 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 		}
 	}()
 
-	type sessStatusRes struct {
-		name       string
-		clientHost string
-		serverPort int64
-		clientPort int64
-	}
-	sessStatusMap := make(map[string]sessStatusRes)
+	go func() {
+		defer topWG.Done()
+		defer func() { _ = recover() }()
+		out := a.rpc(ctx, "EnumUser", M{"HubName_str": hub})
+		users := list(out["UserList"])
+		a.updateUserMetaCache(a.serverIDFromContext(ctx), hub, users)
+		for _, u := range users {
+			uName := strings.ToLower(strings.TrimSpace(str(u["Name_str"])))
+			if uName != "" {
+				userMap[uName] = u
+			}
+		}
+	}()
+
+	go func() {
+		defer topWG.Done()
+		ips := make([]string, 0, len(sessions))
+		for _, s := range sessions {
+			if cIP := str(s["ClientIP_ip"]); cIP != "" {
+				ips = append(ips, cIP)
+			}
+		}
+		geoMap = a.batchLookupIPs(ctx, ips)
+	}()
+
 	if len(sessions) > 0 && len(sessions) <= 50 {
 		ch := make(chan sessStatusRes, len(sessions))
 		sem := make(chan struct{}, 8)
@@ -158,7 +237,7 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 				continue
 			}
 			wg.Add(1)
-			go func(sn string) {
+			go func(sess M, sn string) {
 				defer wg.Done()
 				defer func() { _ = recover() }()
 				sem <- struct{}{}
@@ -172,10 +251,11 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 					host = cH
 				}
 				sPort, cPort := extractSessionPorts(st)
-				if host != "" || sPort > 0 || cPort > 0 {
-					ch <- sessStatusRes{name: sn, clientHost: host, serverPort: sPort, clientPort: cPort}
+				proto := detectSessionProtocol(sess, st)
+				if host != "" || sPort > 0 || cPort > 0 || proto != "" {
+					ch <- sessStatusRes{name: sn, clientHost: host, serverPort: sPort, clientPort: cPort, protocol: proto}
 				}
-			}(sessName)
+			}(s, sessName)
 		}
 		wg.Wait()
 		close(ch)
@@ -183,26 +263,7 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 			sessStatusMap[res.name] = res
 		}
 	}
-
-	userMap := make(map[string]M)
-	func() {
-		defer func() { _ = recover() }()
-		out := a.rpc(ctx, "EnumUser", M{"HubName_str": hub})
-		for _, u := range list(out["UserList"]) {
-			uName := strings.ToLower(strings.TrimSpace(str(u["Name_str"])))
-			if uName != "" {
-				userMap[uName] = u
-			}
-		}
-	}()
-
-	ips := make([]string, 0, len(sessions))
-	for _, s := range sessions {
-		if cIP := str(s["ClientIP_ip"]); cIP != "" {
-			ips = append(ips, cIP)
-		}
-	}
-	geoMap := a.batchLookupIPs(ctx, ips)
+	topWG.Wait()
 
 	for _, s := range sessions {
 		sessName := str(s["Name_str"])
@@ -229,6 +290,9 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 			}
 			if res.clientPort > 0 {
 				s["ClientPort_u32"] = res.clientPort
+			}
+			if res.protocol != "" {
+				s["Protocol_str"] = res.protocol
 			}
 			if res.clientHost != "" {
 				realHost = res.clientHost

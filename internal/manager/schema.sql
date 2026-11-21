@@ -42,7 +42,11 @@ CREATE TABLE IF NOT EXISTS "UserTrafficSample" (
         "SendBytes"           INTEGER NOT NULL DEFAULT 0,
         "RecvBytes"           INTEGER NOT NULL DEFAULT 0,
         "NumLogin"            INTEGER NOT NULL DEFAULT 0,
-        "SampledDate"         TEXT    NOT NULL
+        "SampledDate"         TEXT    NOT NULL,
+        "SampledTs"           INTEGER NOT NULL DEFAULT 0,
+        "DeltaSendBytes"      INTEGER NOT NULL DEFAULT 0,
+        "DeltaRecvBytes"      INTEGER NOT NULL DEFAULT 0,
+        "HasDelta"            INTEGER NOT NULL DEFAULT 0
     );
 CREATE TABLE IF NOT EXISTS "HubTrafficSample" (
         "HubTrafficSampleID" INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,7 +56,11 @@ CREATE TABLE IF NOT EXISTS "HubTrafficSample" (
         "RecvBytes"          INTEGER NOT NULL DEFAULT 0,
         "NumSessions"        INTEGER NOT NULL DEFAULT 0,
         "NumUsers"           INTEGER NOT NULL DEFAULT 0,
-        "SampledDate"        TEXT    NOT NULL
+        "SampledDate"        TEXT    NOT NULL,
+        "SampledTs"          INTEGER NOT NULL DEFAULT 0,
+        "DeltaSendBytes"     INTEGER NOT NULL DEFAULT 0,
+        "DeltaRecvBytes"     INTEGER NOT NULL DEFAULT 0,
+        "HasDelta"           INTEGER NOT NULL DEFAULT 0
     );
 CREATE TABLE IF NOT EXISTS "VpnSessionSample" (
         "VpnSessionSampleID" INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,6 +78,17 @@ CREATE TABLE IF NOT EXISTS "VpnSessionSample" (
         "PacketsTotal"     INTEGER NOT NULL DEFAULT 0,
         "DownloadBytes"    INTEGER NOT NULL DEFAULT 0,
         "UploadBytes"      INTEGER NOT NULL DEFAULT 0,
+        "StartedTs"        INTEGER NOT NULL DEFAULT 0,
+        "EndedTs"          INTEGER,
+        "RealName"         TEXT NOT NULL DEFAULT '',
+        "Note"             TEXT NOT NULL DEFAULT '',
+        "IpLocation"       TEXT NOT NULL DEFAULT '',
+        "IpISP"            TEXT NOT NULL DEFAULT '',
+        "IpFull"           TEXT NOT NULL DEFAULT '',
+        "Protocol"         TEXT NOT NULL DEFAULT '',
+        "DisconnectReason" TEXT NOT NULL DEFAULT '',
+        "ServerPort"       INTEGER NOT NULL DEFAULT 0,
+        "ClientPort"       INTEGER NOT NULL DEFAULT 0,
         UNIQUE ("ServerID", "HubName", "SessionKey")
     );
 CREATE TABLE IF NOT EXISTS "VpnSessionTrafficSample" (
@@ -78,7 +97,41 @@ CREATE TABLE IF NOT EXISTS "VpnSessionTrafficSample" (
         "DownloadBytes"      INTEGER NOT NULL DEFAULT 0,
         "UploadBytes"        INTEGER NOT NULL DEFAULT 0,
         "TotalBytes"         INTEGER NOT NULL DEFAULT 0,
-        "SampledDate"        TEXT    NOT NULL
+        "SampledDate"        TEXT    NOT NULL,
+        "SampledTs"          INTEGER NOT NULL DEFAULT 0
+    );
+CREATE TABLE IF NOT EXISTS "TrafficCursor" (
+        "ServerID"        INTEGER NOT NULL REFERENCES "Server"("ServerID") ON DELETE CASCADE,
+        "SubjectType"     TEXT    NOT NULL,
+        "HubName"         TEXT    NOT NULL,
+        "UserKey"         TEXT    NOT NULL DEFAULT '',
+        "LastSendBytes"   INTEGER NOT NULL DEFAULT 0,
+        "LastRecvBytes"   INTEGER NOT NULL DEFAULT 0,
+        "ServerStartTime" TEXT    NOT NULL DEFAULT '',
+        "LastSampledTs"   INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY ("ServerID", "SubjectType", "HubName", "UserKey")
+    );
+CREATE TABLE IF NOT EXISTS "TrafficRollupHourly" (
+        "ServerID"    INTEGER NOT NULL REFERENCES "Server"("ServerID") ON DELETE CASCADE,
+        "SubjectType" TEXT    NOT NULL,
+        "HubName"     TEXT    NOT NULL,
+        "UserKey"     TEXT    NOT NULL DEFAULT '',
+        "UserName"    TEXT    NOT NULL DEFAULT '',
+        "BucketTs"    INTEGER NOT NULL,
+        "SendBytes"   INTEGER NOT NULL DEFAULT 0,
+        "RecvBytes"   INTEGER NOT NULL DEFAULT 0,
+        "MaxSessions" INTEGER NOT NULL DEFAULT 0,
+        "SampleCount" INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY ("ServerID", "SubjectType", "HubName", "UserKey", "BucketTs")
+    );
+CREATE TABLE IF NOT EXISTS "LogSyncCursor" (
+        "ServerID"    INTEGER NOT NULL REFERENCES "Server"("ServerID") ON DELETE CASCADE,
+        "HubName"     TEXT    NOT NULL DEFAULT '',
+        "FilePath"    TEXT    NOT NULL,
+        "ByteOffset"  INTEGER NOT NULL DEFAULT 0,
+        "FileSize"    INTEGER NOT NULL DEFAULT 0,
+        "UpdatedDate" TEXT    NOT NULL DEFAULT '',
+        PRIMARY KEY ("ServerID", "HubName", "FilePath")
     );
 CREATE TABLE IF NOT EXISTS "VpnUserCredential" (
         "VpnUserCredentialID" INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -158,3 +211,11 @@ CREATE INDEX IF NOT EXISTS "IX_VpnSessionTrafficSample_Date" ON "VpnSessionTraff
 CREATE INDEX IF NOT EXISTS "IX_VpnSessionTrafficSample_Retention" ON "VpnSessionTrafficSample"(datetime("SampledDate"));
 CREATE INDEX IF NOT EXISTS "IX_TrafficQuota_Hub" ON "TrafficQuota"("ServerID", "HubName", "SubjectType");
 CREATE INDEX IF NOT EXISTS "IX_WireGuardPeer_HubUser" ON "WireGuardPeer"("ServerID", "HubName", "UserName");
+CREATE INDEX IF NOT EXISTS "IX_UserTrafficSample_Ts" ON "UserTrafficSample"("ServerID", "HubName", "UserName" COLLATE NOCASE, "SampledTs");
+CREATE INDEX IF NOT EXISTS "IX_HubTrafficSample_Ts" ON "HubTrafficSample"("ServerID", "HubName", "SampledTs");
+CREATE INDEX IF NOT EXISTS "IX_HubTrafficSample_ServerTs" ON "HubTrafficSample"("ServerID", "SampledTs");
+CREATE INDEX IF NOT EXISTS "IX_TrafficRollupHourly_Lookup" ON "TrafficRollupHourly"("ServerID", "SubjectType", "HubName", "UserKey", "BucketTs");
+CREATE INDEX IF NOT EXISTS "IX_TrafficRollupHourly_Server" ON "TrafficRollupHourly"("ServerID", "SubjectType", "BucketTs");
+CREATE INDEX IF NOT EXISTS "IX_VpnSessionSample_StartedTs" ON "VpnSessionSample"("ServerID", "StartedTs" DESC, "VpnSessionSampleID" DESC);
+CREATE INDEX IF NOT EXISTS "IX_VpnSessionSample_HubStartedTs" ON "VpnSessionSample"("ServerID", "HubName", "StartedTs" DESC, "VpnSessionSampleID" DESC);
+CREATE INDEX IF NOT EXISTS "IX_VpnSessionTrafficSample_Ts" ON "VpnSessionTrafficSample"("VpnSessionSampleID", "SampledTs");

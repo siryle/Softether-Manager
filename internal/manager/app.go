@@ -131,6 +131,12 @@ const (
 	rpcClientKey contextKey = "rpc_client"
 )
 
+type inflightCall struct {
+	wg       sync.WaitGroup
+	val      any
+	panicVal any
+}
+
 type App struct {
 	cfg                                            Config
 	db                                             *sql.DB
@@ -155,6 +161,45 @@ type App struct {
 	loginObs                                       map[string]userLoginObservation
 	userMetaMu                                     sync.RWMutex
 	userMeta                                       map[string]hubUserMetaCache
+	sfMu                                           sync.Mutex
+	sfFlights                                      map[string]*inflightCall
+	pruneMu                                        sync.Mutex
+	lastPruneAt                                    time.Time
+}
+
+// singleflight coalesces concurrent identical read RPC flows without caching stale data.
+func (a *App) singleflight(key string, fn func() any) any {
+	a.sfMu.Lock()
+	if a.sfFlights == nil {
+		a.sfFlights = make(map[string]*inflightCall)
+	}
+	if call, ok := a.sfFlights[key]; ok {
+		a.sfMu.Unlock()
+		call.wg.Wait()
+		if call.panicVal != nil {
+			panic(call.panicVal)
+		}
+		return call.val
+	}
+	call := &inflightCall{}
+	call.wg.Add(1)
+	a.sfFlights[key] = call
+	a.sfMu.Unlock()
+
+	defer func() {
+		if p := recover(); p != nil {
+			call.panicVal = p
+		}
+		a.sfMu.Lock()
+		delete(a.sfFlights, key)
+		a.sfMu.Unlock()
+		call.wg.Done()
+		if call.panicVal != nil {
+			panic(call.panicVal)
+		}
+	}()
+	call.val = fn()
+	return call.val
 }
 
 func (a *App) readDB() *sql.DB {

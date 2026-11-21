@@ -290,12 +290,32 @@ func initSchema(db *sql.DB) error {
 		{"PanelUser", "SessionVersion", `INTEGER NOT NULL DEFAULT 1`},
 		{"RPCTrust", "PendingFingerprint", `TEXT NOT NULL DEFAULT ''`},
 		{"UserTrafficSample", "ServerID", fmt.Sprintf("INTEGER NOT NULL DEFAULT %d", defaultID)},
+		{"UserTrafficSample", "SampledTs", `INTEGER NOT NULL DEFAULT 0`},
+		{"UserTrafficSample", "DeltaSendBytes", `INTEGER NOT NULL DEFAULT 0`},
+		{"UserTrafficSample", "DeltaRecvBytes", `INTEGER NOT NULL DEFAULT 0`},
+		{"UserTrafficSample", "HasDelta", `INTEGER NOT NULL DEFAULT 0`},
 		{"HubTrafficSample", "ServerID", fmt.Sprintf("INTEGER NOT NULL DEFAULT %d", defaultID)},
+		{"HubTrafficSample", "SampledTs", `INTEGER NOT NULL DEFAULT 0`},
+		{"HubTrafficSample", "DeltaSendBytes", `INTEGER NOT NULL DEFAULT 0`},
+		{"HubTrafficSample", "DeltaRecvBytes", `INTEGER NOT NULL DEFAULT 0`},
+		{"HubTrafficSample", "HasDelta", `INTEGER NOT NULL DEFAULT 0`},
 		{"VpnSessionSample", "ServerID", fmt.Sprintf("INTEGER NOT NULL DEFAULT %d", defaultID)},
 		{"VpnSessionSample", "DownloadBytes", `INTEGER NOT NULL DEFAULT 0`},
 		{"VpnSessionSample", "UploadBytes", `INTEGER NOT NULL DEFAULT 0`},
 		{"VpnSessionSample", "VirtualIP", `TEXT NOT NULL DEFAULT ''`},
+		{"VpnSessionSample", "StartedTs", `INTEGER NOT NULL DEFAULT 0`},
+		{"VpnSessionSample", "EndedTs", `INTEGER`},
+		{"VpnSessionSample", "RealName", `TEXT NOT NULL DEFAULT ''`},
+		{"VpnSessionSample", "Note", `TEXT NOT NULL DEFAULT ''`},
+		{"VpnSessionSample", "IpLocation", `TEXT NOT NULL DEFAULT ''`},
+		{"VpnSessionSample", "IpISP", `TEXT NOT NULL DEFAULT ''`},
+		{"VpnSessionSample", "IpFull", `TEXT NOT NULL DEFAULT ''`},
+		{"VpnSessionSample", "Protocol", `TEXT NOT NULL DEFAULT ''`},
+		{"VpnSessionSample", "DisconnectReason", `TEXT NOT NULL DEFAULT ''`},
+		{"VpnSessionSample", "ServerPort", `INTEGER NOT NULL DEFAULT 0`},
+		{"VpnSessionSample", "ClientPort", `INTEGER NOT NULL DEFAULT 0`},
 		{"VpnSessionTrafficSample", "TotalBytes", `INTEGER NOT NULL DEFAULT 0`},
+		{"VpnSessionTrafficSample", "SampledTs", `INTEGER NOT NULL DEFAULT 0`},
 		{"VpnUserCredential", "ServerID", fmt.Sprintf("INTEGER NOT NULL DEFAULT %d", defaultID)},
 		{"TrafficQuota", "ServerID", fmt.Sprintf("INTEGER NOT NULL DEFAULT %d", defaultID)},
 		{"TrafficQuota", "BaseSendBytes", `INTEGER NOT NULL DEFAULT 0`},
@@ -388,6 +408,19 @@ func initSchema(db *sql.DB) error {
 		return err
 	}
 
+	// Backfill integer Unix timestamps on migrated rows when missing.
+	for _, stmt := range []string{
+		`UPDATE HubTrafficSample SET SampledTs=COALESCE(unixepoch(SampledDate), 0) WHERE SampledTs=0 AND SampledDate!=''`,
+		`UPDATE UserTrafficSample SET SampledTs=COALESCE(unixepoch(SampledDate), 0) WHERE SampledTs=0 AND SampledDate!=''`,
+		`UPDATE VpnSessionSample SET StartedTs=COALESCE(unixepoch(StartedDate), 0) WHERE StartedTs=0 AND StartedDate!=''`,
+		`UPDATE VpnSessionSample SET EndedTs=unixepoch(EndedDate) WHERE EndedDate IS NOT NULL AND EndedDate!='' AND EndedTs IS NULL`,
+		`UPDATE VpnSessionTrafficSample SET SampledTs=COALESCE(unixepoch(SampledDate), 0) WHERE SampledTs=0 AND SampledDate!=''`,
+	} {
+		if _, err = tx.Exec(stmt); err != nil {
+			return err
+		}
+	}
+
 	return tx.Commit()
 }
 
@@ -435,7 +468,7 @@ func (a *App) defaults() M {
 	return M{
 		"web_path": a.cfg.WebPath, "resource_monitor_enabled": true, "resource_interval_seconds": 3, "resource_history_points": 100,
 		"traffic_monitor_enabled": true, "sample_interval_minutes": envInt("SEM_SAMPLE_INTERVAL_MINUTES", 5), "sample_retention_days": envInt("SEM_SAMPLE_RETENTION_DAYS", 90),
-		"session_monitor_enabled": true, "session_interval_seconds": 60, "session_traffic_enabled": true, "session_history_retention_days": 30, "quota_enforcement_enabled": true, "quota_interval_seconds": 60,
+		"session_monitor_enabled": true, "session_interval_seconds": 60, "session_traffic_enabled": true, "session_log_sync_enabled": true, "session_history_retention_days": 30, "quota_enforcement_enabled": true, "quota_interval_seconds": 60,
 		"ui_live_seconds": 5, "ui_detail_seconds": 15, "ui_list_seconds": 30, "update_check_enabled": env("SEM_UPDATE_CHECK", "true") != "false", "update_check_interval_hours": envInt("SEM_UPDATE_CHECK_HOURS", 6),
 		"se_host": a.cfg.SEHost, "se_port": a.cfg.SEPort, "se_password": "", "se_auth": a.cfg.SEAuth, "se_configured": false,
 		"vpn_template": vpnDefaults, "vpn_account_name_template": "{hub} - {username}", "vpn_filename_template": "{hub}-{username}", "vpn_embed_password_default": true,
