@@ -132,33 +132,48 @@ const (
 )
 
 type App struct {
-	cfg                                      Config
-	db                                       *sql.DB
-	sessionKey, encryptionKey                string
-	mux                                      *http.ServeMux
+	cfg                                            Config
+	db                                             *sql.DB
+	rdb                                            *sql.DB
+	sessionKey, encryptionKey                      string
+	mux                                            *http.ServeMux
 	setupMu, connectionMu, quotaMu, accessMu, wgMu sync.Mutex
-	quotaLocks                               map[int64]*sync.Mutex
-	rpcClients                               map[int64]*RPCClient
-	logins                                   loginLimiter
-	resources                                resourceState
-	tls                                      *tlsManager
-	updates                                  updateState
-	cancel                                   context.CancelFunc
-	workers                                  sync.WaitGroup
-	geoMu                                    sync.RWMutex
-	xdb                                      *xdb.Searcher
-	xdbPath                                  string
-	geoNegMu                                 sync.Mutex
-	geoNegCache                              map[string]time.Time
-	loginObsMu                               sync.Mutex
-	loginObs                                 map[string]userLoginObservation
+	quotaLocks                                     map[int64]*sync.Mutex
+	rpcClients                                     map[int64]*RPCClient
+	logins                                         loginLimiter
+	resources                                      resourceState
+	tls                                            *tlsManager
+	updates                                        updateState
+	cancel                                         context.CancelFunc
+	workers                                        sync.WaitGroup
+	geoMu                                          sync.RWMutex
+	xdb                                            *xdb.Searcher
+	xdbPath                                        string
+	geoNegMu                                       sync.Mutex
+	geoNegCache                                    map[string]time.Time
+	loginObsMu                                     sync.Mutex
+	loginObs                                       map[string]userLoginObservation
+	userMetaMu                                     sync.RWMutex
+	userMeta                                       map[string]hubUserMetaCache
+}
+
+func (a *App) readDB() *sql.DB {
+	if a.rdb != nil {
+		return a.rdb
+	}
+	return a.db
 }
 
 func New(cfg Config) (app *App, err error) {
 	defer func() {
 		if v := recover(); v != nil {
-			if app != nil && app.db != nil {
-				app.db.Close()
+			if app != nil {
+				if app.rdb != nil && app.rdb != app.db {
+					app.rdb.Close()
+				}
+				if app.db != nil {
+					app.db.Close()
+				}
 			}
 			app = nil
 			err = fmt.Errorf("initialize: %v", v)
@@ -171,16 +186,28 @@ func New(cfg Config) (app *App, err error) {
 	if err != nil {
 		return nil, err
 	}
-	app = &App{cfg: cfg, db: db, mux: http.NewServeMux(), rpcClients: make(map[int64]*RPCClient)}
+	rdb, err := openReadDB(cfg.Database, db)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	app = &App{cfg: cfg, db: db, rdb: rdb, mux: http.NewServeMux(), rpcClients: make(map[int64]*RPCClient)}
 	if err = app.initSecrets(); err != nil {
+		if rdb != db {
+			rdb.Close()
+		}
 		db.Close()
 		return nil, err
 	}
 	app.initGeoIP()
 	if err = app.protectExistingBackups(); err != nil {
+		if rdb != db {
+			rdb.Close()
+		}
 		db.Close()
 		return nil, fmt.Errorf("restrict backup permissions: %w", err)
 	}
+	app.migrateSecretSettings()
 	app.migrateCredentials()
 	// An intentionally empty management password is still a configured connection.
 	if boolean(app.setting("se_configured")) {
@@ -210,6 +237,9 @@ func (a *App) Close() error {
 	}
 	a.rpcClients = make(map[int64]*RPCClient)
 	a.connectionMu.Unlock()
+	if a.rdb != nil && a.rdb != a.db {
+		_ = a.rdb.Close()
+	}
 	return a.db.Close()
 }
 func (a *App) bootstrap() {

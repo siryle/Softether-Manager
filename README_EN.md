@@ -259,12 +259,12 @@ database and `encryption.key` together; old backups may still contain plain cred
 SoftEther management connections pin the certificate's SHA-256 fingerprint on first
 use. A mismatch blocks administrator credentials before any HTTP request is sent.
 When the panel installs a replacement, it updates the saved fingerprint automatically.
+Restoring a configuration containing a server certificate saves that certificate's expected
+fingerprint and confirms it when the server reconnects with the matching certificate.
 For replacements made outside the panel, use **Servers → Edit → Inspect saved server certificate**,
 compare the fingerprint independently with the server, then confirm trust. Establish
-the first connection over a trusted network. On isolated/self-signed setups you can opt
-out per server with **Skip certificate verification (not recommended)** in the same form;
-the administrator password is then sent to whatever answers on that address, and the
-change is written to the audit log.
+the first connection over a trusted network. Self-signed certificates are verified against
+the saved fingerprint as well.
 
 The Linux installer creates the account before opening the panel listener and passes
 passwords through standard input. Its optional SoftEther installation uses pinned

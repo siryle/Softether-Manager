@@ -228,8 +228,8 @@ func (a *App) registerCustomRPC() {
 		// returns "" from GetOpenVpnSstpConfig, using ServerConfiguration.PortsUDP instead.
 		if strings.TrimSpace(str(out["OpenVPNPortList_str"])) == "" {
 			prevSaved, _ := parseOpenVPNPortList(a.savedOpenVPNPorts(serverID))
-			a.setOpenVPNPorts(serverID, formattedPorts)
 			a.syncOpenVPNUDPPorts(r.Context(), serverID, prevSaved, parsedPorts)
+			a.setOpenVPNPorts(serverID, formattedPorts)
 			out["OpenVPNPortList_str"] = formattedPorts
 		}
 		a.audit(u, "openvpn.updated", "server", "", formattedPorts)
@@ -809,11 +809,11 @@ func (a *App) syncOpenVPNUDPPorts(ctx context.Context, serverID int64, prevPorts
 	raw := a.fetchRawConfig(ctx)
 	doc, err := parseSEConfig(raw)
 	if err != nil {
-		return
+		fail(502, "SoftEther returned an invalid server configuration.")
 	}
 	sc := doc.Root.child("ServerConfiguration")
 	if sc == nil || sc.item("PortsUDP") == nil {
-		return
+		fail(502, "The server configuration does not expose UDP listener ports.")
 	}
 	existing := parseUDPPorts(sc.item("PortsUDP").Val)
 	wgPort := a.savedWireguardPort(serverID)
@@ -845,7 +845,8 @@ func (a *App) syncOpenVPNUDPPorts(ctx context.Context, serverID int64, prevPorts
 	sort.Ints(merged)
 	edit := setItemEdit(doc, sc, "string", "PortsUDP", formatUDPPorts(merged))
 	updated, err := applySEEdits(raw, []seEdit{edit})
-	if err != nil || updated == raw {
+	check(err)
+	if updated == raw {
 		return
 	}
 	a.pushWireGuardConfig(ctx, updated)

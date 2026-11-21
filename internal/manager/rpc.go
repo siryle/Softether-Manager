@@ -114,7 +114,7 @@ func (c *RPCClient) Call(ctx context.Context, method string, params M) (M, error
 	decoder := json.NewDecoder(io.LimitReader(res.Body, 32<<20))
 	decoder.UseNumber()
 	if err = decoder.Decode(&reply); err != nil {
-		return nil, httpError{502, M{"message": "Invalid SoftEther JSON response.", "se_error": "ProtocolError"}}
+		return nil, httpError{502, M{"message": "Invalid SoftEther JSON response.", "se_error": "ProtocolError", "restarting_candidate": isTransportRestartCandidate(err)}}
 	}
 	if reply.ID != id {
 		return nil, httpError{502, M{"message": "SoftEther response ID mismatch.", "se_error": "ProtocolError"}}
@@ -237,12 +237,26 @@ func (a *App) rpc(ctx context.Context, method string, params M) M {
 		if err != nil || len(data) == 0 {
 			fail(422, "A non-empty base64 configuration is required.")
 		}
-		out, err := a.client(ctx).Call(ctx, method, params)
-		if err == nil || isRestartingConfigError(err) {
-			// A restart can close the connection after receiving the config.
-			a.resetQuotaBaselines(id)
+		fingerprint := configCertificateFingerprint(string(data))
+		client := a.client(ctx)
+		out, err := client.Call(ctx, method, params)
+		if err != nil && !isRestartingConfigError(err) {
+			check(err)
 		}
-		check(err)
+		func() {
+			a.connectionMu.Lock()
+			defer a.connectionMu.Unlock()
+			if fingerprint != "" {
+				// Trust only the certificate supplied in the authorized restore, even across a restart.
+				execute(a.db, `UPDATE RPCTrust SET PendingFingerprint=CASE WHEN Fingerprint=? THEN '' ELSE ? END WHERE Host=? AND Port=?`, fingerprint, fingerprint, client.host, client.port)
+			}
+			a.invalidateClientLocked(id)
+		}()
+		a.invalidateUserMetaCache(id, "")
+		if out == nil {
+			out = M{}
+		}
+		out["restarting"] = true
 		return out
 	}
 	if (method == "SetUser" || method == "CreateUser") && params["Auth_Password_str"] != nil {
@@ -257,6 +271,10 @@ func (a *App) rpc(ctx context.Context, method string, params M) M {
 	}
 	out, err := a.client(ctx).Call(ctx, method, params)
 	check(err)
+	switch method {
+	case "SetUser", "CreateUser", "DeleteUser", "DeleteHub":
+		a.invalidateUserMetaCache(a.serverIDFromContext(ctx), str(params["HubName_str"]))
+	}
 	return out
 }
 func (a *App) syncDefaultConnection(row M) {
@@ -306,6 +324,7 @@ func (a *App) saveConnection(host string, port int, password *string, auth strin
 		execute(a.db, `UPDATE Server SET BackupLastRun='',BackupLastError='' WHERE ServerID=?`, id)
 	}
 	a.invalidateClientLocked(id)
+	a.invalidateUserMetaCache(id, "")
 	if boolean(row["IsDefault"]) {
 		a.syncDefaultConnection(row)
 	}

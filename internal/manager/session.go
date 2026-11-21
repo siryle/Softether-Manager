@@ -287,19 +287,6 @@ func (a *App) enrichSessionStatus(ctx context.Context, hub, name string, status 
 		dhcpTable = list(out["DhcpTable"])
 	}()
 
-	natTcpByIP := make(map[string]int)
-	func() {
-		defer func() { _ = recover() }()
-		out := a.rpc(ctx, "EnumNAT", M{"HubName_str": hub})
-		for _, entry := range list(out["NatTable"]) {
-			if integer(entry["Protocol_u32"]) == 0 {
-				if srcIP := strings.TrimSpace(str(entry["SrcIp_ip"])); srcIP != "" {
-					natTcpByIP[srcIP]++
-				}
-			}
-		}
-	}()
-
 	var virtualIPs []string
 	for _, entry := range ipTable {
 		if str(entry["SessionName_str"]) == name {

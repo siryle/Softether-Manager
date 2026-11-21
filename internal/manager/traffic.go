@@ -75,7 +75,7 @@ func (a *App) trafficUsage(serverID int64, kind, hub, name string, hours int64) 
 		where += " AND UserName=? COLLATE NOCASE"
 		args = append(args, name)
 	}
-	rows, err := a.db.Query("SELECT HubName,SendBytes,RecvBytes,"+sessions+",SampledDate FROM "+table+" WHERE "+where+" ORDER BY julianday(SampledDate),"+id, args...)
+	rows, err := a.readDB().Query("SELECT HubName,SendBytes,RecvBytes,"+sessions+",SampledDate FROM "+table+" WHERE "+where+" ORDER BY julianday(SampledDate),"+id, args...)
 	check(err)
 	defer rows.Close()
 	var scanned []trafficSampleRow
@@ -149,7 +149,71 @@ func (a *App) trafficUsage(serverID int64, kind, hub, name string, hours int64) 
 	if count > 0 && points[0]["send"] == nil && points[0]["recv"] == nil {
 		points = points[1:]
 	}
+	points, effectiveInterval = downsampleTrafficPoints(points, hours, effectiveInterval, start, end)
 	return M{"hours": hours, "start": start.Format(time.RFC3339Nano), "end": end.Format(time.RFC3339Nano), "sample_interval_seconds": effectiveInterval, "points": points, "total_send": sent, "total_recv": received, "samples": count}
+}
+
+const maxChartPoints = 360
+
+// downsampleTrafficPoints aggregates dense series (e.g. 30d or 1m intervals) into
+// evenly spaced buckets while preserving exact totals and nil gap boundaries.
+func downsampleTrafficPoints(points []M, hours, effectiveInterval int64, start, end time.Time) ([]M, int64) {
+	if len(points) <= maxChartPoints {
+		return points, effectiveInterval
+	}
+	step := max(int64(1), effectiveInterval)
+	target := max(step, (hours*3600+maxChartPoints-1)/maxChartPoints)
+	bucketSec := ((target + step - 1) / step) * step
+
+	out := make([]M, 0, maxChartPoints+8)
+	var curIdx int64
+	hasCur := false
+	lastWasGap := false
+
+	for _, p := range points {
+		if p["send"] == nil || p["recv"] == nil {
+			if hasCur || !lastWasGap {
+				out = append(out, M{"t": p["t"], "send": nil, "recv": nil})
+				lastWasGap = true
+			}
+			hasCur = false
+			continue
+		}
+		at := parseTime(str(p["t"])).UTC()
+		if at.IsZero() {
+			continue
+		}
+		bIdx := at.Unix() / bucketSec
+		if !hasCur || bIdx != curIdx {
+			bt := time.Unix(bIdx*bucketSec+bucketSec/2, 0).UTC()
+			if bt.Before(start) {
+				bt = start
+			}
+			if bt.After(end) {
+				bt = end
+			}
+			bucket := M{
+				"t":    bt.Format(time.RFC3339Nano),
+				"send": integer(p["send"]),
+				"recv": integer(p["recv"]),
+			}
+			if sess, ok := p["sessions"]; ok {
+				bucket["sessions"] = integer(sess)
+			}
+			out = append(out, bucket)
+			curIdx = bIdx
+			hasCur = true
+			lastWasGap = false
+		} else {
+			cur := out[len(out)-1]
+			cur["send"] = integer(cur["send"]) + integer(p["send"])
+			cur["recv"] = integer(cur["recv"]) + integer(p["recv"])
+			if sess, ok := p["sessions"]; ok {
+				cur["sessions"] = max(integer(cur["sessions"]), integer(sess))
+			}
+		}
+	}
+	return out, max(effectiveInterval, bucketSec)
 }
 
 // An incomplete RPC result is a missing sample, not a zero counter.

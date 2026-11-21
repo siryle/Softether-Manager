@@ -61,9 +61,7 @@ func (a *App) registerSystem() {
 				fail(422, "Unknown panel setting: "+k)
 			}
 		}
-		for k, v := range changes {
-			a.set(k, v)
-		}
+		a.setSettings(changes)
 		a.audit(u, "settings.updated", "panel", "", "")
 		out := a.settings()
 		_, out["restart_required"] = changes["web_path"]
@@ -78,7 +76,7 @@ func (a *App) registerSystem() {
 		}
 		sql += " ORDER BY AuditLogID DESC LIMIT ?"
 		args = append(args, queryInt(r, "limit", 100, 1, 500))
-		return query(a.db, sql, args...)
+		return query(a.readDB(), sql, args...)
 	})
 	a.endpoint("GET /system/ip-geo/status", func(_ http.ResponseWriter, _ *http.Request, _ M) any {
 		a.geoMu.RLock()
@@ -140,81 +138,64 @@ func (a *App) registerSystem() {
 				fail(422, "Open the panel through its domain before restricting access to that domain.")
 			}
 		}
+		changes := M{}
 		changed := []string{}
 		if domain != current {
-			a.set("domain", domain)
+			changes["domain"] = domain
 			changed = append(changed, "domain")
 			if body["domain_only"] == nil {
-				a.set("domain_only", false)
+				changes["domain_only"] = false
 			}
-			a.tls.mu.Lock()
-			a.tls.nextAttempt = zeroTime()
-			a.tls.state = M{}
-			a.tls.mu.Unlock()
 		}
-		prevSSHHost := str(a.setting("cert_ssh_host"))
-		prevSSHPort := integer(a.setting("cert_ssh_port"))
 		for _, key := range []string{
 			"https_port", "acme_email", "acme_staging", "domain_only", "acme_challenge_type", "cf_dns_token",
 			"cert_key_type", "cert_auto_push", "cert_renew_hook",
 			"cert_ssh_sync", "cert_ssh_host", "cert_ssh_port", "cert_ssh_user", "cert_ssh_auth_type", "cert_ssh_key", "cert_ssh_password", "cert_ssh_remote_dir",
 		} {
-			if v, ok := body[key]; ok && v != nil {
-				if key == "acme_email" {
-					v = strings.TrimSpace(str(v))
-				}
-				if key == "cf_dns_token" {
-					a.setSecretSetting("cf_dns_token", str(v))
-					changed = append(changed, key)
-					continue
-				}
-				if key == "cert_ssh_key" {
-					trimmedKey := strings.TrimSpace(str(v))
-					if trimmedKey != "" {
-						if _, err := ssh.ParsePrivateKey([]byte(trimmedKey)); err != nil {
-							fail(422, "Invalid SSH private key: "+err.Error())
-						}
-					}
-					a.setSecretSetting("cert_ssh_key", trimmedKey)
-					changed = append(changed, key)
-					continue
-				}
-				if key == "cert_ssh_password" {
-					a.setSecretSetting("cert_ssh_password", str(v))
-					changed = append(changed, key)
-					continue
-				}
-				if key == "cert_ssh_host" {
-					v = validateSSHHost(str(v))
-				}
-				if key == "cert_ssh_user" {
-					uName := strings.TrimSpace(str(v))
-					if strings.ContainsAny(uName, " \t\r\n\x00@") {
-						fail(422, "Invalid SSH username.")
-					}
-					if uName == "" {
-						uName = "root"
-					}
-					v = uName
-				}
-				if key == "cert_ssh_remote_dir" {
-					v = validateSSHRemoteDir(str(v))
-				}
-				if key == "cert_renew_hook" {
-					hook := validateCertRenewHook(a.cfg.Root, a.cfg.DataDir, str(v))
-					a.set("cert_renew_hook", hook)
-					changed = append(changed, key)
-					continue
-				}
-				if domain == "" && key == "domain_only" && boolean(v) {
-					fail(422, "Set a domain first.")
-				}
-				a.set(key, v)
-				changed = append(changed, key)
+			v, ok := body[key]
+			if !ok || v == nil {
+				continue
 			}
+			switch key {
+			case "acme_email":
+				v = strings.TrimSpace(str(v))
+			case "cf_dns_token", "cert_ssh_key", "cert_ssh_password":
+				plain := strings.TrimSpace(str(v))
+				if key == "cert_ssh_key" && plain != "" {
+					if _, err := ssh.ParsePrivateKey([]byte(plain)); err != nil {
+						fail(422, "Invalid SSH private key: "+err.Error())
+					}
+				}
+				v = ""
+				if plain != "" {
+					v = "enc:" + a.encrypt(plain)
+				}
+			case "cert_ssh_host":
+				v = validateSSHHost(str(v))
+			case "cert_ssh_user":
+				uName := strings.TrimSpace(str(v))
+				if strings.ContainsAny(uName, " \t\r\n\x00@") {
+					fail(422, "Invalid SSH username.")
+				}
+				if uName == "" {
+					uName = "root"
+				}
+				v = uName
+			case "cert_ssh_remote_dir":
+				v = validateSSHRemoteDir(str(v))
+			case "cert_renew_hook":
+				v = validateCertRenewHook(a.cfg.Root, a.cfg.DataDir, str(v))
+			}
+			if domain == "" && key == "domain_only" && boolean(v) {
+				fail(422, "Set a domain first.")
+			}
+			changes[key] = v
+			changed = append(changed, key)
 		}
-		if boolean(body["reset_cert_ssh_host_key"]) || str(a.setting("cert_ssh_host")) != prevSSHHost || integer(a.setting("cert_ssh_port")) != prevSSHPort {
-			a.set("cert_ssh_host_key", "")
+		if boolean(body["reset_cert_ssh_host_key"]) ||
+			str(withDefault(changes, "cert_ssh_host", a.setting("cert_ssh_host"))) != str(a.setting("cert_ssh_host")) ||
+			integer(withDefault(changes, "cert_ssh_port", a.setting("cert_ssh_port"))) != integer(a.setting("cert_ssh_port")) {
+			changes["cert_ssh_host_key"] = ""
 		}
 		if v, ok := body["cert_push_server_id"]; ok && v != nil {
 			id := integer(v)
@@ -224,8 +205,15 @@ func (a *App) registerSystem() {
 			if id > 0 && !boolean(a.serverRow(id)["IsEnabled"]) {
 				fail(422, "The certificate deployment server must be enabled.")
 			}
-			a.set("cert_push_server_id", id)
+			changes["cert_push_server_id"] = id
 			changed = append(changed, "cert_push_server_id")
+		}
+		a.setSettings(changes)
+		if domain != current {
+			a.tls.mu.Lock()
+			a.tls.nextAttempt = zeroTime()
+			a.tls.state = M{}
+			a.tls.mu.Unlock()
 		}
 		a.tls.apply()
 		a.audit(u, "domain.updated", "panel", domain, strings.Join(changed, ", "))

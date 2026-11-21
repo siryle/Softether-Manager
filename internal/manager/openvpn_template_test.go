@@ -423,8 +423,12 @@ func TestRemoteChainHookReceivesChainDirAndSyncMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 	resolved, err := resolveCertHookPath(a.cfg.Root, a.cfg.DataDir, "ssl/hook.sh")
-	if err != nil || resolved != dataHook {
-		t.Fatalf("expected DataDir ssl/hook.sh %q, got %q (err=%v)", dataHook, resolved, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, err := filepath.EvalSymlinks(dataHook)
+	if err != nil || resolved != expected {
+		t.Fatalf("expected DataDir ssl/hook.sh %q, got %q (err=%v)", expected, resolved, err)
 	}
 	_ = os.Remove(dataHook)
 

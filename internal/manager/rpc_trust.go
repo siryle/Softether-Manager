@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
@@ -31,6 +33,28 @@ func fingerprintOfPEM(chain []byte) string {
 	return ""
 }
 
+func configCertificateFingerprint(raw string) string {
+	doc, err := parseSEConfig(raw)
+	if err != nil {
+		return ""
+	}
+	item := doc.Root.child("ServerConfiguration").item("ServerCert")
+	if item == nil {
+		return ""
+	}
+	der, err := base64.StdEncoding.DecodeString(item.Val)
+	if err == nil {
+		if block, _ := pem.Decode(der); block != nil {
+			der = block.Bytes
+		}
+		_, err = x509.ParseCertificate(der)
+	}
+	if err != nil {
+		fail(422, "The configuration contains an invalid server certificate.")
+	}
+	return certFingerprint(der)
+}
+
 func (a *App) newRPCClient(host string, port int, password, auth string) *RPCClient {
 	c := NewRPCClient(host, port, password, auth)
 	transport := c.http.Transport.(*http.Transport)
@@ -44,8 +68,12 @@ func (a *App) newRPCClient(host string, port int, password, auth string) *RPCCli
 		if _, err := a.db.Exec(`INSERT INTO RPCTrust(Host,Port,Fingerprint) VALUES(?,?,?) ON CONFLICT DO NOTHING`, host, port, fingerprint); err != nil {
 			return err
 		}
-		var pinned string
-		if err := a.db.QueryRow(`SELECT Fingerprint FROM RPCTrust WHERE Host=? AND Port=?`, host, port).Scan(&pinned); err != nil {
+		var pinned, pending string
+		if err := a.db.QueryRow(`SELECT Fingerprint,PendingFingerprint FROM RPCTrust WHERE Host=? AND Port=?`, host, port).Scan(&pinned, &pending); err != nil {
+			return err
+		}
+		if pending != "" && fingerprint == pending {
+			_, err := a.db.Exec(`UPDATE RPCTrust SET Fingerprint=?,PendingFingerprint='' WHERE Host=? AND Port=? AND PendingFingerprint=?`, fingerprint, host, port, pending)
 			return err
 		}
 		if pinned != fingerprint {
@@ -101,7 +129,7 @@ func (a *App) registerRPCTrust() {
 		if fingerprint != expected {
 			fail(409, "The certificate changed again; inspect it before confirming.")
 		}
-		execute(a.db, `INSERT INTO RPCTrust(Host,Port,Fingerprint) VALUES(?,?,?) ON CONFLICT(Host,Port) DO UPDATE SET Fingerprint=excluded.Fingerprint`, row["Host"], row["Port"], fingerprint)
+		execute(a.db, `INSERT INTO RPCTrust(Host,Port,Fingerprint) VALUES(?,?,?) ON CONFLICT(Host,Port) DO UPDATE SET Fingerprint=excluded.Fingerprint,PendingFingerprint=''`, row["Host"], row["Port"], fingerprint)
 		a.invalidateClientLocked(integer(row["ServerID"]))
 		a.audit(user, "server.certificate_trusted", "server", str(row["Name"]), fingerprint, integer(row["ServerID"]))
 		return M{"ok": true}

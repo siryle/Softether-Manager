@@ -305,8 +305,18 @@ func (a *App) quotaTick(ctx context.Context) {
 							log.Printf("quota enforcement: %v", p)
 						}
 					}()
-					a.observeQuotaLocked(id, subject, hub, name, send, recv, client)
 					current := a.quotaRow(id, subject, hub, name)
+					if current == nil || integer(current["TrafficQuotaID"]) != integer(row["TrafficQuotaID"]) {
+						return
+					}
+					// A reset or newer reading makes this in-flight snapshot obsolete.
+					for _, key := range []string{"CycleStartDate", "BaseSendBytes", "BaseRecvBytes", "LastSendBytes", "LastRecvBytes"} {
+						if str(current[key]) != str(row[key]) {
+							return
+						}
+					}
+					a.observeQuotaLocked(id, subject, hub, name, send, recv, client)
+					current = a.quotaRow(id, subject, hub, name)
 					if current != nil && (a.quotaOver(current) || str(current["RestoreState"]) != "") {
 						a.enforceQuota(quotaCtx, current)
 					}

@@ -56,7 +56,7 @@ func openDB(path string) (*sql.DB, error) {
 		u := url.URL{Scheme: "file", Path: abs}
 		dsn = u.String()
 	}
-	dsn += "?_pragma=busy_timeout(10000)&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=secure_delete(ON)"
+	dsn += "?_pragma=busy_timeout(10000)&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=secure_delete(ON)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
@@ -71,6 +71,33 @@ func openDB(path string) (*sql.DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+func openReadDB(path string, writer *sql.DB) (*sql.DB, error) {
+	if path == ":memory:" {
+		return writer, nil
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	abs = filepath.ToSlash(abs)
+	if !strings.HasPrefix(abs, "/") {
+		abs = "/" + abs
+	}
+	u := url.URL{Scheme: "file", Path: abs}
+	dsn := u.String() + "?_pragma=busy_timeout(10000)&_pragma=query_only(ON)&_pragma=journal_mode(WAL)"
+	rdb, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, err
+	}
+	rdb.SetMaxOpenConns(4)
+	rdb.SetMaxIdleConns(4)
+	if err = rdb.Ping(); err != nil {
+		rdb.Close()
+		return nil, err
+	}
+	return rdb, nil
 }
 
 func tableColumns(tx *sql.Tx, table string) (map[string]bool, error) {
@@ -261,6 +288,7 @@ func initSchema(db *sql.DB) error {
 	// 4. Ensure all existing tables have ServerID and required migration columns
 	for _, migration := range []struct{ table, column, ddl string }{
 		{"PanelUser", "SessionVersion", `INTEGER NOT NULL DEFAULT 1`},
+		{"RPCTrust", "PendingFingerprint", `TEXT NOT NULL DEFAULT ''`},
 		{"UserTrafficSample", "ServerID", fmt.Sprintf("INTEGER NOT NULL DEFAULT %d", defaultID)},
 		{"HubTrafficSample", "ServerID", fmt.Sprintf("INTEGER NOT NULL DEFAULT %d", defaultID)},
 		{"VpnSessionSample", "ServerID", fmt.Sprintf("INTEGER NOT NULL DEFAULT %d", defaultID)},
@@ -353,8 +381,12 @@ func initSchema(db *sql.DB) error {
 	}
 
 	// Clean up any legacy non-client session data (e.g. SecureNAT, Local Bridge, Cascade, L3 switch)
-	_, _ = tx.Exec(`DELETE FROM VpnSessionTrafficSample WHERE VpnSessionSampleID IN (SELECT VpnSessionSampleID FROM VpnSessionSample WHERE LOWER(UserName) IN ('securenat', 'local bridge') OR LOWER(UserName) LIKE 'sid-local-bridge%' OR LOWER(UserName) LIKE 'link_%' OR LOWER(UserName) LIKE 'l3_%')`)
-	_, _ = tx.Exec(`DELETE FROM VpnSessionSample WHERE LOWER(UserName) IN ('securenat', 'local bridge') OR LOWER(UserName) LIKE 'sid-local-bridge%' OR LOWER(UserName) LIKE 'link_%' OR LOWER(UserName) LIKE 'l3_%')`)
+	if _, err = tx.Exec(`DELETE FROM VpnSessionTrafficSample WHERE VpnSessionSampleID IN (SELECT VpnSessionSampleID FROM VpnSessionSample WHERE ` + nonClientSessionDeleteClause + `)`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM VpnSessionSample WHERE ` + nonClientSessionDeleteClause); err != nil {
+		return err
+	}
 
 	return tx.Commit()
 }
@@ -419,12 +451,9 @@ func (a *App) secretSetting(key string) string {
 	if raw == "" {
 		return ""
 	}
-	if plain, err := a.decrypt(raw); err == nil {
-		return plain
-	}
-	// Legacy plaintext token stored before encryption was added: migrate in place.
-	a.set(key, a.encrypt(raw))
-	return raw
+	plain, err := a.decrypt(strings.TrimPrefix(raw, "enc:"))
+	check(err)
+	return plain
 }
 func (a *App) setSecretSetting(key, plain string) {
 	trimmed := strings.TrimSpace(plain)
@@ -432,8 +461,57 @@ func (a *App) setSecretSetting(key, plain string) {
 		a.set(key, "")
 		return
 	}
-	a.set(key, a.encrypt(trimmed))
+	a.set(key, "enc:"+a.encrypt(trimmed))
 }
+
+func (a *App) migrateSecretSettings() {
+	changes := M{}
+	for _, key := range []string{"cf_dns_token", "cert_ssh_key", "cert_ssh_password"} {
+		raw := strings.TrimSpace(str(a.setting(key)))
+		if raw == "" {
+			continue
+		}
+		if strings.HasPrefix(raw, "enc:") {
+			_, err := a.decrypt(strings.TrimPrefix(raw, "enc:"))
+			check(err)
+			continue
+		}
+		// Fernet ciphertext must never be reinterpreted as a legacy plaintext secret.
+		if strings.HasPrefix(raw, "gAAAA") {
+			_, err := a.decrypt(raw)
+			check(err)
+			changes[key] = "enc:" + raw
+		} else {
+			changes[key] = "enc:" + a.encrypt(raw)
+		}
+	}
+	a.setSettings(changes)
+}
+
+func (a *App) setSettings(changes M) {
+	if len(changes) == 0 {
+		return
+	}
+	encoded := map[string]string{}
+	defaults := a.defaults()
+	for key, value := range changes {
+		if _, ok := defaults[key]; !ok {
+			fail(422, "Unknown setting: "+key)
+		}
+		data, err := json.Marshal(value)
+		check(err)
+		encoded[key] = string(data)
+	}
+	tx, err := a.db.Begin()
+	check(err)
+	defer tx.Rollback()
+	for key, value := range encoded {
+		_, err = tx.Exec(`INSERT INTO Setting(SettingKey,SettingValue,UpdatedDate) VALUES(?,?,?) ON CONFLICT(SettingKey) DO UPDATE SET SettingValue=excluded.SettingValue,UpdatedDate=excluded.UpdatedDate`, key, value, now())
+		check(err)
+	}
+	check(tx.Commit())
+}
+
 func (a *App) setting(key string) any {
 	row := one(a.db, `SELECT SettingValue FROM Setting WHERE SettingKey=?`, key)
 	if row == nil {

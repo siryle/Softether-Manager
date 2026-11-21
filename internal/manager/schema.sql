@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS "RPCTrust" (
         "Host" TEXT NOT NULL COLLATE NOCASE,
         "Port" INTEGER NOT NULL,
         "Fingerprint" TEXT NOT NULL,
+        "PendingFingerprint" TEXT NOT NULL DEFAULT '',
         PRIMARY KEY ("Host", "Port")
     );
 CREATE TABLE IF NOT EXISTS "UserTrafficSample" (

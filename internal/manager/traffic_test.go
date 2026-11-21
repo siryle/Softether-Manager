@@ -169,3 +169,58 @@ func TestTrafficHistoryPreservesZeroStartPostRestartAndPreWindowBaseline(t *test
 		}
 	})
 }
+
+func TestTrafficUsageDownsamplesLongWindowsAndUsesReadOnlyPool(t *testing.T) {
+	a := testApp(t)
+	token := admin(t, a)
+	if a.rdb == nil || a.rdb == a.db {
+		t.Fatal("expected separate read-only SQLite pool for file-backed DB")
+	}
+	if _, err := a.rdb.Exec(`INSERT INTO Setting(SettingKey,SettingValue,UpdatedDate) VALUES('test','1','2026-01-01')`); err == nil {
+		t.Fatal("expected read-only DB pool to reject writes")
+	}
+
+	base := time.Now().UTC().Truncate(time.Minute)
+	var sendTotal, recvTotal int64
+	var expectedSend, expectedRecv int64
+	// Insert 500 5-minute samples (~41.6 hours) with a 1-hour gap in the middle.
+	for i := 0; i < 500; i++ {
+		offsetMin := -500*5 + i*5
+		if i >= 250 && i < 262 {
+			continue // 1-hour gap
+		}
+		if i > 0 && i != 262 {
+			sendTotal += 100
+			recvTotal += 200
+			expectedSend += 100
+			expectedRecv += 200
+		} else if i == 262 {
+			// Counter continues across gap; gap itself must not be counted.
+			sendTotal += 99999
+			recvTotal += 99999
+		}
+		insertHistoryCounter(a, base.Add(time.Duration(offsetMin)*time.Minute).Format(time.RFC3339), sendTotal, recvTotal)
+	}
+
+	status, out, _ := call(t, a, "GET", "/api/v1/server/traffic?hours=720", nil, token)
+	if status != 200 {
+		t.Fatalf("status=%d out=%v", status, out)
+	}
+	if integer(out["total_send"]) != expectedSend || integer(out["total_recv"]) != expectedRecv {
+		t.Fatalf("downsampling altered totals: got send=%d recv=%d, want send=%d recv=%d", integer(out["total_send"]), integer(out["total_recv"]), expectedSend, expectedRecv)
+	}
+	pts := list(out["points"])
+	if len(pts) > 370 || len(pts) < 10 {
+		t.Fatalf("expected downsampled points <= 370, got %d", len(pts))
+	}
+	hasGap := false
+	for _, p := range pts {
+		if p["send"] == nil && p["recv"] == nil {
+			hasGap = true
+			break
+		}
+	}
+	if !hasGap {
+		t.Fatal("downsampling lost the gap boundary")
+	}
+}

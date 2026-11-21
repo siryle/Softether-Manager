@@ -268,7 +268,7 @@ func TestPushWireGuardConfigDistinguishesDialErrorFromEOF(t *testing.T) {
 		t.Fatalf("quota baseline was wiped despite unreachable SoftEther: %v", q)
 	}
 
-	// 2. Post-write EOF (SoftEther restarted right after accepting SetConfig): must succeed & reset baseline.
+	// 2. Post-write EOF acknowledges the restart without clearing usage on the same server.
 	eofSrv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req M
 		_ = json.NewDecoder(r.Body).Decode(&req)
@@ -293,6 +293,7 @@ func TestPushWireGuardConfigDistinguishesDialErrorFromEOF(t *testing.T) {
 	u, _ := url.Parse(eofSrv.URL)
 	h2, p2, _ := strings.Cut(u.Host, ":")
 	a.saveConnection(h2, int(integer(p2)), ptr("vpn-secret"), "header")
+	execute(a.db, `UPDATE TrafficQuota SET CycleStartDate='2026-01-01T00:00:00Z',BaseSendBytes=500,LastSendBytes=900 WHERE ServerID=1`)
 
 	status, _, _ := call(t, a, "PUT", "/api/v1/server/wireguard", M{
 		"confirm_restart": true,
@@ -302,8 +303,8 @@ func TestPushWireGuardConfigDistinguishesDialErrorFromEOF(t *testing.T) {
 		t.Fatalf("expected 200 on SetConfig restart EOF, got %d", status)
 	}
 	q = a.quotaRow(1, "hub", "DEFAULT", "")
-	if integer(q["BaseSendBytes"]) != 0 || str(q["CycleStartDate"]) != "" {
-		t.Fatalf("quota baseline was not reset after SetConfig restart: %v", q)
+	if integer(q["BaseSendBytes"]) != 500 || integer(q["LastSendBytes"]) != 900 || str(q["CycleStartDate"]) == "" {
+		t.Fatalf("configuration restart changed existing quota usage: %v", q)
 	}
 
 	// 3. CR/LF injection sanitization in WireGuard client config: no new INI directives may be injected.

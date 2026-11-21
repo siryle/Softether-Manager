@@ -21,10 +21,10 @@ func seedSessionReportRows(t *testing.T, a *App) {
 		"203.0.113.20", "日本", "东京", "东京", "NTT", "日本 东京", "日本 东京 NTT", now())
 
 	rows := []struct {
-		serverID                         int64
-		hub, user, key, cip, vip, host   string
-		started, ended, seen             string
-		total, pkts, down, up            int64
+		serverID                       int64
+		hub, user, key, cip, vip, host string
+		started, ended, seen           string
+		total, pkts, down, up          int64
 	}{
 		{1, "DEFAULT", "alice", "k1", "198.51.100.10", "10.0.0.2", "alice-mac", "2026-11-10T08:00:00Z", "2026-11-10T10:30:00Z", "2026-11-10T10:30:00Z", 3000, 30, 2000, 1000},
 		{1, "OFFICE", "bob_100%", "k2", "203.0.113.20", "10.1.0.5", "=CMD()", "2026-11-18T12:00:00Z", "", "2026-11-18T12:15:00Z", 5000, 50, 3500, 1500},
@@ -262,7 +262,7 @@ func TestSessionReportExcludesNonClientSessions(t *testing.T) {
 
 	// prune() should delete the non-client rows from SQLite
 	a.prune()
-	nonClientCount := integer(one(a.db, `SELECT COUNT(*) n FROM VpnSessionSample WHERE LOWER(UserName) IN ('securenat', 'local bridge') OR LOWER(UserName) LIKE 'sid-local-bridge%' OR LOWER(UserName) LIKE 'link_%'`)["n"])
+	nonClientCount := integer(one(a.db, `SELECT COUNT(*) n FROM VpnSessionSample WHERE `+nonClientSessionDeleteClause)["n"])
 	if nonClientCount != 0 {
 		t.Fatalf("expected 0 non-client rows in database after prune, got %d", nonClientCount)
 	}
@@ -378,5 +378,78 @@ func TestSampleSessionsHandlesEmptyZeroReusedKeysOfflineHubsAndShortLogins(t *te
 	code, body, _ := call(t, a, "GET", "/api/v1/hubs/DEFAULT/session-history/"+str(aliceRow["id"])+"/usage", nil, token)
 	if code != 200 || !boolean(body["split_available"]) || integer(body["total_recv"]) != 1200 || integer(body["total_send"]) != 3400 {
 		t.Fatalf("expected session usage to include initial interval from StartedDate, got code=%d body=%v", code, body)
+	}
+}
+
+func TestSessionHistoryUsesUserMetaCacheAndInvalidatesOnMutation(t *testing.T) {
+	a := testApp(t)
+	token := admin(t, a)
+	seedSessionReportRows(t, a)
+
+	var mu sync.Mutex
+	enumUserCalls := 0
+	realName := "Alice One"
+	note := "VIP"
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req M
+		check(json.NewDecoder(r.Body).Decode(&req))
+		mu.Lock()
+		defer mu.Unlock()
+		switch req["method"] {
+		case "EnumUser":
+			enumUserCalls++
+			writeJSON(w, 200, M{"id": req["id"], "result": M{"UserList": []M{
+				{"Name_str": "alice", "Realname_utf": realName, "Note_utf": note},
+			}}})
+		case "SetUser":
+			p := object(req["params"])
+			realName = str(p["Realname_utf"])
+			note = str(p["Note_utf"])
+			writeJSON(w, 200, M{"id": req["id"], "result": M{}})
+		default:
+			writeJSON(w, 200, M{"id": req["id"], "result": M{}})
+		}
+	}))
+	defer server.Close()
+	connectAuditServer(t, a, server, 1)
+
+	// First request populates cache (1 call per distinct hub in rows: DEFAULT + OFFICE = 2 calls).
+	code, body, _ := call(t, a, "GET", "/api/v1/server/session-history?hub=DEFAULT", nil, token)
+	if code != 200 {
+		t.Fatalf("status=%d body=%v", code, body)
+	}
+	mu.Lock()
+	callsAfterFirst := enumUserCalls
+	mu.Unlock()
+	if callsAfterFirst != 1 {
+		t.Fatalf("expected 1 EnumUser RPC on cold cache, got %d", callsAfterFirst)
+	}
+	items := list(body["items"])
+	if str(items[1]["real_name"]) != "Alice One" || str(items[1]["note"]) != "VIP" {
+		t.Fatalf("unexpected enriched user meta: %v", items[1])
+	}
+
+	// Second request uses warm cache (0 EnumUser RPCs).
+	code, body, _ = call(t, a, "GET", "/api/v1/server/session-history?hub=DEFAULT", nil, token)
+	if code != 200 {
+		t.Fatalf("status=%d body=%v", code, body)
+	}
+	mu.Lock()
+	callsAfterSecond := enumUserCalls
+	mu.Unlock()
+	if callsAfterSecond != 1 {
+		t.Fatalf("expected cached session-history to avoid EnumUser RPC, got %d calls", callsAfterSecond)
+	}
+
+	// SetUser invalidates cache so next query sees updated metadata.
+	a.rpc(context.Background(), "SetUser", M{"HubName_str": "DEFAULT", "Name_str": "alice", "Realname_utf": "Alice Two", "Note_utf": "Updated"})
+	code, body, _ = call(t, a, "GET", "/api/v1/server/session-history?hub=DEFAULT", nil, token)
+	if code != 200 {
+		t.Fatalf("status=%d body=%v", code, body)
+	}
+	items = list(body["items"])
+	if str(items[1]["real_name"]) != "Alice Two" || str(items[1]["note"]) != "Updated" {
+		t.Fatalf("expected cache invalidation after SetUser, got %v", items[1])
 	}
 }

@@ -328,7 +328,7 @@ func (a *App) installServerCertificate(ctx context.Context, chain, key []byte) (
 	}
 	a.connectionMu.Lock()
 	defer a.connectionMu.Unlock()
-	_, err = a.db.Exec(`INSERT INTO RPCTrust(Host,Port,Fingerprint) VALUES(?,?,?) ON CONFLICT(Host,Port) DO UPDATE SET Fingerprint=excluded.Fingerprint`, client.host, client.port, certFingerprint(pair.Certificate[0]))
+	_, err = a.db.Exec(`INSERT INTO RPCTrust(Host,Port,Fingerprint) VALUES(?,?,?) ON CONFLICT(Host,Port) DO UPDATE SET Fingerprint=excluded.Fingerprint,PendingFingerprint=''`, client.host, client.port, certFingerprint(pair.Certificate[0]))
 	a.invalidateClientLocked(id)
 	return out, err
 }

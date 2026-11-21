@@ -65,35 +65,105 @@ func (a *App) enrichSessionRowsGeo(ctx context.Context, rows []M) {
 	}
 }
 
+type userMetaEntry struct {
+	realName string
+	note     string
+}
+
+type hubUserMetaCache struct {
+	fetchedAt time.Time
+	users     map[string]userMetaEntry
+}
+
+const userMetaTTL = 2 * time.Minute
+
+func userMetaCacheKey(serverID int64, hub string) string {
+	return fmt.Sprintf("%d\x00%s", serverID, strings.ToLower(strings.TrimSpace(hub)))
+}
+
+func (a *App) updateUserMetaCache(serverID int64, hub string, users []M) map[string]userMetaEntry {
+	entries := make(map[string]userMetaEntry, len(users))
+	for _, u := range users {
+		name := strings.ToLower(strings.TrimSpace(str(u["Name_str"])))
+		if name != "" {
+			entries[name] = userMetaEntry{
+				realName: str(u["Realname_utf"]),
+				note:     str(u["Note_utf"]),
+			}
+		}
+	}
+	a.userMetaMu.Lock()
+	if a.userMeta == nil {
+		a.userMeta = make(map[string]hubUserMetaCache)
+	}
+	a.userMeta[userMetaCacheKey(serverID, hub)] = hubUserMetaCache{
+		fetchedAt: time.Now(),
+		users:     entries,
+	}
+	a.userMetaMu.Unlock()
+	return entries
+}
+
+func (a *App) invalidateUserMetaCache(serverID int64, hub string) {
+	a.userMetaMu.Lock()
+	defer a.userMetaMu.Unlock()
+	if a.userMeta == nil {
+		return
+	}
+	if strings.TrimSpace(hub) != "" {
+		delete(a.userMeta, userMetaCacheKey(serverID, hub))
+		return
+	}
+	prefix := fmt.Sprintf("%d\x00", serverID)
+	for k := range a.userMeta {
+		if strings.HasPrefix(k, prefix) {
+			delete(a.userMeta, k)
+		}
+	}
+}
+
 func (a *App) enrichSessionRowsUser(ctx context.Context, rows []M) {
 	if len(rows) == 0 {
 		return
 	}
+	serverID := a.serverIDFromContext(ctx)
 	hubSet := make(map[string]struct{})
 	for _, row := range rows {
 		if h := str(row["hub"]); h != "" {
 			hubSet[h] = struct{}{}
 		}
 	}
-	userMap := make(map[string]M)
+	hubUsers := make(map[string]map[string]userMetaEntry, len(hubSet))
 	for hub := range hubSet {
+		key := userMetaCacheKey(serverID, hub)
+		a.userMetaMu.RLock()
+		cached, ok := a.userMeta[key]
+		a.userMetaMu.RUnlock()
+		if ok && time.Since(cached.fetchedAt) < userMetaTTL {
+			hubUsers[strings.ToLower(hub)] = cached.users
+			continue
+		}
+		var fetched []M
+		rpcOK := false
 		func() {
 			defer func() { _ = recover() }()
 			out := a.rpc(ctx, "EnumUser", M{"HubName_str": hub})
-			for _, u := range list(out["UserList"]) {
-				name := strings.ToLower(strings.TrimSpace(str(u["Name_str"])))
-				if name != "" {
-					userMap[strings.ToLower(hub)+":"+name] = u
-				}
-			}
+			fetched = list(out["UserList"])
+			rpcOK = true
 		}()
+		if rpcOK {
+			hubUsers[strings.ToLower(hub)] = a.updateUserMetaCache(serverID, hub, fetched)
+		} else if ok {
+			// Fall back to stale cached profile metadata if SoftEther RPC is temporarily unreachable.
+			hubUsers[strings.ToLower(hub)] = cached.users
+		}
 	}
 	for _, row := range rows {
 		hub := strings.ToLower(str(row["hub"]))
 		username := strings.ToLower(strings.TrimSpace(str(row["username"])))
-		if u, ok := userMap[hub+":"+username]; ok {
-			row["real_name"] = str(u["Realname_utf"])
-			row["note"] = str(u["Note_utf"])
+		if entry, ok := hubUsers[hub][username]; ok {
+			row["real_name"] = entry.realName
+			row["note"] = entry.note
 		} else {
 			if _, exists := row["real_name"]; !exists {
 				row["real_name"] = ""
@@ -137,8 +207,8 @@ func escapeLike(s string) string {
 	return s
 }
 
-const clientSessionSQLClause = `LOWER(UserName) NOT IN ('securenat', 'local bridge') AND LOWER(UserName) NOT LIKE 'sid-local-bridge%' AND LOWER(UserName) NOT LIKE 'link_%' AND LOWER(UserName) NOT LIKE 'l3_%'`
-const nonClientSessionDeleteClause = `LOWER(UserName) IN ('securenat', 'local bridge') OR LOWER(UserName) LIKE 'sid-local-bridge%' OR LOWER(UserName) LIKE 'link_%' OR LOWER(UserName) LIKE 'l3_%'`
+const clientSessionSQLClause = `LOWER(UserName) NOT IN ('securenat', 'local bridge') AND LOWER(UserName) NOT GLOB 'sid-local-bridge*' AND LOWER(UserName) NOT GLOB 'link_*' AND LOWER(UserName) NOT GLOB 'l3_*'`
+const nonClientSessionDeleteClause = `LOWER(UserName) IN ('securenat', 'local bridge') OR LOWER(UserName) GLOB 'sid-local-bridge*' OR LOWER(UserName) GLOB 'link_*' OR LOWER(UserName) GLOB 'l3_*'`
 
 func buildSessionReportFilter(serverID int64, r *http.Request) (string, []any) {
 	q := r.URL.Query()
@@ -249,12 +319,13 @@ func (a *App) registerHistory() {
 		limit := queryInt(r, "limit", 100, 1, 500)
 		offset := queryInt(r, "offset", 0, 0, 1000000)
 
-		summary := one(a.db, `SELECT COUNT(*) total_sessions, COALESCE(SUM(CASE WHEN EndedDate IS NULL THEN 1 ELSE 0 END), 0) active_sessions, COUNT(DISTINCT LOWER(UserName)) unique_users, COALESCE(SUM(BytesTotal), 0) total_bytes, COALESCE(SUM(DownloadBytes), 0) download_bytes, COALESCE(SUM(UploadBytes), 0) upload_bytes FROM VpnSessionSample WHERE `+where, args...)
+		rdb := a.readDB()
+		summary := one(rdb, `SELECT COUNT(*) total_sessions, COALESCE(SUM(CASE WHEN EndedDate IS NULL THEN 1 ELSE 0 END), 0) active_sessions, COUNT(DISTINCT LOWER(UserName)) unique_users, COALESCE(SUM(BytesTotal), 0) total_bytes, COALESCE(SUM(DownloadBytes), 0) download_bytes, COALESCE(SUM(UploadBytes), 0) upload_bytes FROM VpnSessionSample WHERE `+where, args...)
 		if summary == nil {
 			summary = M{"total_sessions": 0, "active_sessions": 0, "unique_users": 0, "total_bytes": 0, "download_bytes": 0, "upload_bytes": 0}
 		}
 
-		hubRows := query(a.db, `SELECT DISTINCT HubName hub FROM VpnSessionSample WHERE ServerID=? AND `+clientSessionSQLClause+` ORDER BY HubName`, serverID)
+		hubRows := query(rdb, `SELECT DISTINCT HubName hub FROM VpnSessionSample WHERE ServerID=? AND `+clientSessionSQLClause+` ORDER BY HubName`, serverID)
 		hubs := make([]string, 0, len(hubRows))
 		for _, hr := range hubRows {
 			if h := str(hr["hub"]); h != "" {
@@ -263,7 +334,7 @@ func (a *App) registerHistory() {
 		}
 
 		itemArgs := append(append([]any{}, args...), limit, offset)
-		rows := query(a.db, `SELECT VpnSessionSampleID id,HubName hub,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,LastSeenDate last_seen_date,BytesTotal bytes_total,PacketsTotal packets_total,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE `+where+` ORDER BY julianday(StartedDate) DESC, VpnSessionSampleID DESC LIMIT ? OFFSET ?`, itemArgs...)
+		rows := query(rdb, `SELECT VpnSessionSampleID id,HubName hub,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,LastSeenDate last_seen_date,BytesTotal bytes_total,PacketsTotal packets_total,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE `+where+` ORDER BY julianday(StartedDate) DESC, VpnSessionSampleID DESC LIMIT ? OFFSET ?`, itemArgs...)
 		a.enrichSessionRowsGeo(r.Context(), rows)
 		a.enrichSessionRowsUser(r.Context(), rows)
 		return M{"items": rows, "total": integer(summary["total_sessions"]), "summary": summary, "hubs": hubs}
@@ -274,7 +345,7 @@ func (a *App) registerHistory() {
 		loc := resolveExportLocation(r)
 		zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.URL.Query().Get("lang"))), "zh")
 
-		rows := query(a.db, `SELECT VpnSessionSampleID id,HubName hub,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,LastSeenDate last_seen_date,BytesTotal bytes_total,PacketsTotal packets_total,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE `+where+` ORDER BY julianday(StartedDate) DESC, VpnSessionSampleID DESC LIMIT 50000`, args...)
+		rows := query(a.readDB(), `SELECT VpnSessionSampleID id,HubName hub,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,LastSeenDate last_seen_date,BytesTotal bytes_total,PacketsTotal packets_total,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE `+where+` ORDER BY julianday(StartedDate) DESC, VpnSessionSampleID DESC LIMIT 50000`, args...)
 		a.enrichSessionRowsGeo(r.Context(), rows)
 		a.enrichSessionRowsUser(r.Context(), rows)
 
@@ -355,7 +426,7 @@ func (a *App) registerHistory() {
 			}
 			statement += " ORDER BY VpnSessionSampleID DESC LIMIT ?"
 			args = append(args, queryInt(r, "limit", 100, 1, 500))
-			rows := query(a.db, statement, args...)
+			rows := query(a.readDB(), statement, args...)
 			a.enrichSessionRowsGeo(r.Context(), rows)
 			a.enrichSessionRowsUser(r.Context(), rows)
 			return rows
@@ -363,7 +434,8 @@ func (a *App) registerHistory() {
 	}
 	a.endpoint("GET /hubs/{hub}/session-history/{session_id}/usage", func(_ http.ResponseWriter, r *http.Request, _ M) any {
 		serverID := a.serverIDFromContext(r.Context())
-		session := one(a.db, `SELECT VpnSessionSampleID id,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE ServerID=? AND VpnSessionSampleID=? AND HubName=? AND `+clientSessionSQLClause, serverID, r.PathValue("session_id"), r.PathValue("hub"))
+		rdb := a.readDB()
+		session := one(rdb, `SELECT VpnSessionSampleID id,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,DownloadBytes download_bytes,UploadBytes upload_bytes FROM VpnSessionSample WHERE ServerID=? AND VpnSessionSampleID=? AND HubName=? AND `+clientSessionSQLClause, serverID, r.PathValue("session_id"), r.PathValue("hub"))
 		if session == nil {
 			fail(404, "No such session in this hub's history.")
 		}
@@ -371,7 +443,7 @@ func (a *App) registerHistory() {
 		session["ip_location"] = geo.Location
 		session["ip_isp"] = geo.ISP
 		session["ip_full"] = geo.Full
-		rows := query(a.db, `SELECT DownloadBytes,UploadBytes,TotalBytes,SampledDate FROM VpnSessionTrafficSample WHERE VpnSessionSampleID=? ORDER BY SampledDate`, session["id"])
+		rows := query(rdb, `SELECT DownloadBytes,UploadBytes,TotalBytes,SampledDate FROM VpnSessionTrafficSample WHERE VpnSessionSampleID=? ORDER BY SampledDate`, session["id"])
 		end := time.Now()
 		if s := str(session["ended_date"]); s != "" {
 			end = parseTime(s)
@@ -487,8 +559,8 @@ func (a *App) sampleTraffic(ctx context.Context) {
 				}
 			}()
 			type hubSampleRow struct {
-				hub            string
-				send, recv     int64
+				hub             string
+				send, recv      int64
 				sessions, users int64
 			}
 			type userSampleRow struct {
@@ -521,7 +593,9 @@ func (a *App) sampleTraffic(ctx context.Context) {
 					} else {
 						log.Printf("traffic sample %d/%s: missing or invalid hub counters", serverID, hub)
 					}
-					for _, u := range list(a.rpc(serverCtx, "EnumUser", M{"HubName_str": hub})["UserList"]) {
+					users := list(a.rpc(serverCtx, "EnumUser", M{"HubName_str": hub})["UserList"])
+					a.updateUserMetaCache(serverID, hub, users)
+					for _, u := range users {
 						name := str(u["Name_str"])
 						sBytes, rBytes, valid := userTrafficCounters(u)
 						if !valid {
@@ -856,6 +930,7 @@ func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string)
 	func() {
 		defer func() { _ = recover() }()
 		enumUsers = list(a.rpc(ctx, "EnumUser", M{"HubName_str": hub})["UserList"])
+		a.updateUserMetaCache(serverID, hub, enumUsers)
 	}()
 	sessionInterval := max(int64(5), integer(a.setting("session_interval_seconds")))
 

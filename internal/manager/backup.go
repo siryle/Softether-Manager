@@ -209,7 +209,7 @@ func shouldRunBackup(enabled bool, intervalHours int64, backupTime, lastRunStr s
 		}
 	}
 
-	if intervalHours >= 24 && backupTime != "" {
+	if intervalHours == 24 && backupTime != "" {
 		var h, m int
 		_, _ = fmt.Sscanf(backupTime, "%d:%d", &h, &m)
 		targetToday := time.Date(now.Year(), now.Month(), now.Day(), h, m, 0, 0, now.Location())
@@ -312,9 +312,9 @@ func (a *App) registerBackups() {
 			fail(404, "Backup file not found.")
 		}
 		b64 := base64.StdEncoding.EncodeToString(data)
-		a.rpc(r.Context(), "SetConfig", M{"FileData_bin": b64})
+		out := a.rpc(r.Context(), "SetConfig", M{"FileData_bin": b64})
 		a.audit(u, "config.restored_from_backup", "server", filename, fmt.Sprintf("%d bytes", len(data)))
-		return M{"ok": true, "filename": filename}
+		return M{"ok": true, "filename": filename, "restarting": out["restarting"]}
 	})
 
 	a.endpoint("DELETE /server/backups/{filename}", func(_ http.ResponseWriter, r *http.Request, u M) any {
@@ -351,13 +351,17 @@ func (a *App) registerBackups() {
 
 	a.endpoint("PUT /server/backup-settings", func(w http.ResponseWriter, r *http.Request, u M) any {
 		b := readBody(w, r)
+		if v, exists := b["interval_hours"]; exists {
+			interval := integer(v)
+			if number(v) != float64(interval) || (interval != 6 && interval != 12 && interval != 24) {
+				fail(422, "Backup interval must be 6, 12 or 24 hours.")
+			}
+		}
 		if enabled, ok := b["enabled"].(bool); ok {
 			a.set("backup_enabled", enabled)
 		}
 		if v, exists := b["interval_hours"]; exists {
-			if interval := integer(v); interval >= 1 {
-				a.set("backup_interval_hours", int(interval))
-			}
+			a.set("backup_interval_hours", integer(v))
 		}
 		if v, exists := b["retention_count"]; exists {
 			if keep := integer(v); keep >= 1 && keep <= 100 {
@@ -375,4 +379,3 @@ func (a *App) registerBackups() {
 		return settings(a.serverIDFromContext(r.Context()))
 	})
 }
-

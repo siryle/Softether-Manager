@@ -852,20 +852,10 @@ func (a *App) fetchRawConfig(ctx context.Context) string {
 	return string(raw)
 }
 
-// pushWireGuardConfig applies a full vpn_server.config via SetConfig. Because
-// SetConfig restarts SoftEther, the peer socket may drop right after accepting
-// the configuration; we treat TransportError as restart-in-progress.
-func (a *App) pushWireGuardConfig(ctx context.Context, updated string) (restarting bool) {
-	id := a.serverIDFromContext(ctx)
-	a.requireReleasedQuotas(id)
-	encoded := base64.StdEncoding.EncodeToString([]byte(updated))
-	_, err := a.client(ctx).Call(ctx, "SetConfig", M{"FileData_bin": encoded})
-	if err == nil || isRestartingConfigError(err) {
-		a.resetQuotaBaselines(id)
-		return true
-	}
-	check(err)
-	return false
+// SetConfig restarts SoftEther; the shared RPC path also handles a dropped reply.
+func (a *App) pushWireGuardConfig(ctx context.Context, updated string) bool {
+	out := a.rpc(ctx, "SetConfig", M{"FileData_bin": base64.StdEncoding.EncodeToString([]byte(updated))})
+	return boolean(out["restarting"])
 }
 
 func (a *App) enrichWireGuardPeers(serverID int64, state *wgConfigState) []M {
@@ -998,14 +988,19 @@ func (a *App) registerWireGuard() {
 				patch.UDPPorts = mergeWireGuardUDPPort(state.UDPPorts, prevWGPort, wgPort)
 				patch.HasUDPPorts = true
 			}
-			a.setWireguardPort(serverID, wgPort)
+			if patch.HasUDPPorts && !containsPort(patch.UDPPorts, wgPort) {
+				fail(422, "udp_ports must include wireguard_port.")
+			}
 		}
 		updated, err := patchWireGuardServer(raw, patch)
 		check(err)
-		if updated == raw {
-			return M{"restarting": false}
+		restarting := false
+		if updated != raw {
+			restarting = a.pushWireGuardConfig(r.Context(), updated)
 		}
-		restarting := a.pushWireGuardConfig(r.Context(), updated)
+		if hasWGPort {
+			a.setWireguardPort(serverID, wgPort)
+		}
 		a.audit(u, "wireguard.updated", "server", "", "restart requested")
 		return M{"restarting": restarting}
 	})
