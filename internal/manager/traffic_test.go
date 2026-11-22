@@ -224,3 +224,37 @@ func TestTrafficUsageDownsamplesLongWindowsAndUsesReadOnlyPool(t *testing.T) {
 		t.Fatal("downsampling lost the gap boundary")
 	}
 }
+
+func TestObserveHubLiveTrafficComputesStableRatesAndHandlesDrops(t *testing.T) {
+	a := testApp(t)
+	base := time.Now()
+
+	// First observation only establishes a baseline.
+	if s, r, ok := a.observeHubLiveTraffic(1, "DEFAULT", 1000, 2000, base); ok || s != 0 || r != 0 {
+		t.Fatalf("expected no rate on baseline, got send=%v recv=%v ok=%v", s, r, ok)
+	}
+
+	// After 10s (matching SoftEther's flush interval), exact B/s is computed.
+	s, r, ok := a.observeHubLiveTraffic(1, "DEFAULT", 3000, 12000, base.Add(10*time.Second))
+	if !ok || s != 200 || r != 1000 {
+		t.Fatalf("expected 200/1000 B/s over 10s, got send=%v recv=%v ok=%v", s, r, ok)
+	}
+
+	// Rapid 1s refresh with unchanged counters must skip the 1s point and keep referencing the >=10s baseline (no fake 0 drop).
+	s, r, ok = a.observeHubLiveTraffic(1, "DEFAULT", 3000, 12000, base.Add(11*time.Second))
+	if !ok || s < 180 || s > 183 || r < 908 || r > 910 {
+		t.Fatalf("rapid refresh jittered rate: send=%v recv=%v ok=%v", s, r, ok)
+	}
+
+	// Counter drop (e.g. user deleted or server restarted) clamps cleanly to 0 without negative values.
+	s, r, ok = a.observeHubLiveTraffic(1, "DEFAULT", 100, 200, base.Add(25*time.Second))
+	if !ok || s != 0 || r != 0 {
+		t.Fatalf("expected drop to clamp to 0 B/s, got send=%v recv=%v ok=%v", s, r, ok)
+	}
+
+	// Invalidating the server clears its live rate baseline.
+	a.invalidateLiveTraffic(1)
+	if _, _, ok := a.observeHubLiveTraffic(1, "DEFAULT", 500, 1000, base.Add(40*time.Second)); ok {
+		t.Fatal("expected invalidated server to require a fresh baseline")
+	}
+}

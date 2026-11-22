@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestRPCSoftEtherStringIDs(t *testing.T) {
@@ -446,5 +447,26 @@ func TestOverviewHubAndProbeAggregateRealUserTraffic(t *testing.T) {
 	status, out, _ = call(t, a, "POST", "/api/v1/servers/1/probe", nil, token)
 	if status != 200 || integer(out["send_bytes"]) != 1250 || integer(out["recv_bytes"]) != 4500 || integer(out["sessions"]) != 1 {
 		t.Fatalf("server probe did not aggregate real user traffic: %d %v", status, out)
+	}
+
+	// Seed a 15-second-old baseline and verify overview & hub status report live VPN download/upload rates.
+	a.invalidateLiveTraffic(1)
+	a.observeHubLiveTraffic(1, "DEFAULT", 250, 1500, time.Now().Add(-15*time.Second))
+
+	status, out, _ = call(t, a, "GET", "/api/v1/server/overview", nil, token)
+	if status != 200 {
+		t.Fatalf("overview with live rate failed: %d %v", status, out)
+	}
+	stData = object(object(out["status"])["data"])
+	txRate := number(stData["ClientSendBytesPerSec_f64"])
+	rxRate := number(stData["ClientRecvBytesPerSec_f64"])
+	// Delta is +1000 send / +3000 recv over ~15s => ~66.7 B/s send, ~200 B/s recv.
+	if stData["ClientSendBytesPerSec_f64"] == nil || txRate < 50 || txRate > 85 || rxRate < 150 || rxRate > 250 {
+		t.Fatalf("unexpected overview live VPN rates: send=%v recv=%v", stData["ClientSendBytesPerSec_f64"], stData["ClientRecvBytesPerSec_f64"])
+	}
+
+	status, out, _ = call(t, a, "GET", "/api/v1/hubs/DEFAULT/status", nil, token)
+	if status != 200 || out["ClientRecvBytesPerSec_f64"] == nil || number(out["ClientRecvBytesPerSec_f64"]) < 150 {
+		t.Fatalf("unexpected hub live VPN rate: %d %v", status, out)
 	}
 }

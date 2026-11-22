@@ -192,6 +192,14 @@ export function Dashboard() {
   const net = resources && resources.available !== false ? (resources.network as Wire | undefined) : undefined;
   const netRx = Number(net?.rx_bytes_per_second) || 0;
   const netTx = Number(net?.tx_bytes_per_second) || 0;
+  const vpnRxRate =
+    typeof status?.ClientRecvBytesPerSec_f64 === "number" && Number.isFinite(status.ClientRecvBytesPerSec_f64)
+      ? Math.max(0, status.ClientRecvBytesPerSec_f64)
+      : null;
+  const vpnTxRate =
+    typeof status?.ClientSendBytesPerSec_f64 === "number" && Number.isFinite(status.ClientSendBytesPerSec_f64)
+      ? Math.max(0, status.ClientSendBytesPerSec_f64)
+      : null;
 
   const countProto = (...keys: string[]) => {
     let total = 0;
@@ -277,6 +285,7 @@ export function Dashboard() {
     });
   }
 
+  const rangeLabel = trafficHours >= 48 ? `${trafficHours / 24}d` : `${trafficHours}h`;
   const topUsers = analytics?.top_users ?? [];
   const maxUserBytes = Math.max(1, ...topUsers.map((u) => u.total_bytes));
 
@@ -360,12 +369,12 @@ export function Dashboard() {
         <div className="stat-card">
           <div className="stat-card__l flex items-center justify-between flex-wrap gap-2">
             <span>{t("Cumulative download (RX)")}</span>
-            {net && <span className="stat-card__badge stat-card__badge--rx">↓ {formatBytes(netRx)}/s</span>}
+            {vpnRxRate !== null && <span className="stat-card__badge stat-card__badge--rx">↓ {formatBytes(vpnRxRate)}/s</span>}
           </div>
           <div className="stat-card__v">{formatBytes(rxTotal)}</div>
           <div className="stat-card__s">
             {serverUsage && serverUsage.total_recv > 0
-              ? t("Window: {size}", { size: formatBytes(serverUsage.total_recv) })
+              ? t("Past {range}: {size}", { range: rangeLabel, size: formatBytes(serverUsage.total_recv) })
               : t("Across all VPN users")}
           </div>
         </div>
@@ -373,12 +382,12 @@ export function Dashboard() {
         <div className="stat-card">
           <div className="stat-card__l flex items-center justify-between flex-wrap gap-2">
             <span>{t("Cumulative upload (TX)")}</span>
-            {net && <span className="stat-card__badge stat-card__badge--tx">↑ {formatBytes(netTx)}/s</span>}
+            {vpnTxRate !== null && <span className="stat-card__badge stat-card__badge--tx">↑ {formatBytes(vpnTxRate)}/s</span>}
           </div>
           <div className="stat-card__v">{formatBytes(txTotal)}</div>
           <div className="stat-card__s">
             {serverUsage && serverUsage.total_send > 0
-              ? t("Window: {size}", { size: formatBytes(serverUsage.total_send) })
+              ? t("Past {range}: {size}", { range: rangeLabel, size: formatBytes(serverUsage.total_send) })
               : t("Across all VPN users")}
           </div>
         </div>

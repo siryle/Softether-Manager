@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -349,4 +350,107 @@ func sampledTraffic(m M, prefix string) (int64, int64, bool) {
 		}
 	}
 	return totals[0], totals[1], true
+}
+
+const (
+	liveTrafficPreferredSpan = 10 * time.Second // matches SoftEther's INCREMENT_TRAFFIC_INTERVAL
+	liveTrafficMinSpan       = 2 * time.Second
+	liveTrafficMaxAge        = 10 * time.Minute
+	liveTrafficMaxPoints     = 32
+)
+
+type liveTrafficPoint struct {
+	at         time.Time
+	send, recv int64
+}
+
+func sumUserListTraffic(users []M) (send, recv int64, ok bool) {
+	validUsers := 0
+	for _, u := range users {
+		s, r, valid := userTrafficCounters(u)
+		if !valid {
+			continue
+		}
+		validUsers++
+		send += s
+		recv += r
+	}
+	if len(users) > 0 && validUsers == 0 {
+		return 0, 0, false
+	}
+	return send, recv, true
+}
+
+func (a *App) observeHubLiveTraffic(serverID int64, hub string, send, recv int64, at time.Time) (sendRate, recvRate float64, hasRate bool) {
+	if serverID <= 0 || strings.TrimSpace(hub) == "" {
+		return 0, 0, false
+	}
+	key := userMetaCacheKey(serverID, hub)
+	a.liveTrafficMu.Lock()
+	defer a.liveTrafficMu.Unlock()
+	if a.liveTraffic == nil {
+		a.liveTraffic = make(map[string][]liveTrafficPoint)
+	}
+	pts := a.liveTraffic[key]
+	cutoff := at.Add(-liveTrafficMaxAge)
+	keep := 0
+	for _, p := range pts {
+		if !p.at.Before(cutoff) && !p.at.After(at) {
+			pts[keep] = p
+			keep++
+		}
+	}
+	pts = pts[:keep]
+
+	// Pick the newest reference >= 10s old so SoftEther's 10s flush interval does not jitter or spike on rapid refreshes.
+	refIdx := -1
+	for i := len(pts) - 1; i >= 0; i-- {
+		if at.Sub(pts[i].at) >= liveTrafficPreferredSpan {
+			refIdx = i
+			break
+		}
+	}
+	if refIdx < 0 {
+		for i := 0; i < len(pts); i++ {
+			if at.Sub(pts[i].at) >= liveTrafficMinSpan {
+				refIdx = i
+				break
+			}
+		}
+	}
+	if refIdx >= 0 {
+		ref := pts[refIdx]
+		if elapsed := at.Sub(ref.at).Seconds(); elapsed > 0 {
+			if send >= ref.send {
+				sendRate = float64(send-ref.send) / elapsed
+			}
+			if recv >= ref.recv {
+				recvRate = float64(recv-ref.recv) / elapsed
+			}
+			hasRate = true
+		}
+	}
+
+	if len(pts) == 0 || at.Sub(pts[len(pts)-1].at) >= liveTrafficMinSpan {
+		pts = append(pts, liveTrafficPoint{at: at, send: send, recv: recv})
+		if len(pts) > liveTrafficMaxPoints {
+			pts = append([]liveTrafficPoint(nil), pts[len(pts)-liveTrafficMaxPoints:]...)
+		}
+	}
+	a.liveTraffic[key] = pts
+	return sendRate, recvRate, hasRate
+}
+
+func (a *App) invalidateLiveTraffic(serverID int64) {
+	a.liveTrafficMu.Lock()
+	defer a.liveTrafficMu.Unlock()
+	if a.liveTraffic == nil {
+		return
+	}
+	prefix := fmt.Sprintf("%d\x00", serverID)
+	for k := range a.liveTraffic {
+		if strings.HasPrefix(k, prefix) {
+			delete(a.liveTraffic, k)
+		}
+	}
 }

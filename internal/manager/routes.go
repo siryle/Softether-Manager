@@ -105,15 +105,19 @@ func (a *App) registerCustomRPC() {
 			wg.Wait()
 			if hubEntry, ok := out["hubs"].(M); ok && boolean(hubEntry["ok"]) {
 				if hubData, ok := hubEntry["data"].(M); ok {
-					clientTotal, sessOK, totalSend, totalRecv, trafficOK := a.enrichHubListStats(ctx, list(hubData["HubList"]), true, true)
+					stats := a.enrichHubListStats(ctx, list(hubData["HubList"]), true, true)
 					if statusEntry, ok := out["status"].(M); ok && boolean(statusEntry["ok"]) {
 						if statusData, ok := statusEntry["data"].(M); ok {
-							if sessOK {
-								statusData["ClientSessionsTotal_u32"] = clientTotal
+							if stats.sessionsOK {
+								statusData["ClientSessionsTotal_u32"] = stats.clientSessions
 							}
-							if trafficOK {
-								statusData["ClientSendBytes_u64"] = totalSend
-								statusData["ClientRecvBytes_u64"] = totalRecv
+							if stats.trafficOK {
+								statusData["ClientSendBytes_u64"] = stats.sendBytes
+								statusData["ClientRecvBytes_u64"] = stats.recvBytes
+							}
+							if stats.rateOK {
+								statusData["ClientSendBytesPerSec_f64"] = stats.sendRate
+								statusData["ClientRecvBytesPerSec_f64"] = stats.recvRate
 							}
 						}
 					}

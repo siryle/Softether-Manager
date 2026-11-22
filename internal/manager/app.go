@@ -169,6 +169,8 @@ type App struct {
 	wgTrack                                        map[string]*wgSessTrack
 	configCacheMu                                  sync.RWMutex
 	configCache                                    map[int64]rawConfigCacheEntry
+	liveTrafficMu                                  sync.Mutex
+	liveTraffic                                    map[string][]liveTrafficPoint
 }
 
 type rawConfigCacheEntry struct {

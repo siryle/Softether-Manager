@@ -898,6 +898,7 @@ func (a *App) sampleTraffic(ctx context.Context) {
 					}
 					_, err = hubStmt.Exec(sid, hs.hub, totalSend, totalRecv, hs.sessions, hs.users, stamp, stampTs, dSend, dRecv, hasDeltaInt)
 					check(err)
+					a.observeHubLiveTraffic(sid, hs.hub, totalSend, totalRecv, time.Now())
 					if hasDelta {
 						_, err = rollupStmt.Exec(sid, "hub", hs.hub, "", "", bucketTs, dSend, dRecv, hs.sessions)
 						check(err)
@@ -1153,8 +1154,14 @@ func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string)
 	go func() {
 		defer prepWG.Done()
 		defer func() { _ = recover() }()
-		enumUsers = list(a.rpc(ctx, "EnumUser", M{"HubName_str": hub})["UserList"])
-		a.updateUserMetaCache(serverID, hub, enumUsers)
+		out := a.rpc(ctx, "EnumUser", M{"HubName_str": hub})
+		if rawList, hasList := out["UserList"]; hasList {
+			enumUsers = list(rawList)
+			a.updateUserMetaCache(serverID, hub, enumUsers)
+			if s, r, ok := sumUserListTraffic(enumUsers); ok {
+				a.observeHubLiveTraffic(serverID, hub, s, r, time.Now())
+			}
+		}
 	}()
 
 	type sessDetail struct {

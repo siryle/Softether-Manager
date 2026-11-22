@@ -2041,6 +2041,7 @@ const zhCN: Record<string, string> = {
   "Virtual HUB": "虚拟 HUB",
   "Volume": "总量",
   "Window: {size}": "窗口内：{size}",
+  "Past {range}: {size}": "近 {range}：{size}",
   "user, host, IP, region…": "用户名、主机名、IP、属地…",
   "{active}/30d active · {n} logins": "近 30 天活跃 {active} 天 · 共 {n} 次登录",
   "{count} abnormal disconnects": "{count} 次异常断开",

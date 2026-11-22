@@ -255,6 +255,7 @@ func (a *App) rpc(ctx context.Context, method string, params M) M {
 		}()
 		a.invalidateUserMetaCache(id, "")
 		a.invalidateConfigCache(id)
+		a.invalidateLiveTraffic(id)
 		if out == nil {
 			out = M{}
 		}
@@ -331,6 +332,7 @@ func (a *App) saveConnection(host string, port int, password *string, auth strin
 	a.invalidateClientLocked(id)
 	a.invalidateUserMetaCache(id, "")
 	a.invalidateConfigCache(id)
+	a.invalidateLiveTraffic(id)
 	if boolean(row["IsDefault"]) {
 		a.syncDefaultConnection(row)
 	}
@@ -360,41 +362,45 @@ func (a *App) countHubClientSessions(ctx context.Context, hub string) (count int
 	return count, true
 }
 
-func (a *App) sumHubUserTraffic(ctx context.Context, hub string) (send, recv int64, ok bool) {
+type hubListStats struct {
+	clientSessions int64
+	sessionsOK     bool
+	sendBytes      int64
+	recvBytes      int64
+	trafficOK      bool
+	sendRate       float64
+	recvRate       float64
+	rateOK         bool
+}
+
+func (a *App) sumHubUserTraffic(ctx context.Context, hub string) (send, recv int64, sendRate, recvRate float64, hasRate, ok bool) {
 	if hub == "" {
-		return 0, 0, false
+		return 0, 0, 0, 0, false, false
 	}
 	defer func() {
 		if recover() != nil {
-			send, recv, ok = 0, 0, false
+			send, recv, sendRate, recvRate, hasRate, ok = 0, 0, 0, 0, false, false
 		}
 	}()
 	out := a.rpc(ctx, "EnumUser", M{"HubName_str": hub})
 	rawList, hasList := out["UserList"]
 	if !hasList {
-		return 0, 0, false
+		return 0, 0, 0, 0, false, false
 	}
 	users := list(rawList)
-	a.updateUserMetaCache(a.serverIDFromContext(ctx), hub, users)
-	validUsers := 0
-	for _, u := range users {
-		s, r, valid := userTrafficCounters(u)
-		if !valid {
-			continue
-		}
-		validUsers++
-		send += s
-		recv += r
+	serverID := a.serverIDFromContext(ctx)
+	a.updateUserMetaCache(serverID, hub, users)
+	send, recv, ok = sumUserListTraffic(users)
+	if !ok {
+		return 0, 0, 0, 0, false, false
 	}
-	if len(users) > 0 && validUsers == 0 {
-		return 0, 0, false
-	}
-	return send, recv, true
+	sendRate, recvRate, hasRate = a.observeHubLiveTraffic(serverID, hub, send, recv, time.Now())
+	return send, recv, sendRate, recvRate, hasRate, true
 }
 
-func (a *App) enrichHubListStats(ctx context.Context, hubs []M, includeSessions, includeTraffic bool) (clientTotal int64, sessOK bool, totalSend, totalRecv int64, trafficOK bool) {
+func (a *App) enrichHubListStats(ctx context.Context, hubs []M, includeSessions, includeTraffic bool) hubListStats {
 	if len(hubs) == 0 {
-		return 0, true, 0, 0, true
+		return hubListStats{sessionsOK: includeSessions, trafficOK: includeTraffic}
 	}
 	type hubJob struct {
 		name      string
@@ -403,10 +409,12 @@ func (a *App) enrichHubListStats(ctx context.Context, hubs []M, includeSessions,
 		needUsers bool
 	}
 	type hubRes struct {
-		sess       int64
-		sessOK     bool
-		send, recv int64
-		trafficOK  bool
+		sess               int64
+		sessOK             bool
+		send, recv         int64
+		sendRate, recvRate float64
+		rateOK             bool
+		trafficOK          bool
 	}
 	jobs := make([]hubJob, len(hubs))
 	results := make([]hubRes, len(hubs))
@@ -426,6 +434,7 @@ func (a *App) enrichHubListStats(ctx context.Context, hubs []M, includeSessions,
 		}
 		if includeTraffic && name == "" {
 			results[i].trafficOK = true
+			results[i].rateOK = true
 		}
 	}
 	sem := make(chan struct{}, 6)
@@ -451,35 +460,44 @@ func (a *App) enrichHubListStats(ctx context.Context, hubs []M, includeSessions,
 				inner.Add(1)
 				go func() {
 					defer inner.Done()
-					results[idx].send, results[idx].recv, results[idx].trafficOK = a.sumHubUserTraffic(ctx, j.name)
+					results[idx].send, results[idx].recv, results[idx].sendRate, results[idx].recvRate, results[idx].rateOK, results[idx].trafficOK = a.sumHubUserTraffic(ctx, j.name)
 				}()
 			}
 			inner.Wait()
 		}(i, job)
 	}
 	wg.Wait()
-	sessOK, trafficOK = includeSessions, includeTraffic
+	out := hubListStats{sessionsOK: includeSessions, trafficOK: includeTraffic, rateOK: includeTraffic}
 	for i, r := range results {
 		if includeSessions {
 			if r.sessOK {
 				hubs[i]["ClientSessions_u32"] = r.sess
-				clientTotal += r.sess
+				out.clientSessions += r.sess
 			} else {
-				sessOK = false
+				out.sessionsOK = false
 			}
 		}
 		if includeTraffic {
 			if r.trafficOK {
 				hubs[i]["ClientSendBytes_u64"] = r.send
 				hubs[i]["ClientRecvBytes_u64"] = r.recv
-				totalSend += r.send
-				totalRecv += r.recv
+				out.sendBytes += r.send
+				out.recvBytes += r.recv
+				if r.rateOK {
+					hubs[i]["ClientSendBytesPerSec_f64"] = r.sendRate
+					hubs[i]["ClientRecvBytesPerSec_f64"] = r.recvRate
+					out.sendRate += r.sendRate
+					out.recvRate += r.recvRate
+				} else {
+					out.rateOK = false
+				}
 			} else {
-				trafficOK = false
+				out.trafficOK = false
+				out.rateOK = false
 			}
 		}
 	}
-	return clientTotal, sessOK, totalSend, totalRecv, trafficOK
+	return out
 }
 
 func (a *App) probeServer(ctx context.Context, countClients ...bool) (result M) {
@@ -510,12 +528,12 @@ func (a *App) probeServer(ctx context.Context, countClients ...bool) (result M) 
 		}()
 		if len(hubs) > 0 {
 			// Sum per-user counters to exclude Local Bridge / SecureNAT double-counting and LAN noise.
-			clientTotal, sessOK, uSend, uRecv, trafficOK := a.enrichHubListStats(ctx, hubs, integer(sessions) > 0, true)
-			if sessOK {
-				sessions = clientTotal
+			stats := a.enrichHubListStats(ctx, hubs, integer(sessions) > 0, true)
+			if stats.sessionsOK {
+				sessions = stats.clientSessions
 			}
-			if trafficOK {
-				sendBytes, recvBytes = uSend, uRecv
+			if stats.trafficOK {
+				sendBytes, recvBytes = stats.sendBytes, stats.recvBytes
 			}
 		}
 	}
@@ -624,7 +642,8 @@ func (a *App) registerRPCRoutes() {
 				var clientSess int64
 				var sessOK bool
 				var uSend, uRecv int64
-				var trafficOK bool
+				var uSendRate, uRecvRate float64
+				var rateOK, trafficOK bool
 				if out["NumSessions_u32"] != nil && integer(out["NumSessions_u32"]) == 0 {
 					out["ClientSessions_u32"] = int64(0)
 				} else {
@@ -637,7 +656,7 @@ func (a *App) registerRPCRoutes() {
 				hubWG.Add(1)
 				go func() {
 					defer hubWG.Done()
-					uSend, uRecv, trafficOK = a.sumHubUserTraffic(r.Context(), hubName)
+					uSend, uRecv, uSendRate, uRecvRate, rateOK, trafficOK = a.sumHubUserTraffic(r.Context(), hubName)
 				}()
 				hubWG.Wait()
 				if sessOK {
@@ -646,6 +665,10 @@ func (a *App) registerRPCRoutes() {
 				if trafficOK {
 					out["ClientSendBytes_u64"] = uSend
 					out["ClientRecvBytes_u64"] = uRecv
+				}
+				if rateOK {
+					out["ClientSendBytesPerSec_f64"] = uSendRate
+					out["ClientRecvBytesPerSec_f64"] = uRecvRate
 				}
 			}
 			if route.Audit != "" {
