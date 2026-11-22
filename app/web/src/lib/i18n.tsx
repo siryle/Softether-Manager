@@ -2055,6 +2055,8 @@ const zhCN: Record<string, string> = {
   "{n}s": "{n} 秒",
   "{n}s/pt": "{n}秒/点",
   "{users} users · {hubs} HUB": "{users} 用户 · {hubs} HUB",
+  "WireGuard idle timeout (seconds)": "WireGuard 断连超时清理（秒）",
+  "Clears disconnected WireGuard ghost sessions after this many seconds with no client packets (0 disables).": "WireGuard 客户端无入站数据包超过此时长后自动清理残留在线会话并标记下线（填 0 关闭）。",
 };
 
 interface I18nApi {

@@ -477,6 +477,7 @@ function MonitoringCard() {
           session_interval_seconds: num("session_interval_seconds", 60),
           session_traffic_enabled: on("session_traffic_enabled"),
           session_history_retention_days: num("session_history_retention_days", 30),
+          wireguard_idle_timeout_seconds: num("wireguard_idle_timeout_seconds", 90),
           quota_enforcement_enabled: on("quota_enforcement_enabled"),
           quota_interval_seconds: num("quota_interval_seconds", 60),
           ui_live_seconds: num("ui_live_seconds", 5),
@@ -572,6 +573,9 @@ function MonitoringCard() {
             </div>
           </>
         )}
+        <div className="row2">
+          {numberField("WireGuard idle timeout (seconds)", "wireguard_idle_timeout_seconds", 90, 0, 86400, "Clears disconnected WireGuard ghost sessions after this many seconds with no client packets (0 disables).")}
+        </div>
 
         <div className="tpl__group">{t("Traffic limits")}</div>
         <CheckRow

@@ -5,6 +5,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 )
 
 func isIP(s string) bool {
@@ -275,12 +276,17 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 	userMap := make(map[string]M)
 	var geoMap map[string]IPGeoInfo
 
+	serverID := a.serverIDFromContext(ctx)
+	nowUTC := time.Now().UTC()
+
 	type sessStatusRes struct {
 		name       string
 		clientHost string
 		serverPort int64
 		clientPort int64
 		protocol   string
+		staleWG    bool
+		lastAct    time.Time
 	}
 	sessStatusMap := make(map[string]sessStatusRes)
 
@@ -355,8 +361,9 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 				}
 				sPort, cPort := extractSessionPorts(st)
 				proto := detectSessionProtocol(sess, st)
-				if host != "" || sPort > 0 || cPort > 0 || proto != "" {
-					ch <- sessStatusRes{name: sn, clientHost: host, serverPort: sPort, clientPort: cPort, protocol: proto}
+				staleWG, lastAct := a.observeWireGuardSession(serverID, hub, sess, st, nowUTC)
+				if host != "" || sPort > 0 || cPort > 0 || proto != "" || staleWG {
+					ch <- sessStatusRes{name: sn, clientHost: host, serverPort: sPort, clientPort: cPort, protocol: proto, staleWG: staleWG, lastAct: lastAct}
 				}
 			}(s, sessName)
 		}
@@ -368,11 +375,19 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 	}
 	topWG.Wait()
 
+	out := make([]M, 0, len(sessions))
 	for _, s := range sessions {
 		sessName := str(s["Name_str"])
 		clientIP := strings.TrimSpace(str(s["ClientIP_ip"]))
 		host := strings.TrimSpace(str(s["Hostname_str"]))
 		remoteHost := strings.TrimSpace(str(s["RemoteHostname_str"])) // SoftEther server's hostname
+
+		if res, ok := sessStatusMap[sessName]; ok && res.staleWG {
+			go a.reapWireGuardSession(ctx, serverID, hub, s, res.lastAct)
+			continue
+		} else if !ok && a.isWireGuardReaped(serverID, hub, s) {
+			continue
+		}
 
 		if ips, ok := sessionIPs[sessName]; ok && len(ips) > 0 {
 			s["VirtualIP_ip"] = strings.Join(ips, ", ")
@@ -431,8 +446,9 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 			s["Realname_utf"] = str(u["Realname_utf"])
 			s["Note_utf"] = str(u["Note_utf"])
 		}
+		out = append(out, s)
 	}
-	return sessions
+	return out
 }
 
 // enrichSessionStatus supplements single session status with Virtual IP (IPv4 only) and clean client hostname.

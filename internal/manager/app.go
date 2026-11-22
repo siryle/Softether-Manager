@@ -165,6 +165,8 @@ type App struct {
 	sfFlights                                      map[string]*inflightCall
 	pruneMu                                        sync.Mutex
 	lastPruneAt                                    time.Time
+	wgTrackMu                                      sync.Mutex
+	wgTrack                                        map[string]*wgSessTrack
 }
 
 // singleflight coalesces concurrent identical read RPC flows without caching stale data.

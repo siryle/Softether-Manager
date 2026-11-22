@@ -552,6 +552,9 @@ func (a *App) startWorkers(ctx context.Context) {
 		return time.Duration(max(int64(5), integer(a.setting("session_interval_seconds")))) * time.Second
 	}, a.sampleSessions)
 	a.worker(ctx, 15*time.Second, func() time.Duration {
+		return 15 * time.Second
+	}, a.wgLivenessTick)
+	a.worker(ctx, 15*time.Second, func() time.Duration {
 		return time.Duration(max(int64(10), integer(a.setting("quota_interval_seconds")))) * time.Second
 	}, a.quotaTick)
 	a.worker(ctx, time.Millisecond, func() time.Duration {
@@ -1099,9 +1102,12 @@ func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string)
 		protocol   string
 		serverPort int64
 		clientPort int64
+		staleWG    bool
+		lastAct    time.Time
 	}
 	details := make(map[string]sessDetail)
-	if series && len(live) > 0 {
+	wgTimeout := a.wireguardIdleTimeout()
+	if (series || wgTimeout > 0) && len(live) > 0 {
 		var mu sync.Mutex
 		var wg sync.WaitGroup
 		sem := make(chan struct{}, 8)
@@ -1121,13 +1127,18 @@ func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string)
 				key = fallbackSessionKey(sessName, username, started)
 			}
 			packetSize := integer(s["PacketSize_u64"])
-			if prev, ok := openByKey[key]; ok && packetSize == prev.bytesTotal && (prev.down+prev.up == packetSize || packetSize == 0) && prev.protocol != "" {
+			prev, hasPrev := openByKey[key]
+			isWG := isWireGuardSession(s, nil) || (hasPrev && prev.protocol == "WireGuard")
+			if !series && !(wgTimeout > 0 && isWG) {
+				continue
+			}
+			if hasPrev && (!isWG || wgTimeout <= 0) && packetSize == prev.bytesTotal && (prev.down+prev.up == packetSize || packetSize == 0) && prev.protocol != "" {
 				// Traffic and identity are unchanged since last poll: reuse last known counters without an RPC.
 				mu.Lock()
 				details[sessName] = sessDetail{
 					down:       prev.down,
 					up:         prev.up,
-					sampled:    true,
+					sampled:    series,
 					clientHost: prev.clientHost,
 					protocol:   prev.protocol,
 					serverPort: prev.serverPort,
@@ -1156,15 +1167,18 @@ func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string)
 				}
 				sPort, cPort := extractSessionPorts(status)
 				proto := detectSessionProtocol(sess, status)
+				staleWG, lastAct := a.observeWireGuardSession(serverID, hub, sess, status, stampTime)
 				mu.Lock()
 				details[sn] = sessDetail{
 					down:       down,
 					up:         up,
-					sampled:    true,
+					sampled:    series,
 					clientHost: chHost,
 					protocol:   proto,
 					serverPort: sPort,
 					clientPort: cPort,
+					staleWG:    staleWG,
+					lastAct:    lastAct,
 				}
 				mu.Unlock()
 			}(s, sessName, clientIP)
@@ -1211,6 +1225,10 @@ func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string)
 		}
 
 		d := details[sessName]
+		if d.staleWG {
+			a.reapWireGuardSession(ctx, serverID, hub, s, d.lastAct)
+			continue
+		}
 		clientHost := d.clientHost
 		if clientHost == "" {
 			clientHost = firstDHCPHost(sessionIPs[sessName], ipToDhcpHost, remoteHost)

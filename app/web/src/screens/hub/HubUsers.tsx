@@ -215,22 +215,22 @@ export function HubUsers({ hub }: { hub: string }) {
           {/* desktop table */}
           <div className="only-desktop-b">
             <div className="card tcard">
-              <div className="tscroll">
-                <table className="dtable">
+              <div className="tscroll" tabIndex={0} role="region" aria-label={t("Users")}>
+                <table className="dtable dtable--dense">
                   <thead>
                     <tr>
                       <SortTh sortKey="user" sort={sort} onSort={toggle}>{t("User")}</SortTh>
                       <SortTh sortKey="realname" sort={sort} onSort={toggle}>{t("Real name")}</SortTh>
                       <SortTh sortKey="note" sort={sort} onSort={toggle}>{t("Note")}</SortTh>
-                      <SortTh sortKey="status" sort={sort} onSort={toggle} style={{ width: 110 }}>{t("Status")}</SortTh>
+                      <SortTh sortKey="status" sort={sort} onSort={toggle}>{t("Status")}</SortTh>
                       <SortTh sortKey="group" sort={sort} onSort={toggle}>{t("Group")}</SortTh>
                       <SortTh sortKey="auth" sort={sort} onSort={toggle}>{t("Auth")}</SortTh>
                       <SortTh sortKey="login" sort={sort} onSort={toggle}>{t("Last login")}</SortTh>
-                      <SortTh sortKey="logins" sort={sort} onSort={toggle} style={{ width: 90 }}>{t("Logins")}</SortTh>
+                      <SortTh sortKey="logins" sort={sort} onSort={toggle}>{t("Logins")}</SortTh>
                       <SortTh sortKey="transfer" sort={sort} onSort={toggle}>{t("Transfer")}</SortTh>
                       <SortTh sortKey="quota" sort={sort} onSort={toggle}>{t("Limit")}</SortTh>
                       <SortTh sortKey="expires" sort={sort} onSort={toggle}>{t("Expires")}</SortTh>
-                      <th className="tact" style={{ width: 184 }} aria-label={t("Actions")} />
+                      <th className="tact" aria-label={t("Actions")} />
                     </tr>
                   </thead>
                   <tbody>

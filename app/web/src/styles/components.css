@@ -624,6 +624,29 @@
   text-align: end;
   white-space: nowrap;
 }
+.dtable--dense {
+  table-layout: auto;
+}
+.dtable--dense th,
+.dtable--dense td {
+  padding: 11px 10px;
+  white-space: nowrap;
+}
+.dtable--dense th:first-child,
+.dtable--dense td:first-child {
+  padding-inline-start: 16px;
+}
+.dtable--dense th:last-child,
+.dtable--dense td:last-child {
+  padding-inline-end: 14px;
+  width: 1%;
+}
+.dtable--dense .tact .btn--sm {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+}
 .dtable .tact .btn {
   vertical-align: middle;
 }

@@ -431,6 +431,9 @@ func (a *App) registerRPCRoutes() {
 			validateWire(params)
 			a.guardHubOnline(r.Context(), route.RPC, params)
 			out := a.rpc(r.Context(), route.RPC, params)
+			if route.RPC == "DeleteSession" {
+				a.markSessionClosedNow(a.serverIDFromContext(r.Context()), str(params["HubName_str"]), str(params["Name_str"]), "Disconnected by administrator")
+			}
 			if route.RPC == "EnumAccess" {
 				out["version"] = accessVersion(out["AccessList"])
 			} else if route.RPC == "GetAcList" {

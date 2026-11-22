@@ -54,31 +54,27 @@ export function TrafficChart({
   emptyLabel,
   defaultMode = "vol",
   height = H,
+  fill = false,
 }: {
   usage: Usage;
   emptyLabel?: string;
   defaultMode?: ChartMode;
   height?: number;
+  fill?: boolean;
 }) {
-  const chartH = Math.max(140, height);
   const [hover, setHover] = useState<number | null>(null);
   const [width, setWidth] = useState(720);
+  const [stageHeight, setStageHeight] = useState<number | null>(null);
   const [mode, setMode] = useState<ChartMode>(defaultMode);
   const [showRecv, setShowRecv] = useState(true);
   const [showSend, setShowSend] = useState(true);
   const [showSessions, setShowSessions] = useState(true);
   const holder = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const el = holder.current;
-    if (!el) return;
-    const observer = new ResizeObserver((entries) => {
-      const w = Math.round(entries[0]?.contentRect.width ?? 0);
-      if (w > 80) setWidth(w);
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+  const chartH = fill && stageHeight ? stageHeight : Math.max(140, height);
+  const padBottom = fill ? 20 : PAD_BASE.bottom;
+  const xLabelY = fill ? chartH - 3 : chartH - 7;
 
   const intervalSec = Math.max(1, Number(usage.sample_interval_seconds) || 300);
 
@@ -130,7 +126,7 @@ export function TrafficChart({
     const padRight = hasSessions && showSessions ? 42 : PAD_BASE.right;
     const padLeft = mode === "rate" ? 72 : PAD_BASE.left;
     const innerW = Math.max(40, width - padLeft - padRight);
-    const innerH = chartH - PAD_BASE.top - PAD_BASE.bottom;
+    const innerH = chartH - PAD_BASE.top - padBottom;
 
     const valOf = (p: PlotPoint, key: "send" | "recv") => (mode === "rate" ? p[key] / intervalSec : p[key]);
 
@@ -212,11 +208,32 @@ export function TrafficChart({
       peakPoint,
       avgVal,
     };
-  }, [usage, width, chartH, mode, showRecv, showSend, showSessions, intervalSec]);
+  }, [usage, width, chartH, padBottom, mode, showRecv, showSend, showSessions, intervalSec]);
+
+  const hasStage = Boolean(model);
+  useEffect(() => {
+    const el = stageRef.current ?? holder.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const sync = (rect: { width: number; height: number }) => {
+      const w = Math.round(rect.width);
+      if (w > 80) setWidth(w);
+      if (fill) {
+        const sh = Math.round(rect.height);
+        if (sh >= 140) setStageHeight(sh);
+      }
+    };
+    sync(el.getBoundingClientRect());
+    const observer = new ResizeObserver((entries) => {
+      const r = entries[0]?.contentRect;
+      if (r) sync(r);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasStage, fill]);
 
   if (!model) {
     return (
-      <div className="chart chart--empty micro" ref={holder}>
+      <div className={`chart chart--empty micro${fill ? " chart--fill" : ""}`} ref={holder}>
         {t(emptyLabel ?? "Not enough samples yet — the panel records traffic every few minutes.")}
       </div>
     );
@@ -261,7 +278,7 @@ export function TrafficChart({
   const hPct = h ? model.x(h.at) / width : 0;
 
   return (
-    <div className="chart" ref={holder}>
+    <div className={`chart${fill ? " chart--fill" : ""}`} ref={holder}>
       <div className="chart__bar">
         <div className="chart__legend">
           <button
@@ -323,7 +340,7 @@ export function TrafficChart({
         </div>
       </div>
 
-      <div className="chart__stage">
+      <div className="chart__stage" ref={stageRef}>
         <svg
           viewBox={`0 0 ${width} ${chartH}`}
           width={width}
@@ -393,7 +410,7 @@ export function TrafficChart({
             <text
               key={f}
               x={model.padLeft + model.innerW * f}
-              y={chartH - 7}
+              y={xLabelY}
               className="chart__tick"
               textAnchor={f === 0 ? "start" : f === 1 ? "end" : "middle"}
             >

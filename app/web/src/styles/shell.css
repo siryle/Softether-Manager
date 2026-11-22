@@ -760,7 +760,6 @@
   margin-top: 6px;
   font-size: var(--t-small);
   color: var(--text-muted);
-  max-width: 68ch;
 }
 .page__actions {
   display: flex;

@@ -264,7 +264,7 @@ export function Dashboard() {
           </span>
         }
         sub={
-          <span className="font-mono text-xs">
+          <span className="dash-page-sub font-mono text-xs">
             {probe?.version || "SoftEther VPN"} · {currentServer ? `${currentServer.host}:${currentServer.port}` : "—"} · {t("{count} hubs on this server", { count: hubs?.length ?? 0 })}
           </span>
         }
@@ -377,12 +377,13 @@ export function Dashboard() {
               <RangeSeg hours={trafficHours} onChange={setTrafficHours} />
             </div>
           </div>
-          <div className="flex-1" style={{ paddingTop: 4 }}>
+          <div className="dash-telemetry__body">
             {serverUsage ? (
               <TrafficChart
                 usage={serverUsage}
                 defaultMode="rate"
                 height={260}
+                fill
                 emptyLabel={t("No server-wide traffic recorded in this time window yet.")}
               />
             ) : (

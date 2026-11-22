@@ -486,7 +486,7 @@ func (a *App) defaults() M {
 	return M{
 		"web_path": a.cfg.WebPath, "resource_monitor_enabled": true, "resource_interval_seconds": 3, "resource_history_points": 100,
 		"traffic_monitor_enabled": true, "sample_interval_minutes": envInt("SEM_SAMPLE_INTERVAL_MINUTES", 5), "sample_retention_days": envInt("SEM_SAMPLE_RETENTION_DAYS", 90),
-		"session_monitor_enabled": true, "session_interval_seconds": 60, "session_traffic_enabled": true, "session_log_sync_enabled": true, "session_history_retention_days": 30, "quota_enforcement_enabled": true, "quota_interval_seconds": 60,
+		"session_monitor_enabled": true, "session_interval_seconds": 60, "session_traffic_enabled": true, "session_log_sync_enabled": true, "session_history_retention_days": 30, "wireguard_idle_timeout_seconds": 90, "quota_enforcement_enabled": true, "quota_interval_seconds": 60,
 		"ui_live_seconds": 5, "ui_detail_seconds": 15, "ui_list_seconds": 30, "update_check_enabled": env("SEM_UPDATE_CHECK", "true") != "false", "update_check_interval_hours": envInt("SEM_UPDATE_CHECK_HOURS", 6),
 		"se_host": a.cfg.SEHost, "se_port": a.cfg.SEPort, "se_password": "", "se_auth": a.cfg.SEAuth, "se_configured": false,
 		"vpn_template": vpnDefaults, "vpn_account_name_template": "{hub} - {username}", "vpn_filename_template": "{hub}-{username}", "vpn_embed_password_default": true,

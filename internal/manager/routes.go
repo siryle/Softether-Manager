@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 func (a *App) register() {
@@ -546,9 +547,30 @@ func (a *App) registerCustomRPC() {
 func (a *App) onlineUsers(r *http.Request, hub string) (out map[string]bool) {
 	out = map[string]bool{}
 	defer func() { _ = recover() }()
-	for _, s := range list(a.rpc(r.Context(), "EnumSession", M{"HubName_str": hub})["SessionList"]) {
+	ctx := r.Context()
+	serverID := a.serverIDFromContext(ctx)
+	wgTimeout := a.wireguardIdleTimeout()
+	nowUTC := time.Now().UTC()
+	for _, s := range list(a.rpc(ctx, "EnumSession", M{"HubName_str": hub})["SessionList"]) {
 		if !isClientSessionRPC(s) {
 			continue
+		}
+		if wgTimeout > 0 && isWireGuardSession(s, nil) {
+			if a.isWireGuardReaped(serverID, hub, s) {
+				continue
+			}
+			sessName := strings.TrimSpace(str(s["Name_str"]))
+			var st M
+			if sessName != "" {
+				func() {
+					defer func() { _ = recover() }()
+					st = a.rpc(ctx, "GetSessionStatus", M{"HubName_str": hub, "Name_str": sessName})
+				}()
+			}
+			if stale, lastAct := a.observeWireGuardSession(serverID, hub, s, st, nowUTC); stale {
+				go a.reapWireGuardSession(ctx, serverID, hub, s, lastAct)
+				continue
+			}
 		}
 		if name := fold(strings.TrimSpace(str(s["Username_str"]))); name != "" {
 			out[name] = true
