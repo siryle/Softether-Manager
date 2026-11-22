@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Field, LoadingBlock, PageHead } from "../components/bits";
+import { CheckRow, Field, LoadingBlock, PageHead } from "../components/bits";
 import { QuotaStatePill, quotaKey } from "../components/QuotaCard";
 import { api, type Quota, type Wire } from "../lib/api";
 import { useI18n } from "../lib/i18n";
@@ -56,7 +56,7 @@ export function HubList({
 }) {
   const { t } = useI18n();
   if (!hubs) return <LoadingBlock />;
-  const totalSessions = hubs.reduce((sum, h) => sum + (Number(h.NumSessions_u32) || 0), 0);
+  const totalSessions = hubs.reduce((sum, h) => sum + (Number(h.ClientSessions_u32 ?? h.NumSessions_u32) || 0), 0);
   return (
     <div className="hub-list">
       {hubs.length === 0 ? (
@@ -67,12 +67,12 @@ export function HubList({
         hubs.map((h) => {
           const name = String(h.HubName_str ?? "");
           const online = Boolean(h.Online_bool);
-          const sess = Number(h.NumSessions_u32) || 0;
+          const sess = Number(h.ClientSessions_u32 ?? h.NumSessions_u32) || 0;
           const sharePct = totalSessions > 0 ? Math.round((sess / totalSessions) * 100) : 0;
           const traffic = hubTotals?.get(name);
           const hubQuota = quotas?.get(quotaKey("hub", name));
           const hubTypeRaw = h.HubType_u32 !== undefined ? HUB_TYPES[h.HubType_u32 as number]?.split(" ")[0] : "";
-          const hubTypeTranslated = hubTypeRaw ? t(hubTypeRaw) : "Standalone";
+          const hubTypeTranslated = t(hubTypeRaw || "Standalone");
           return (
             <Link
               key={name}
@@ -97,7 +97,7 @@ export function HubList({
                     <span>·</span>
                     <span>{formatCount(sess)} {t("sessions")}</span>
                     <span>·</span>
-                    <span>{formatCount(h.NumMacTables_u32 ?? 1)} MAC</span>
+                    <span>{formatCount(h.NumMacTables_u32 ?? 0)} MAC</span>
                     {traffic && traffic.total_bytes > 0 && (
                       <>
                         <span>·</span>
@@ -177,10 +177,9 @@ export function CreateHubSheet({ onClose, onCreated }: { onClose: () => void; on
           placeholder={t("Leave blank for no dedicated password")}
         />
       </Field>
-      <label className="checkrow" style={{ marginTop: 12 }}>
-        <input type="checkbox" checked={online} onChange={(e) => setOnline(e.target.checked)} />
-        <span><span className="t">{t("Bring it online now")}</span></span>
-      </label>
+      <div style={{ marginTop: 12 }}>
+        <CheckRow checked={online} onChange={setOnline} label={t("Bring it online now")} />
+      </div>
     </Sheet>
   );
 }

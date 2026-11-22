@@ -73,36 +73,49 @@ func (a *App) mergeUserUpdate(ctx context.Context, hub, name string, changes M) 
 
 func (a *App) registerCustomRPC() {
 	a.endpoint("GET /server/overview", func(_ http.ResponseWriter, r *http.Request, _ M) any {
-		methods := map[string]string{"info": "GetServerInfo", "status": "GetServerStatus", "hubs": "EnumHub", "listeners": "EnumListener", "connections": "EnumConnection", "ipsec": "GetIPsecServices", "openvpn": "GetOpenVpnSstpConfig", "azure": "GetAzureStatus", "ddns": "GetDDnsClientStatus", "bridge_support": "GetBridgeSupport"}
-		out := M{}
-		var mu sync.Mutex
-		var wg sync.WaitGroup
 		ctx := r.Context()
 		serverID := a.serverIDFromContext(ctx)
-		for key, method := range methods {
-			wg.Add(1)
-			go func(k, m string) {
-				defer wg.Done()
-				var entry M
-				func() {
-					defer func() {
-						if p := recover(); p != nil {
-							entry = M{"ok": false, "error": fmtError(p)}
+		return a.singleflight("overview:"+strconv.FormatInt(serverID, 10), func() any {
+			methods := map[string]string{"info": "GetServerInfo", "status": "GetServerStatus", "hubs": "EnumHub", "listeners": "EnumListener", "connections": "EnumConnection", "ipsec": "GetIPsecServices", "openvpn": "GetOpenVpnSstpConfig", "azure": "GetAzureStatus", "ddns": "GetDDnsClientStatus", "bridge_support": "GetBridgeSupport"}
+			out := M{}
+			var mu sync.Mutex
+			var wg sync.WaitGroup
+			for key, method := range methods {
+				wg.Add(1)
+				go func(k, m string) {
+					defer wg.Done()
+					var entry M
+					func() {
+						defer func() {
+							if p := recover(); p != nil {
+								entry = M{"ok": false, "error": fmtError(p)}
+							}
+						}()
+						res := a.rpc(ctx, m, nil)
+						if k == "openvpn" {
+							res = a.enrichOpenVPNConfig(serverID, res)
 						}
+						entry = M{"ok": true, "data": res}
 					}()
-					res := a.rpc(ctx, m, nil)
-					if k == "openvpn" {
-						res = a.enrichOpenVPNConfig(serverID, res)
+					mu.Lock()
+					out[k] = entry
+					mu.Unlock()
+				}(key, method)
+			}
+			wg.Wait()
+			if hubEntry, ok := out["hubs"].(M); ok && boolean(hubEntry["ok"]) {
+				if hubData, ok := hubEntry["data"].(M); ok {
+					if clientTotal, ok := a.enrichHubListClientSessions(ctx, list(hubData["HubList"])); ok {
+						if statusEntry, ok := out["status"].(M); ok && boolean(statusEntry["ok"]) {
+							if statusData, ok := statusEntry["data"].(M); ok {
+								statusData["ClientSessionsTotal_u32"] = clientTotal
+							}
+						}
 					}
-					entry = M{"ok": true, "data": res}
-				}()
-				mu.Lock()
-				out[k] = entry
-				mu.Unlock()
-			}(key, method)
-		}
-		wg.Wait()
-		return out
+				}
+			}
+			return out
+		})
 	})
 	a.endpoint("PUT /server/listeners/{port}", func(w http.ResponseWriter, r *http.Request, u M) any {
 		port, err := strconv.ParseUint(r.PathValue("port"), 10, 16)
@@ -478,28 +491,72 @@ func (a *App) registerCustomRPC() {
 		return M{"HubName_str": hub, "SessionList": a.enrichSessions(r.Context(), hub, out)}
 	})
 	a.endpoint("GET /users", func(_ http.ResponseWriter, r *http.Request, _ M) any {
-		hubs, users, errors := []string{}, []M{}, []M{}
-		for _, h := range list(a.rpc(r.Context(), "EnumHub", nil)["HubList"]) {
-			hub := str(h["HubName_str"])
-			if hub == "" {
-				continue
-			}
-			hubs = append(hubs, hub)
-			func() {
-				defer func() {
-					if p := recover(); p != nil {
-						errors = append(errors, M{"hub": hub, "error": fmtError(p)})
-					}
-				}()
-				online := a.onlineUsers(r, hub)
-				for _, u := range list(a.rpc(r.Context(), "EnumUser", M{"HubName_str": hub})["UserList"]) {
-					u["HubName_str"] = hub
-					u["Online_bool"] = online[fold(str(u["Name_str"]))]
-					users = append(users, u)
+		serverID := a.serverIDFromContext(r.Context())
+		return a.singleflight("users:"+strconv.FormatInt(serverID, 10), func() any {
+			hubList := list(a.rpc(r.Context(), "EnumHub", nil)["HubList"])
+			hubs := make([]string, 0, len(hubList))
+			for _, h := range hubList {
+				if hub := str(h["HubName_str"]); hub != "" {
+					hubs = append(hubs, hub)
 				}
-			}()
-		}
-		return M{"hubs": hubs, "users": users, "errors": errors}
+			}
+			perHubUsers := make([][]M, len(hubs))
+			perHubErrors := make([]M, len(hubs))
+			sem := make(chan struct{}, 6)
+			var wg sync.WaitGroup
+			for i, hub := range hubs {
+				wg.Add(1)
+				go func(idx int, hubName string) {
+					defer wg.Done()
+					sem <- struct{}{}
+					defer func() { <-sem }()
+					defer func() {
+						if p := recover(); p != nil {
+							perHubErrors[idx] = M{"hub": hubName, "error": fmtError(p)}
+						}
+					}()
+					var online map[string]bool
+					var userList []M
+					var innerWG sync.WaitGroup
+					innerWG.Add(2)
+					go func() {
+						defer innerWG.Done()
+						online = a.onlineUsers(r, hubName)
+					}()
+					var enumErr any
+					go func() {
+						defer innerWG.Done()
+						defer func() {
+							if p := recover(); p != nil {
+								enumErr = p
+							}
+						}()
+						userList = list(a.rpc(r.Context(), "EnumUser", M{"HubName_str": hubName})["UserList"])
+					}()
+					innerWG.Wait()
+					if enumErr != nil {
+						panic(enumErr)
+					}
+					out := make([]M, 0, len(userList))
+					for _, u := range userList {
+						u["HubName_str"] = hubName
+						u["Online_bool"] = online[fold(str(u["Name_str"]))]
+						out = append(out, u)
+					}
+					perHubUsers[idx] = out
+				}(i, hub)
+			}
+			wg.Wait()
+			users, errors := []M{}, []M{}
+			for i := range hubs {
+				if perHubErrors[i] != nil {
+					errors = append(errors, perHubErrors[i])
+					continue
+				}
+				users = append(users, perHubUsers[i]...)
+			}
+			return M{"hubs": hubs, "users": users, "errors": errors}
+		})
 	})
 	a.endpoint("GET /clients", func(_ http.ResponseWriter, r *http.Request, _ M) any {
 		serverID := a.serverIDFromContext(r.Context())

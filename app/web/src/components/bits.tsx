@@ -102,7 +102,7 @@ export function CheckRow({
 }) {
   const { t } = useI18n();
   return (
-    <label className="checkrow">
+    <label className={hint ? "checkrow checkrow--multiline" : "checkrow"}>
       <input type="checkbox" disabled={disabled} checked={checked} onChange={(e) => onChange(e.target.checked)} />
       <span style={{ minWidth: 0 }}>
         <span className="t">{typeof label === "string" ? t(label) : label}</span>

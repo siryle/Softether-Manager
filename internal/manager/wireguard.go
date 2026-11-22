@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/curve25519"
 )
@@ -843,13 +844,51 @@ func (a *App) decryptWireGuardPrivateKey(enc string) string {
 	return strings.TrimSpace(plain)
 }
 
+const rawConfigCacheTTL = 10 * time.Second
+
+func (a *App) invalidateConfigCache(serverID int64) {
+	a.configCacheMu.Lock()
+	defer a.configCacheMu.Unlock()
+	if a.configCache == nil {
+		return
+	}
+	if serverID <= 0 {
+		clear(a.configCache)
+		return
+	}
+	delete(a.configCache, serverID)
+}
+
 func (a *App) fetchRawConfig(ctx context.Context) string {
 	cfg := a.rpc(ctx, "GetConfig", nil)
 	raw, err := base64.StdEncoding.DecodeString(str(cfg["FileData_bin"]))
 	if err != nil {
 		fail(502, "SoftEther returned an invalid configuration buffer.")
 	}
-	return string(raw)
+	res := string(raw)
+	serverID := a.serverIDFromContext(ctx)
+	a.configCacheMu.Lock()
+	if a.configCache == nil {
+		a.configCache = make(map[int64]rawConfigCacheEntry)
+	}
+	a.configCache[serverID] = rawConfigCacheEntry{raw: res, fetchedAt: time.Now()}
+	a.configCacheMu.Unlock()
+	return res
+}
+
+func (a *App) fetchRawConfigCached(ctx context.Context) string {
+	serverID := a.serverIDFromContext(ctx)
+	a.configCacheMu.RLock()
+	if a.configCache != nil {
+		if entry, ok := a.configCache[serverID]; ok && time.Since(entry.fetchedAt) < rawConfigCacheTTL {
+			a.configCacheMu.RUnlock()
+			return entry.raw
+		}
+	}
+	a.configCacheMu.RUnlock()
+	return a.singleflight("rawconfig:"+strconv.FormatInt(serverID, 10), func() any {
+		return a.fetchRawConfig(ctx)
+	}).(string)
 }
 
 // SetConfig restarts SoftEther; the shared RPC path also handles a dropped reply.
@@ -883,35 +922,37 @@ func (a *App) enrichWireGuardPeers(serverID int64, state *wgConfigState) []M {
 
 func (a *App) registerWireGuard() {
 	a.endpoint("GET /server/wireguard", func(_ http.ResponseWriter, r *http.Request, _ M) any {
-		raw := a.fetchRawConfig(r.Context())
-		state, err := parseWireGuardState(raw)
-		if err != nil {
-			fail(502, err.Error())
-		}
-		if !state.Supported {
-			return M{"supported": false}
-		}
 		serverID := a.serverIDFromContext(r.Context())
-		conn := a.connection(r.Context())
-		defaultHost := strings.TrimSpace(str(conn["public_host"]))
-		if defaultHost == "" {
-			defaultHost = str(conn["host"])
-		}
-		wgPort := a.wireguardPort(serverID, state)
-		return M{
-			"supported":                true,
-			"enabled":                  state.Enabled,
-			"public_key":               state.PublicKey,
-			"preshared_key":            state.PresharedKey,
-			"has_preshared_key":        state.PresharedKey != "",
-			"udp_ports":                state.UDPPorts,
-			"default_udp_port":         wgPort,
-			"wireguard_port":           wgPort,
-			"wireguard_port_listening": containsPort(state.UDPPorts, wgPort),
-			"default_endpoint_host":    defaultHost,
-			"peers":                    a.enrichWireGuardPeers(serverID, state),
-			"hub_networks":             state.HubNetworks,
-		}
+		return a.singleflight("wg:"+strconv.FormatInt(serverID, 10), func() any {
+			raw := a.fetchRawConfigCached(r.Context())
+			state, err := parseWireGuardState(raw)
+			if err != nil {
+				fail(502, err.Error())
+			}
+			if !state.Supported {
+				return M{"supported": false}
+			}
+			conn := a.connection(r.Context())
+			defaultHost := strings.TrimSpace(str(conn["public_host"]))
+			if defaultHost == "" {
+				defaultHost = str(conn["host"])
+			}
+			wgPort := a.wireguardPort(serverID, state)
+			return M{
+				"supported":                true,
+				"enabled":                  state.Enabled,
+				"public_key":               state.PublicKey,
+				"preshared_key":            state.PresharedKey,
+				"has_preshared_key":        state.PresharedKey != "",
+				"udp_ports":                state.UDPPorts,
+				"default_udp_port":         wgPort,
+				"wireguard_port":           wgPort,
+				"wireguard_port_listening": containsPort(state.UDPPorts, wgPort),
+				"default_endpoint_host":    defaultHost,
+				"peers":                    a.enrichWireGuardPeers(serverID, state),
+				"hub_networks":             state.HubNetworks,
+			}
+		})
 	})
 
 	a.endpoint("PUT /server/wireguard", func(w http.ResponseWriter, r *http.Request, u M) any {

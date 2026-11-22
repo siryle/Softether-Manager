@@ -1,6 +1,6 @@
 "use client";
 
-import { t } from "../../lib/i18n";
+import { t, useI18n } from "../../lib/i18n";
 import { useCallback, useState } from "react";
 import { Empty, LoadingBlock, RefreshButton, SectionTitle, usePoll } from "../../components/bits";
 import { api, type Wire } from "../../lib/api";
@@ -15,6 +15,7 @@ import { formatMac } from "./HubSecureNat";
  * for a stale entry after a machine moved.
  */
 export function HubTables({ hub }: { hub: string }) {
+  useI18n();
   const [tab, setTab] = useState<"mac" | "ip">("mac");
   const [mac, setMac] = useState<Wire[] | null>(null);
   const [ip, setIp] = useState<Wire[] | null>(null);

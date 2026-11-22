@@ -247,6 +247,6 @@ func (a *App) registerServers() {
 	})
 	a.endpoint("POST /servers/{id}/probe", func(_ http.ResponseWriter, r *http.Request, _ M) any {
 		row := a.serverRow(serverID(r))
-		return a.probeServer(context.WithValue(r.Context(), serverIDKey, integer(row["ServerID"])))
+		return a.probeServer(context.WithValue(r.Context(), serverIDKey, integer(row["ServerID"])), true)
 	})
 }

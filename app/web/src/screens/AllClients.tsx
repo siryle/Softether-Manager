@@ -363,7 +363,7 @@ export function AllClients() {
                               <span className="tmono" style={{ color: "var(--text-faint)" }}>—</span>
                             )}
                           </td>
-                          <td>
+                          <td style={{ whiteSpace: "nowrap" }}>
                             <div className="viz-stack">
                               <Link
                                 to={`/hub/${seg(hub)}`}

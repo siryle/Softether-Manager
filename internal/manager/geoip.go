@@ -301,6 +301,37 @@ func sanitizeISP(isp, org string) string {
 	}
 }
 
+var zhISPToEN = map[string]string{
+	"中国电信":  "China Telecom",
+	"中国联通":  "China Unicom",
+	"中国移动":  "China Mobile",
+	"中国铁通":  "China Tietong",
+	"中国广电":  "China Broadnet",
+	"中国教育网": "CERNET",
+	"阿里云":   "Alibaba Cloud",
+	"腾讯云":   "Tencent Cloud",
+	"百度云":   "Baidu Cloud",
+	"华为云":   "Huawei Cloud",
+	"金山云":   "Kingsoft Cloud",
+	"京东云":   "JD Cloud",
+	"微软云":   "Microsoft Azure",
+	"亚马逊云":  "AWS",
+	"谷歌云":   "Google Cloud",
+}
+
+func localizeGeoForLang(location, isp string, zh bool) (string, string) {
+	if zh {
+		return location, isp
+	}
+	if location == "局域网/内网" {
+		location = "LAN / Private"
+	}
+	if enISP, ok := zhISPToEN[strings.TrimSpace(isp)]; ok {
+		isp = enISP
+	}
+	return location, isp
+}
+
 func parseXDBRegion(res string) (country, region, city, isp string) {
 	parts := strings.Split(res, "|")
 	if len(parts) < 5 {

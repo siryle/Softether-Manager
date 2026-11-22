@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -253,6 +254,7 @@ func (a *App) rpc(ctx context.Context, method string, params M) M {
 			a.invalidateClientLocked(id)
 		}()
 		a.invalidateUserMetaCache(id, "")
+		a.invalidateConfigCache(id)
 		if out == nil {
 			out = M{}
 		}
@@ -271,6 +273,9 @@ func (a *App) rpc(ctx context.Context, method string, params M) M {
 	}
 	out, err := a.client(ctx).Call(ctx, method, params)
 	check(err)
+	if !strings.HasPrefix(method, "Get") && !strings.HasPrefix(method, "Enum") && !strings.HasPrefix(method, "Test") && !strings.HasPrefix(method, "Read") {
+		a.invalidateConfigCache(a.serverIDFromContext(ctx))
+	}
 	switch method {
 	case "SetUser", "CreateUser", "DeleteUser", "DeleteHub":
 		a.invalidateUserMetaCache(a.serverIDFromContext(ctx), str(params["HubName_str"]))
@@ -325,11 +330,81 @@ func (a *App) saveConnection(host string, port int, password *string, auth strin
 	}
 	a.invalidateClientLocked(id)
 	a.invalidateUserMetaCache(id, "")
+	a.invalidateConfigCache(id)
 	if boolean(row["IsDefault"]) {
 		a.syncDefaultConnection(row)
 	}
 }
-func (a *App) probeServer(ctx context.Context) (result M) {
+
+func (a *App) countHubClientSessions(ctx context.Context, hub string) (count int64, ok bool) {
+	if hub == "" {
+		return 0, false
+	}
+	defer func() {
+		if recover() != nil {
+			count, ok = 0, false
+		}
+	}()
+	serverID := a.serverIDFromContext(ctx)
+	wgTimeout := a.wireguardIdleTimeout()
+	sessions := list(a.rpc(ctx, "EnumSession", M{"HubName_str": hub})["SessionList"])
+	for _, s := range sessions {
+		if !isClientSessionRPC(s) {
+			continue
+		}
+		if wgTimeout > 0 && isWireGuardSession(s, nil) && a.isWireGuardReaped(serverID, hub, s) {
+			continue
+		}
+		count++
+	}
+	return count, true
+}
+
+func (a *App) enrichHubListClientSessions(ctx context.Context, hubs []M) (int64, bool) {
+	if len(hubs) == 0 {
+		return 0, true
+	}
+	type hubCount struct {
+		n  int64
+		ok bool
+	}
+	results := make([]hubCount, len(hubs))
+	sem := make(chan struct{}, 6)
+	var wg sync.WaitGroup
+	for i, h := range hubs {
+		hubName := str(h["HubName_str"])
+		raw := integer(h["NumSessions_u32"])
+		if hubName == "" || (h["Online_bool"] != nil && !boolean(h["Online_bool"])) || (h["NumSessions_u32"] != nil && raw == 0) {
+			h["ClientSessions_u32"] = int64(0)
+			results[i] = hubCount{n: 0, ok: true}
+			continue
+		}
+		wg.Add(1)
+		go func(idx int, name string, entry M) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			n, ok := a.countHubClientSessions(ctx, name)
+			if ok {
+				entry["ClientSessions_u32"] = n
+			}
+			results[idx] = hubCount{n: n, ok: ok}
+		}(i, hubName, h)
+	}
+	wg.Wait()
+	var total int64
+	allOK := true
+	for _, r := range results {
+		if !r.ok {
+			allOK = false
+			continue
+		}
+		total += r.n
+	}
+	return total, allOK
+}
+
+func (a *App) probeServer(ctx context.Context, countClients ...bool) (result M) {
 	row := a.serverRow(a.serverIDFromContext(ctx))
 	if str(row["EncryptedPassword"]) == "" {
 		return M{"online": false, "configured": false, "error": "not connected yet"}
@@ -341,7 +416,27 @@ func (a *App) probeServer(ctx context.Context) (result M) {
 	}()
 	info := a.rpc(ctx, "GetServerInfo", nil)
 	status := a.rpc(ctx, "GetServerStatus", nil)
-	return M{"online": true, "configured": true, "version": info["ServerVersionString_str"], "server_type": info["ServerType_u32"], "hostname": info["ServerHostName_str"], "sessions": status["NumSessionsTotal_u32"], "users": status["NumUsers_u32"], "hubs": status["NumHubTotal_u32"], "send_bytes": status["SendBytes_u64"], "recv_bytes": status["RecvBytes_u64"], "started": status["StartTime_dt"], "current_time": status["CurrentTime_dt"]}
+	sendBytes, recvBytes := bytesFor(status, "")
+	if sendBytes == 0 && status["SendBytes_u64"] != nil {
+		sendBytes = integer(status["SendBytes_u64"])
+	}
+	if recvBytes == 0 && status["RecvBytes_u64"] != nil {
+		recvBytes = integer(status["RecvBytes_u64"])
+	}
+	sessions := status["NumSessionsTotal_u32"]
+	if len(countClients) > 0 && countClients[0] && integer(sessions) > 0 {
+		var hubs []M
+		func() {
+			defer func() { _ = recover() }()
+			hubs = list(a.rpc(ctx, "EnumHub", nil)["HubList"])
+		}()
+		if len(hubs) > 0 {
+			if clientTotal, ok := a.enrichHubListClientSessions(ctx, hubs); ok {
+				sessions = clientTotal
+			}
+		}
+	}
+	return M{"online": true, "configured": true, "version": info["ServerVersionString_str"], "server_type": info["ServerType_u32"], "hostname": info["ServerHostName_str"], "sessions": sessions, "users": status["NumUsers_u32"], "hubs": status["NumHubTotal_u32"], "send_bytes": sendBytes, "recv_bytes": recvBytes, "started": status["StartTime_dt"], "current_time": status["CurrentTime_dt"]}
 }
 func (a *App) testConnection(ctx context.Context, host string, port int, password, auth string) M {
 	modes := []string{"header", "basic", "both"}
@@ -438,6 +533,15 @@ func (a *App) registerRPCRoutes() {
 				out["version"] = accessVersion(out["AccessList"])
 			} else if route.RPC == "GetAcList" {
 				out["version"] = accessVersion(out["ACList"])
+			} else if route.RPC == "EnumHub" {
+				a.enrichHubListClientSessions(r.Context(), list(out["HubList"]))
+			} else if route.RPC == "GetHubStatus" {
+				hubName := str(params["HubName_str"])
+				if out["NumSessions_u32"] != nil && integer(out["NumSessions_u32"]) == 0 {
+					out["ClientSessions_u32"] = int64(0)
+				} else if n, ok := a.countHubClientSessions(r.Context(), hubName); ok {
+					out["ClientSessions_u32"] = n
+				}
 			}
 			if route.Audit != "" {
 				a.audit(user, route.Audit, "server", r.PathValue("hub"), r.PathValue("name"))

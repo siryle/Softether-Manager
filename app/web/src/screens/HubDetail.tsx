@@ -157,7 +157,7 @@ function HubOverview({ hub, status }: { hub: string; status: Wire | null }) {
     <>
       <div className="fleet stagger">
         <div className="fleet__cell">
-          <div className="fleet__n">{formatCount(status.NumSessions_u32)}</div>
+          <div className="fleet__n">{formatCount(status.ClientSessions_u32 ?? status.NumSessions_u32)}</div>
           <div className="micro">{t("Sessions")}</div>
         </div>
         <div className="fleet__cell">

@@ -1,6 +1,6 @@
 "use client";
 
-import { t } from "../lib/i18n";
+import { t, useI18n } from "../lib/i18n";
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, type ServerApi, type Quota, type QuotaMetric, type QuotaUnit } from "../lib/api";
 import { useToast } from "../lib/toast";
@@ -263,6 +263,7 @@ export function QuotaSummary({
   subject: "hub" | "user";
   net?: Bytes;
 }) {
+  useI18n();
   const moved: Bytes = net ?? { send: quota.upload_bytes, recv: quota.download_bytes };
   const used = meteredBytes(moved, quota.metric);
   const percent = percentOf(used, quota.limit_bytes);
@@ -505,6 +506,7 @@ export function QuotaEnforceSwitch({
 /** Used / limit with a bar, for a table cell. `net` is the row's own
  *  Transfer, so the two columns can never disagree. */
 export function QuotaCell({ quota, net }: { quota: Quota | undefined; net?: Bytes }) {
+  useI18n();
   if (!quota?.has_limit) return <span className="micro">—</span>;
   const moved: Bytes = net ?? { send: quota.upload_bytes, recv: quota.download_bytes };
   const used = meteredBytes(moved, quota.metric);
@@ -530,6 +532,7 @@ export function QuotaCell({ quota, net }: { quota: Quota | undefined; net?: Byte
  * carries its own Save, its own Reset and its own Remove.
  */
 export function QuotaCard({ hub, onChanged }: { hub: string; onChanged?: () => void }) {
+  useI18n();
   const [quota, setQuota] = useState<Quota | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [draft, setDraft] = useState<QuotaDraft>(EMPTY_DRAFT);

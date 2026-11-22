@@ -42,9 +42,38 @@ func seedSessionReportRows(t *testing.T, a *App) {
 
 func TestSessionReportUsesTimeRangeIndex(t *testing.T) {
 	a := testApp(t)
-	plan := query(a.db, `EXPLAIN QUERY PLAN SELECT VpnSessionSampleID FROM VpnSessionSample WHERE ServerID=1 AND julianday(StartedDate)>=julianday('2026-11-01T00:00:00Z') ORDER BY julianday(StartedDate) DESC, VpnSessionSampleID DESC`)
-	if !strings.Contains(str(plan), "IX_VpnSessionSample_ServerStarted") || strings.Contains(str(plan), "TEMP B-TREE") {
-		t.Fatalf("session report query did not use IX_VpnSessionSample_ServerStarted index cleanly: %v", plan)
+	plan := query(a.db, `EXPLAIN QUERY PLAN SELECT VpnSessionSampleID FROM VpnSessionSample WHERE ServerID=1 AND StartedTs>=1761955200 ORDER BY StartedTs DESC, VpnSessionSampleID DESC`)
+	if !strings.Contains(str(plan), "IX_VpnSessionSample_StartedTs") || strings.Contains(str(plan), "TEMP B-TREE") {
+		t.Fatalf("session report query did not use IX_VpnSessionSample_StartedTs index cleanly: %v", plan)
+	}
+}
+
+func TestSessionReportExportEnglishGeoLocalization(t *testing.T) {
+	a := testApp(t)
+	token := admin(t, a)
+	seedSessionReportRows(t, a)
+
+	req := httptest.NewRequest("GET", "/api/v1/server/session-history/export?lang=en&tz_offset=0", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("export status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	records, err := csv.NewReader(bytes.NewReader(rec.Body.Bytes()[3:])).ReadAll()
+	if err != nil {
+		t.Fatalf("parse CSV: %v", err)
+	}
+	if len(records) != 4 {
+		t.Fatalf("expected 4 CSV rows, got %d", len(records))
+	}
+	// Row 1 is charlie (private IP) -> LAN / Private
+	if records[1][9] != "LAN / Private" {
+		t.Fatalf("expected English private IP label, got %q", records[1][9])
+	}
+	// Row 3 is alice (中国电信) -> China Telecom
+	if records[3][10] != "China Telecom" {
+		t.Fatalf("expected English ISP label, got %q", records[3][10])
 	}
 }
 

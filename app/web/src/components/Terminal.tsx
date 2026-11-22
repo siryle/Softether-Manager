@@ -1,6 +1,6 @@
 "use client";
 
-import { t } from "../lib/i18n";
+import { t, useI18n } from "../lib/i18n";
 import { useEffect, useRef, useState } from "react";
 
 /**
@@ -43,6 +43,7 @@ export function Terminal({
   label?: string;
   tall?: boolean;
 }) {
+  useI18n();
   const body = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
 

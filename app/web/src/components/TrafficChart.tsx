@@ -1,6 +1,6 @@
 "use client";
 
-import { t } from "../lib/i18n";
+import { t, useI18n } from "../lib/i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Usage } from "../lib/api";
 import type { PollRate } from "../lib/rates";
@@ -62,6 +62,9 @@ export function TrafficChart({
   height?: number;
   fill?: boolean;
 }) {
+  const i18n = useI18n();
+  const tr = i18n?.t ?? t;
+  const locale = i18n?.lang === "en" ? "en-US" : i18n?.lang === "zh-CN" ? "zh-CN" : undefined;
   const [hover, setHover] = useState<number | null>(null);
   const [width, setWidth] = useState(720);
   const [stageHeight, setStageHeight] = useState<number | null>(null);
@@ -241,8 +244,8 @@ export function TrafficChart({
 
   const formatTime = (at: number, tooltip = false) => {
     const date = new Date(at);
-    const day = usage.hours >= 24 ? date.toLocaleDateString(undefined, { month: "numeric", day: "numeric" }) : "";
-    const clock = tooltip || usage.hours <= 24 ? date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "";
+    const day = usage.hours >= 24 ? date.toLocaleDateString(locale, { month: "numeric", day: "numeric" }) : "";
+    const clock = tooltip || usage.hours <= 24 ? date.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" }) : "";
     return [day, clock].filter(Boolean).join(" ");
   };
 
@@ -515,6 +518,8 @@ export function TrafficChart({
 }
 
 export function RangeSeg({ hours, onChange }: { hours: number; onChange: (hours: number) => void }) {
+  const i18n = useI18n();
+  const tr = i18n?.t ?? t;
   const options = [
     { h: 6, label: "6h" },
     { h: 24, label: "24h" },
@@ -522,7 +527,7 @@ export function RangeSeg({ hours, onChange }: { hours: number; onChange: (hours:
     { h: 720, label: "30d" },
   ];
   return (
-    <div className="seg" role="tablist" aria-label={t("Time range")}>
+    <div className="seg" role="tablist" aria-label={tr("Time range")}>
       {options.map((option) => (
         <button
           key={option.h}

@@ -320,3 +320,56 @@ func TestRPCOmitsEmptyHeaders(t *testing.T) {
 		})
 	}
 }
+
+func TestServerProbeReportsRealTrafficAndClientSessions(t *testing.T) {
+	a := testApp(t)
+	token := admin(t, a)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req M
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		var out M
+		switch str(req["method"]) {
+		case "GetServerInfo":
+			out = M{"ServerVersionString_str": "Version 5.02", "ServerHostName_str": "vpn-edge", "ServerType_u32": 0}
+		case "GetServerStatus":
+			out = M{
+				"NumSessionsTotal_u32":    2, // 1 SecureNAT + 1 real client
+				"NumUsers_u32":            5,
+				"NumHubTotal_u32":         1,
+				"Send.UnicastBytes_u64":   1000,
+				"Send.BroadcastBytes_u64": 250,
+				"Recv.UnicastBytes_u64":   4000,
+				"Recv.BroadcastBytes_u64": 500,
+			}
+		case "EnumHub":
+			out = M{"HubList": []M{{"HubName_str": "DEFAULT", "Online_bool": true, "NumSessions_u32": 2}}}
+		case "EnumSession":
+			out = M{"SessionList": []M{
+				{"Name_str": "SID-SECURENAT-1", "Username_str": "SecureNAT", "SecureNATMode_bool": true},
+				{"Name_str": "SID-ALICE-1", "Username_str": "alice", "ClientIP_ip": "1.2.3.4"},
+			}}
+		default:
+			out = M{}
+		}
+		writeJSON(w, 200, M{"jsonrpc": "2.0", "id": req["id"], "result": out})
+	}))
+	defer server.Close()
+	target, _ := url.Parse(server.URL)
+	port, _ := strconv.Atoi(target.Port())
+	pwd := "vpn-secret"
+	a.saveConnection(target.Hostname(), port, &pwd, "header")
+
+	status, out, _ := call(t, a, "POST", "/api/v1/servers/1/probe", nil, token)
+	if status != 200 || !boolean(out["online"]) {
+		t.Fatalf("probe failed: %d %v", status, out)
+	}
+	if integer(out["send_bytes"]) != 1250 || integer(out["recv_bytes"]) != 4500 {
+		t.Fatalf("expected send=1250 recv=4500, got send=%v recv=%v", out["send_bytes"], out["recv_bytes"])
+	}
+	if integer(out["sessions"]) != 1 {
+		t.Fatalf("expected 1 real client session (excluding SecureNAT), got %v", out["sessions"])
+	}
+}

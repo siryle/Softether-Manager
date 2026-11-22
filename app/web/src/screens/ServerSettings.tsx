@@ -1,8 +1,8 @@
 "use client";
 
-import { t } from "../lib/i18n";
+import { t, useI18n } from "../lib/i18n";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { CheckRow, ConfirmSheet, Empty, ErrorAlert, Field, KV, LoadingBlock, PageHead, SectionTitle, usePoll } from "../components/bits";
+import { CheckRow, ConfirmSheet, Empty, ErrorAlert, Field, KV, LoadingBlock, PageHead, SectionTitle } from "../components/bits";
 import { CopyTextButton, waitForWireGuardReady } from "../components/WireGuardPeerSheet";
 import { api, getStoredServerId, useServerApi, ApiError, type BackupInfo, type BackupSettings, type DomainStatus, type Wire, type WireGuardState } from "../lib/api";
 import { Link } from "../lib/router";
@@ -20,6 +20,7 @@ import { OutcomeNote, Switch, SwitchRow, useToggle } from "../ui/Switch";
  * state; a document lets an operator scan all of it.
  */
 export function ServerSettings({ section }: { section?: string }) {
+  useI18n();
   const serverApi = useServerApi();
   const [wg, setWg] = useState<WireGuardState | null>(null);
   const [wgError, setWgError] = useState<Error | null>(null);
@@ -40,7 +41,9 @@ export function ServerSettings({ section }: { section?: string }) {
       return null;
     }
   }, [serverApi]);
-  usePoll(loadWg, "list", []);
+  useEffect(() => {
+    void loadWg();
+  }, [loadWg]);
 
   const loadPublicEndpoint = useCallback(async () => {
     const conn = await api.connection().catch(() => null);
@@ -254,7 +257,9 @@ function ListenersCard() {
     setSpecial(await api.specialListener().catch(() => null));
     return list;
   }, []);
-  usePoll(load, "list", []);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   return (
     <section id="ss-listeners">
@@ -507,7 +512,11 @@ function AzureDdnsCard() {
     ]);
     setRefreshing(false);
   }, [ddnsEnabled, loadAzure, onDdnsFresh]);
-  usePoll(load, "list", []);
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  useEffect(() => {
+    void loadRef.current();
+  }, []);
 
   const azureUnsupported = azureError instanceof ApiError && azureError.seError === "UnsupportedError";
   const ddnsUnsupported = ddnsError instanceof ApiError && ddnsError.seError === "UnsupportedError";
@@ -663,7 +672,9 @@ function ProtocolsCard({
     if (h) setHubs(((h.HubList as Wire[]) ?? []).map((x) => String(x.HubName_str)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  usePoll(load, "list", []);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   return (
     <section id="ss-protocols">
@@ -1355,9 +1366,19 @@ function IssueCertificateSection() {
     if (s) absorb(s);
     return s;
   }, [absorb]);
-  // While a certificate is being obtained the card follows along closely;
-  // otherwise it re-reads at the detail tier like everything else.
-  usePoll(load, state?.busy ? 2500 : "detail", [state?.busy]);
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  useEffect(() => {
+    void loadRef.current();
+  }, []);
+  // Poll frequently only while a certificate operation is actively running.
+  useEffect(() => {
+    if (!state?.busy) return;
+    const id = window.setInterval(() => {
+      if (document.visibilityState === "visible") void loadRef.current();
+    }, 2500);
+    return () => window.clearInterval(id);
+  }, [state?.busy]);
 
   const set = (patch: Partial<ReturnType<typeof issueForm>>) => {
     setForm((f) => ({ ...f, ...patch }));
@@ -1910,7 +1931,9 @@ function BridgeCard() {
     if (b) setBridges((b.LocalBridgeList as Wire[]) ?? []);
     if (s) setSupport(s);
   }, []);
-  usePoll(load, "list", []);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   return (
     <section id="ss-bridge">
@@ -2045,7 +2068,9 @@ function L3Card() {
     if (list) setSwitches(list);
     return list;
   }, []);
-  usePoll(load, "list", []);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   return (
     <section id="ss-l3">
@@ -2236,7 +2261,9 @@ function EtherIpCard() {
     const r = await api.etherip().catch(() => null);
     if (r) setIds((r.Settings as Wire[]) ?? []);
   }, []);
-  usePoll(load, "list", []);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   useEffect(() => {
     void api.hubs().then((r) => setHubs(((r.HubList as Wire[]) ?? []).map((h) => String(h.HubName_str)))).catch(() => {});
@@ -2337,7 +2364,9 @@ function FarmCard() {
     const m = await api.farmMembers().catch(() => null);
     if (m) setMembers((m.FarmMemberList as Wire[]) ?? []);
   }, []);
-  usePoll(load, "list", []);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const TYPES: Record<number, string> = { 0: t("standalone"), 1: t("farm controller"), 2: t("farm member") };
 
@@ -2602,14 +2631,11 @@ function ConfigCard() {
         <div style={{ borderTop: "1px solid var(--border)", paddingTop: "var(--s4)", marginTop: "var(--s4)" }}>
           <h4 style={{ margin: "0 0 var(--s3) 0", fontSize: "14px", fontWeight: 600 }}>{t("Auto-backup settings")}</h4>
           <div style={{ display: "flex", flexDirection: "column", gap: "var(--s3)" }}>
-            <label style={{ display: "flex", alignItems: "center", gap: "var(--s2)", cursor: "pointer", userSelect: "none" }}>
-              <input
-                type="checkbox"
-                checked={enabled}
-                onChange={(e) => setEnabled(e.target.checked)}
-              />
-              <span style={{ fontWeight: 500 }}>{t("Enable automatic backup")}</span>
-            </label>
+            <CheckRow
+              checked={enabled}
+              onChange={setEnabled}
+              label={t("Enable automatic backup")}
+            />
 
             {enabled && (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--s3)", marginTop: "var(--s1)" }}>

@@ -1,6 +1,6 @@
 "use client";
 
-import { t } from "../../lib/i18n";
+import { t, useI18n } from "../../lib/i18n";
 import { useCallback, useState } from "react";
 import { CheckRow, ConfirmSheet, Empty, ErrorAlert, Field, LoadingBlock, SectionTitle, usePoll } from "../../components/bits";
 import { api, type Wire } from "../../lib/api";
@@ -18,6 +18,7 @@ import { Pill } from "../../ui/Status";
  * renders each rule as that sentence.
  */
 export function HubAccess({ hub }: { hub: string }) {
+  useI18n();
   const [rules, setRules] = useState<Wire[] | null>(null);
   const [version, setVersion] = useState("");
   const [editing, setEditing] = useState<Wire | "new" | null>(null);

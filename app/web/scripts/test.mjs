@@ -459,3 +459,38 @@ test("serverAnalytics and sessionReportAnalytics encode filters and use server s
   );
   assert.equal(client.requests[1].headers["X-Server-ID"], "1");
 });
+
+test("formatDate, timeAgo, formatIPLocation and formatDisconnectReason localize cleanly", () => {
+  const zhMap = {
+    never: "从未",
+    "WireGuard peer inactive timeout": "WireGuard 对端超时断开",
+    "China Unicom": "中国联通",
+  };
+  const enMap = {
+    never: "Never",
+    "局域网/内网": "LAN / Private",
+    "中国联通": "China Unicom",
+  };
+  const zhUtil = load("../src/lib/util.ts", {}, { "./i18n": { t: k => zhMap[k] ?? k } });
+  assert.equal(zhUtil.formatDate(""), "从未");
+  assert.equal(zhUtil.timeAgo("1970-01-01T00:00:00Z"), "从未");
+  assert.equal(zhUtil.formatDisconnectReason("WireGuard peer inactive timeout"), "WireGuard 对端超时断开");
+
+  const enUtil = load("../src/lib/util.ts", {}, { "./i18n": { t: k => enMap[k] ?? k } });
+  assert.equal(enUtil.formatDate(null), "Never");
+  assert.equal(enUtil.formatIPLocation("局域网/内网", "—"), "LAN / Private");
+  assert.equal(enUtil.formatIPLocation("Jiangsu", "中国联通"), "Jiangsu China Unicom");
+});
+
+test("CheckRow distinguishes single-line and multi-line hint layout", () => {
+  const { CheckRow } = component("../src/components/bits.tsx", "CheckRow", [], {
+    "../ui/Sheet": {},
+    "../ui/Icon": {},
+    "../lib/toast": {},
+    "../lib/rates": {},
+  });
+  const single = CheckRow({ checked: true, onChange() {}, label: "Encrypt with SSL" });
+  assert.equal(single.props.className, "checkrow");
+  const multi = CheckRow({ checked: false, onChange() {}, label: "Encrypt with SSL", hint: "Details" });
+  assert.equal(multi.props.className, "checkrow checkrow--multiline");
+});

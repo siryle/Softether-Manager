@@ -227,12 +227,22 @@ func buildSessionReportFilter(serverID int64, r *http.Request) (string, []any) {
 	clauses := []string{"ServerID=?", clientSessionSQLClause}
 	args := []any{serverID}
 	if from := parseTimeQuery(q.Get("from"), false); from != "" {
-		clauses = append(clauses, "julianday(StartedDate)>=julianday(?)")
-		args = append(args, from)
+		if ft := parseTime(from); !ft.IsZero() {
+			clauses = append(clauses, "StartedTs>=?")
+			args = append(args, ft.Unix())
+		} else {
+			clauses = append(clauses, "julianday(StartedDate)>=julianday(?)")
+			args = append(args, from)
+		}
 	}
 	if to := parseTimeQuery(q.Get("to"), true); to != "" {
-		clauses = append(clauses, "julianday(StartedDate)<=julianday(?)")
-		args = append(args, to)
+		if tt := parseTime(to); !tt.IsZero() {
+			clauses = append(clauses, "StartedTs<=?")
+			args = append(args, tt.Unix())
+		} else {
+			clauses = append(clauses, "julianday(StartedDate)<=julianday(?)")
+			args = append(args, to)
+		}
 	}
 	if hub := strings.TrimSpace(q.Get("hub")); hub != "" {
 		clauses = append(clauses, "HubName=?")
@@ -347,7 +357,7 @@ func (a *App) registerHistory() {
 		limit := queryInt(r, "limit", 100, 1, 500)
 		offset := queryInt(r, "offset", 0, 0, 1000000)
 
-		orderBy := `julianday(StartedDate) DESC, VpnSessionSampleID DESC`
+		orderBy := `StartedTs DESC, VpnSessionSampleID DESC`
 		switch strings.TrimSpace(r.URL.Query().Get("sort")) {
 		case "", "started":
 		case "bytes":
@@ -384,7 +394,7 @@ func (a *App) registerHistory() {
 		loc := resolveExportLocation(r)
 		zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.URL.Query().Get("lang"))), "zh")
 
-		rows := query(a.readDB(), `SELECT VpnSessionSampleID id,HubName hub,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,LastSeenDate last_seen_date,BytesTotal bytes_total,PacketsTotal packets_total,DownloadBytes download_bytes,UploadBytes upload_bytes,RealName real_name,Note note,IpLocation ip_location,IpISP ip_isp,IpFull ip_full,Protocol protocol,DisconnectReason disconnect_reason,ServerPort server_port,ClientPort client_port FROM VpnSessionSample WHERE `+where+` ORDER BY julianday(StartedDate) DESC, VpnSessionSampleID DESC LIMIT 50000`, args...)
+		rows := query(a.readDB(), `SELECT VpnSessionSampleID id,HubName hub,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,LastSeenDate last_seen_date,BytesTotal bytes_total,PacketsTotal packets_total,DownloadBytes download_bytes,UploadBytes upload_bytes,RealName real_name,Note note,IpLocation ip_location,IpISP ip_isp,IpFull ip_full,Protocol protocol,DisconnectReason disconnect_reason,ServerPort server_port,ClientPort client_port FROM VpnSessionSample WHERE `+where+` ORDER BY StartedTs DESC, VpnSessionSampleID DESC LIMIT 50000`, args...)
 		a.enrichSessionRowsGeo(r.Context(), rows, len(rows) > 200)
 		a.enrichSessionRowsUser(r.Context(), rows)
 
@@ -423,6 +433,7 @@ func (a *App) registerHistory() {
 			if !startedAt.IsZero() {
 				durSec = max(int64(0), int64(endAt.Sub(startedAt).Seconds()))
 			}
+			locText, ispText := localizeGeoForLang(str(row["ip_location"]), str(row["ip_isp"]), zh)
 			_ = cw.Write([]string{
 				strconv.FormatInt(integer(row["id"]), 10),
 				safeCSVCell(str(row["username"])),
@@ -433,8 +444,8 @@ func (a *App) registerHistory() {
 				strconv.FormatInt(durSec, 10),
 				formatExportDuration(durSec),
 				safeCSVCell(str(row["client_ip"])),
-				safeCSVCell(str(row["ip_location"])),
-				safeCSVCell(str(row["ip_isp"])),
+				safeCSVCell(locText),
+				safeCSVCell(ispText),
 				safeCSVCell(str(row["virtual_ip"])),
 				safeCSVCell(str(row["client_hostname"])),
 				strconv.FormatInt(integer(row["download_bytes"]), 10),
@@ -726,11 +737,17 @@ func (a *App) sampleTraffic(ctx context.Context) {
 
 					if status != nil {
 						if send, recv, valid := sampledTraffic(status, ""); valid {
+							sessCount := integer(status["NumSessions_u32"])
+							if sessCount > 0 {
+								if clientCount, ok := a.countHubClientSessions(serverCtx, hub); ok {
+									sessCount = clientCount
+								}
+							}
 							hubSamples = append(hubSamples, hubSampleRow{
 								hub:      hub,
 								send:     send,
 								recv:     recv,
-								sessions: integer(status["NumSessions_u32"]),
+								sessions: sessCount,
 								users:    integer(status["NumUsers_u32"]),
 							})
 						} else {

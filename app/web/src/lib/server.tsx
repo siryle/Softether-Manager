@@ -21,6 +21,7 @@ export interface ServerApi {
   switchServer: (id: number) => Promise<void>;
   refreshServers: () => Promise<ManagedServer[] | null>;
   setClientCount: (count: number | null) => void;
+  subscribeResources: () => () => void;
 }
 const ServerContext = createContext<ServerApi>(null as unknown as ServerApi);
 
@@ -32,10 +33,16 @@ export function ServerProvider({ children }: { children: ReactNode }) {
   const [hubs, setHubs] = useState<Wire[] | null>(null);
   const [clientCount, setClientCount] = useState<number | null>(null);
   const [resources, setResources] = useState<Wire | null>(null);
+  const [resourceWatchers, setResourceWatchers] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const liveMs = useRate("live");
   const alive = useRef(false);
   const generation = useRef(0);
+
+  const subscribeResources = useCallback(() => {
+    setResourceWatchers((n) => n + 1);
+    return () => setResourceWatchers((n) => Math.max(0, n - 1));
+  }, []);
 
   const refresh = useCallback(async () => {
     const id = getStoredServerId();
@@ -47,14 +54,13 @@ export function ServerProvider({ children }: { children: ReactNode }) {
       if (!current()) return;
       setProbe(next);
       if (!next.online) { setHubs(null); setClientCount(null); return; }
-      const [list, clientsRes] = await Promise.all([
-        api.hubs().catch(() => null),
-        api.allClients().catch(() => null),
-      ]);
+      const list = await api.hubs().catch(() => null);
       if (current()) {
-        setHubs(list ? (list.HubList as Wire[]) ?? [] : null);
-        if (clientsRes && Array.isArray(clientsRes.clients)) {
-          setClientCount(clientsRes.clients.length);
+        const hubList = list ? ((list.HubList as Wire[]) ?? []) : null;
+        setHubs(hubList);
+        if (hubList) {
+          const total = hubList.reduce((sum, h) => sum + (Number(h.ClientSessions_u32 ?? h.NumSessions_u32) || 0), 0);
+          setClientCount(total);
         }
       }
     } catch (e) {
@@ -121,7 +127,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
   }, [user, refresh, refreshServers]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || resourceWatchers <= 0) return;
     let active = true;
     let inFlight = false;
     const poll = async () => {
@@ -139,10 +145,17 @@ export function ServerProvider({ children }: { children: ReactNode }) {
       if (document.visibilityState === "visible") void poll();
     }, liveMs);
     return () => { active = false; window.clearInterval(timer); };
-  }, [user, liveMs]);
+  }, [user, liveMs, resourceWatchers]);
 
   const currentServer = servers?.find(s => s.id === currentServerId) ?? null;
   const health: ServerHealth = probe === null ? "probing" : !probe.configured ? "unconfigured" : probe.online ? "online" : "offline";
-  return <ServerContext.Provider value={{ probe, hubs, clientCount, resources, health, servers, currentServer, currentServerId, error, refresh, switchServer, refreshServers, setClientCount }}>{children}</ServerContext.Provider>;
+  return <ServerContext.Provider value={{ probe, hubs, clientCount, resources, health, servers, currentServer, currentServerId, error, refresh, switchServer, refreshServers, setClientCount, subscribeResources }}>{children}</ServerContext.Provider>;
 }
 export const useServer = () => useContext(ServerContext);
+
+/** Subscribes to panel host resource polling only while the calling screen is mounted. */
+export function useHostResources(): Wire | null {
+  const { resources, subscribeResources } = useServer();
+  useEffect(() => subscribeResources(), [subscribeResources]);
+  return resources;
+}

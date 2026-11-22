@@ -398,44 +398,129 @@
   }
 }
 
+:root {
+  --icon-check: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'></polyline></svg>");
+  --icon-dash: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='4.5' stroke-linecap='round' stroke-linejoin='round'><line x1='5' y1='12' x2='19' y2='12'></line></svg>");
+}
+
 .checkrow {
   display: flex;
-  gap: var(--s3);
-  padding: var(--s3) var(--s4);
+  align-items: center;
+  gap: 12px;
+  min-block-size: 44px;
+  padding: 11px 14px;
   border-radius: var(--r-ctl);
+  border: 1px solid var(--glass-line);
   background: var(--glass-lo);
-  box-shadow: var(--nm-inset-sm);
   cursor: pointer;
-  transition: box-shadow var(--d-fast) ease;
+  user-select: none;
+  transition:
+    background-color var(--d-fast) ease,
+    border-color var(--d-fast) ease;
   margin-bottom: var(--s2);
 }
+.checkrow--multiline {
+  align-items: flex-start;
+}
+.checkrow--multiline input[type="checkbox"] {
+  margin-block-start: 1px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .checkrow:not(:has(input:disabled)):hover {
+    background: var(--glass-hi);
+    border-color: var(--glass-line-hi);
+  }
+  .checkrow:not(:has(input:disabled)):hover input[type="checkbox"]:not(:checked) {
+    border-color: var(--accent);
+  }
+}
 .checkrow:has(input:checked) {
-  box-shadow:
-    var(--nm-inset-sm),
-    0 0 0 2px var(--accent-line);
+  border-color: var(--accent-line);
+  background: color-mix(in srgb, var(--accent-soft) 72%, var(--glass-lo));
+}
+@media (hover: hover) and (pointer: fine) {
+  .checkrow:not(:has(input:disabled)):has(input:checked):hover {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent-soft) 92%, var(--glass-lo));
+  }
 }
 .checkrow:has(input:disabled) {
-  opacity: 0.5;
-  cursor: default;
+  opacity: 0.52;
+  cursor: not-allowed;
 }
 .checkrow input[type="checkbox"] {
+  --checkbox-size: 1.125rem;
+  --checkbox-icon-size: 0.72rem;
+  appearance: none;
+  -webkit-appearance: none;
   flex: none;
-  margin: 2px 0 0;
-  width: 18px;
-  height: 18px;
-  accent-color: var(--accent);
+  display: inline-grid;
+  place-content: center;
+  inline-size: var(--checkbox-size);
+  aspect-ratio: 1;
+  margin: 0;
+  border-radius: 5.5px;
+  border: 1.5px solid var(--text-faint);
+  background: var(--glass);
+  color: var(--accent-ink);
+  cursor: pointer;
+  transition:
+    background-color var(--d-fast) ease,
+    border-color var(--d-fast) ease,
+    box-shadow var(--d-fast) ease;
+}
+.checkrow input[type="checkbox"]::before {
+  content: "";
+  inline-size: var(--checkbox-icon-size);
+  aspect-ratio: 1;
+  background-color: currentColor;
+  mask: var(--checkbox-icon) no-repeat center / contain;
+  -webkit-mask: var(--checkbox-icon) no-repeat center / contain;
+  scale: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .checkrow input[type="checkbox"]::before {
+    transition: scale 150ms var(--ease-out-quart);
+  }
+}
+@media (forced-colors: active) {
+  .checkrow input[type="checkbox"]::before {
+    background-color: CanvasText;
+  }
+}
+.checkrow input[type="checkbox"]:checked {
+  --checkbox-icon: var(--icon-check);
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--accent) 32%, transparent);
+}
+.checkrow input[type="checkbox"]:indeterminate {
+  --checkbox-icon: var(--icon-dash);
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.checkrow input[type="checkbox"]:is(:checked, :indeterminate)::before {
+  scale: 1;
+}
+.checkrow input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+.checkrow input[type="checkbox"]:disabled {
+  cursor: not-allowed;
 }
 .checkrow .t {
   display: block;
   font-size: var(--t-body);
-  font-weight: 700;
+  font-weight: 600;
+  line-height: 1.35;
   color: var(--text);
 }
 .checkrow .s {
   display: block;
-  margin-top: 2px;
+  margin-top: 3px;
   font-size: var(--t-small);
-  line-height: 1.5;
+  line-height: 1.45;
   color: var(--text-muted);
 }
 
@@ -1166,17 +1251,19 @@
   display: flex;
   align-items: center;
   gap: var(--s3);
-  padding: var(--s3) var(--s4);
+  min-block-size: 44px;
+  padding: 11px 14px;
   border-radius: var(--r-ctl);
+  border: 1px solid var(--glass-line);
   background: var(--glass-lo);
-  box-shadow: var(--nm-inset-sm);
   margin-bottom: var(--s2);
-  transition: box-shadow var(--d-fast) ease;
+  transition:
+    background-color var(--d-fast) ease,
+    border-color var(--d-fast) ease;
 }
 .switchrow--on {
-  box-shadow:
-    var(--nm-inset-sm),
-    0 0 0 2px var(--accent-line);
+  border-color: var(--accent-line);
+  background: color-mix(in srgb, var(--accent-soft) 72%, var(--glass-lo));
 }
 .switchrow--off .switchrow__m {
   opacity: 0.7;
@@ -1188,14 +1275,15 @@
 .switchrow .t {
   display: block;
   font-size: var(--t-body);
-  font-weight: 700;
+  font-weight: 600;
+  line-height: 1.35;
   color: var(--text);
 }
 .switchrow .s {
   display: block;
-  margin-top: 2px;
+  margin-top: 3px;
   font-size: var(--t-small);
-  line-height: 1.5;
+  line-height: 1.45;
   color: var(--text-muted);
 }
 .switchrow__note {

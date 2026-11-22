@@ -1,6 +1,6 @@
 "use client";
 
-import { t } from "../../lib/i18n";
+import { t, useI18n } from "../../lib/i18n";
 import { useCallback, useState } from "react";
 import { CheckRow, ConfirmSheet, Empty, Field, LoadingBlock, SectionTitle, usePoll } from "../../components/bits";
 import { api, type Wire } from "../../lib/api";
@@ -21,6 +21,7 @@ import { OutcomeNote, Switch, useToggle } from "../../ui/Switch";
  * shows the state read back rather than the state clicked.
  */
 export function HubSecureNat({ hub }: { hub: string }) {
+  useI18n();
   const [data, setData] = useState<Wire | null>(null);
   const [options, setOptions] = useState<Wire | null>(null);
   const [dirty, setDirty] = useState(false);

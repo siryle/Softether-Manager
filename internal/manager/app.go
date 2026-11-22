@@ -167,6 +167,13 @@ type App struct {
 	lastPruneAt                                    time.Time
 	wgTrackMu                                      sync.Mutex
 	wgTrack                                        map[string]*wgSessTrack
+	configCacheMu                                  sync.RWMutex
+	configCache                                    map[int64]rawConfigCacheEntry
+}
+
+type rawConfigCacheEntry struct {
+	raw       string
+	fetchedAt time.Time
 }
 
 // singleflight coalesces concurrent identical read RPC flows without caching stale data.

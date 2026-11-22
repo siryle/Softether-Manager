@@ -1,6 +1,6 @@
 "use client";
 
-import { t } from "../../lib/i18n";
+import { t, useI18n } from "../../lib/i18n";
 import { useCallback, useState } from "react";
 import { ConfirmSheet, Empty, ErrorAlert, Field, KV, LoadingBlock, SectionTitle, usePoll } from "../../components/bits";
 import { api, useServerApi, type Wire } from "../../lib/api";
@@ -14,6 +14,7 @@ import { Sheet } from "../../ui/Sheet";
  * and the RADIUS server it can delegate authentication to.
  */
 export function HubSecurity({ hub }: { hub: string }) {
+  useI18n();
   return (
     <>
       <CaSection hub={hub} />

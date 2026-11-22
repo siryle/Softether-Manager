@@ -7,7 +7,7 @@ import { QuotaMeter, QuotaStatePill, useQuotaIndex } from "../components/QuotaCa
 import { RangeSeg, TrafficChart, useTrafficUsage } from "../components/TrafficChart";
 import { api, type Quota, type ServerAnalytics, type Wire, type WireGuardState } from "../lib/api";
 import { useI18n } from "../lib/i18n";
-import { useServer } from "../lib/server";
+import { useHostResources, useServer } from "../lib/server";
 import { Link, seg } from "../lib/router";
 import { formatBytes, formatCount, formatDuration } from "../lib/util";
 import { IconChevron, IconPlus, IconSettings } from "../ui/Icon";
@@ -24,11 +24,13 @@ import { CreateHubSheet, HubList } from "./Hubs";
  * 5. Bottom 12-Col Split (7 + 5): Virtual Hub Load Topology & Active Protocol Distribution.
  */
 export function Dashboard() {
-  const { probe, health, refresh, currentServer, clientCount, resources } = useServer();
+  const { probe, health, refresh, currentServer, clientCount, setClientCount } = useServer();
+  const resources = useHostResources();
   const { t } = useI18n();
   const [overview, setOverview] = useState<Wire | null>(null);
   const [wg, setWg] = useState<WireGuardState | null>(null);
   const [analytics, setAnalytics] = useState<ServerAnalytics | null>(null);
+  const [liveClients, setLiveClients] = useState<Wire[] | null>(null);
   const [panelSettings, setPanelSettings] = useState<Wire | null>(null);
   const [trafficHours, setTrafficHours] = useState(24);
   const [creatingHub, setCreatingHub] = useState(false);
@@ -40,8 +42,23 @@ export function Dashboard() {
   }, []);
 
   const loadOverview = useCallback(async () => {
-    if (health === "online") setOverview(await api.overview().catch(() => null));
-  }, [health]);
+    if (health !== "online") return;
+    const next = await api.overview().catch(() => null);
+    setOverview(next);
+    const st = next?.status?.ok ? (next.status.data as Wire) : null;
+    const clientTotal = st?.ClientSessionsTotal_u32;
+    if (typeof clientTotal === "number" && Number.isFinite(clientTotal)) {
+      setClientCount(clientTotal);
+      if (clientTotal > 0) {
+        const res = await api.allClients().catch(() => null);
+        if (res && Array.isArray(res.clients)) {
+          setLiveClients(res.clients as Wire[]);
+        }
+      } else {
+        setLiveClients([]);
+      }
+    }
+  }, [health, setClientCount]);
   usePoll(loadOverview, "detail", [health]);
 
   const loadWireGuard = useCallback(async () => {
@@ -102,11 +119,18 @@ export function Dashboard() {
 
   const protoCountMap = useMemo(() => {
     const m = new Map<string, number>();
+    if (liveClients !== null) {
+      for (const c of liveClients) {
+        const p = String(c.Protocol_str ?? c.Protocol ?? "").trim().toLowerCase() || "softether";
+        m.set(p, (m.get(p) ?? 0) + 1);
+      }
+      return m;
+    }
     for (const entry of analytics?.protocol_counts ?? []) {
       m.set(entry.protocol.toLowerCase(), entry.count);
     }
     return m;
-  }, [analytics]);
+  }, [analytics, liveClients]);
 
   const resHistory = (resources?.history as Wire[] | undefined) ?? [];
   const cpuHist = useMemo(() => resHistory.map((p) => Number(p.cpu) || 0), [resHistory]);
@@ -153,7 +177,7 @@ export function Dashboard() {
     );
   }
 
-  const activeSessions = Number(status?.NumSessionsTotal_u32) || 0;
+  const activeSessions = Number(status?.ClientSessionsTotal_u32 ?? status?.NumSessionsTotal_u32) || 0;
   const totalUsers = Number(status?.NumUsers_u32) || 0;
   const rxTotal = (Number(status?.["Recv.UnicastBytes_u64"]) || 0) + (Number(status?.["Recv.BroadcastBytes_u64"]) || 0);
   const txTotal = (Number(status?.["Send.UnicastBytes_u64"]) || 0) + (Number(status?.["Send.BroadcastBytes_u64"]) || 0);

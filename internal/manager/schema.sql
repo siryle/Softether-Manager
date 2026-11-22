@@ -219,3 +219,8 @@ CREATE INDEX IF NOT EXISTS "IX_TrafficRollupHourly_Server" ON "TrafficRollupHour
 CREATE INDEX IF NOT EXISTS "IX_VpnSessionSample_StartedTs" ON "VpnSessionSample"("ServerID", "StartedTs" DESC, "VpnSessionSampleID" DESC);
 CREATE INDEX IF NOT EXISTS "IX_VpnSessionSample_HubStartedTs" ON "VpnSessionSample"("ServerID", "HubName", "StartedTs" DESC, "VpnSessionSampleID" DESC);
 CREATE INDEX IF NOT EXISTS "IX_VpnSessionTrafficSample_Ts" ON "VpnSessionTrafficSample"("VpnSessionSampleID", "SampledTs");
+CREATE TRIGGER IF NOT EXISTS "TR_VpnSessionSample_StartedTs" AFTER INSERT ON "VpnSessionSample"
+WHEN NEW."StartedTs"=0 AND NEW."StartedDate"!=''
+BEGIN
+    UPDATE "VpnSessionSample" SET "StartedTs"=COALESCE(unixepoch(NEW."StartedDate"), 0) WHERE "VpnSessionSampleID"=NEW."VpnSessionSampleID";
+END;

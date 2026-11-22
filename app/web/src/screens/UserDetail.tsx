@@ -31,7 +31,7 @@ import { Link, navigate, seg } from "../lib/router";
 import { AUTH_TYPES, isNever, userBytes, SESSION_TYPE } from "../lib/se";
 import { useToast } from "../lib/toast";
 import { useI18n, t } from "../lib/i18n";
-import { formatBytes, formatCount, formatDate, formatDuration, formatIPLocation, hasIPLocation, timeAgo } from "../lib/util";
+import { formatBytes, formatCount, formatDate, formatDisconnectReason, formatDuration, formatIPLocation, hasIPLocation, timeAgo } from "../lib/util";
 import { IconOpenVpnDownload, IconPlus, IconQrCode, IconTrash, IconVpnDownload, IconWireGuardDownload } from "../ui/Icon";
 import { Pill } from "../ui/Status";
 import { UserStatePill } from "./hub/HubUsers";
@@ -98,6 +98,8 @@ function LoginHeatmap({
   selectedDay: string | null;
   onSelectDay: (day: string | null) => void;
 }) {
+  const { lang, t } = useI18n();
+  const locale = lang === "en" ? "en-US" : "zh-CN";
   const { days, activeDays, totalLogins } = useMemo(() => {
     const counts = new Map<string, { sessions: number; bytes: number }>();
     for (const h of history) {
@@ -124,13 +126,13 @@ function LoginHeatmap({
       total += stat.sessions;
       list.push({
         key,
-        label: d.toLocaleDateString(undefined, { month: "numeric", day: "numeric" }),
+        label: d.toLocaleDateString(locale, { month: "numeric", day: "numeric" }),
         sessions: stat.sessions,
         bytes: stat.bytes,
       });
     }
     return { days: list, activeDays: active, totalLogins: total };
-  }, [history]);
+  }, [history, locale]);
 
   const maxSessions = Math.max(1, ...days.map((d) => d.sessions));
 
@@ -203,6 +205,7 @@ function LoginHeatmap({
  * chart says rather than drawing a flat line that means nothing.
  */
 export function SessionUsageSheet({ hub, row, onClose }: { hub: string; row: Wire; onClose: () => void }) {
+  useI18n();
   const [usage, setUsage] = useState<(Usage & { session: Wire } & Wire) | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -319,7 +322,7 @@ export function SessionUsageSheet({ hub, row, onClose }: { hub: string; row: Wir
                 <div style={{ gridColumn: "1 / -1" }}>
                   <div className="micro">{t("Disconnect reason")}</div>
                   <div className="mono" style={{ fontSize: "var(--t-data)", color: !disconnectReason.toLowerCase().includes("no error") && !disconnectReason.toLowerCase().includes("code 0") ? "var(--warn)" : "var(--text-2)" }}>
-                    {disconnectReason}
+                    {formatDisconnectReason(disconnectReason)}
                   </div>
                 </div>
               )}

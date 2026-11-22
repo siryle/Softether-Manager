@@ -17,6 +17,7 @@ import {
   formatBytes,
   formatCount,
   formatDateTime,
+  formatDisconnectReason,
   formatDuration,
   formatIPLocation,
   hasIPLocation,
@@ -357,7 +358,7 @@ export function AuditReport() {
             <span className="tmono" style={{ color: "var(--text-faint)" }}>—</span>
           )}
         </td>
-        <td>
+        <td style={{ whiteSpace: "nowrap" }}>
           <div className="viz-stack">
             {rowHub ? (
               <Link
@@ -389,9 +390,9 @@ export function AuditReport() {
                 <span
                   className={`tsub truncate${abnormal ? " viz-text-warn" : ""}`}
                   style={{ maxWidth: 180, display: "block" }}
-                  title={disconnectReason}
+                  title={formatDisconnectReason(disconnectReason)}
                 >
-                  {disconnectReason}
+                  {formatDisconnectReason(disconnectReason)}
                 </span>
               ) : (
                 <span className="tsub">{timeAgo(String(h.ended_date))}</span>
@@ -450,7 +451,7 @@ export function AuditReport() {
               {t("Disconnected at")}: {h.ended_date ? formatDateTime(String(h.ended_date)) : t("still connected")}
             </span>
             {disconnectReason && (
-              <span className={abnormal ? "viz-text-warn" : ""}>{disconnectReason}</span>
+              <span className={abnormal ? "viz-text-warn" : ""}>{formatDisconnectReason(disconnectReason)}</span>
             )}
           </div>
 
@@ -750,7 +751,7 @@ export function AuditReport() {
                       const y = 118 - h;
                       return (
                         <g key={b.key} className="audit-bar-col" onClick={() => narrowToDay(b.key)}>
-                          <title>{`${b.key}: ${b.sessions} sessions · ${formatBytes(b.total_bytes)}`}</title>
+                          <title>{`${b.key}: ${t("{n} sessions", { n: b.sessions })} · ${formatBytes(b.total_bytes)}`}</title>
                           <rect x={x} y={y} width={barW} height={h} rx={4} fill="var(--chart-send)" fillOpacity={0.82} />
                           {count <= 14 && (
                             <text x={cx} y={y - 5} textAnchor="middle" className="chart__tick">
@@ -828,7 +829,7 @@ export function AuditReport() {
                         }}
                       >
                         <div className="viz-mini-item__row">
-                          <span className="truncate">{loc.location === "Unknown" ? t("Unknown") : loc.location}</span>
+                          <span className="truncate">{loc.location === "Unknown" ? t("Unknown") : t(loc.location)}</span>
                           <span className="mono">{loc.sessions}</span>
                         </div>
                         <div className="viz-bar viz-bar--sm">

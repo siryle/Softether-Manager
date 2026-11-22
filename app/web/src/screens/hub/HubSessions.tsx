@@ -1,6 +1,6 @@
 "use client";
 
-import { t } from "../../lib/i18n";
+import { t, useI18n } from "../../lib/i18n";
 import { useCallback, useEffect, useState } from "react";
 import { ConfirmSheet, Empty, KV, LoadingBlock, SearchBox, SectionTitle, usePoll } from "../../components/bits";
 import { api, type Wire } from "../../lib/api";
@@ -72,6 +72,7 @@ export function parseClientInfo(d: Wire) {
 }
 
 export function HubSessions({ hub }: { hub: string }) {
+  useI18n();
   const [sessions, setSessions] = useState<Wire[] | null>(null);
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState<string | null>(null);
@@ -177,6 +178,7 @@ export function SessionsTable({
   onKill: (s: Wire) => void | Promise<unknown>;
   userLink?: (username: string) => void;
 }) {
+  useI18n();
   return (
     <>
       {/* desktop table */}
@@ -278,7 +280,7 @@ export function SessionsTable({
                     <span className="chip">
                       <i>{t("WAN")}</i>
                       {String(s.ClientIP_ip)}
-                      {s.IpLocation_str ? ` · ${String(s.IpLocation_str)}` : ""}
+                      {s.IpLocation_str ? ` · ${t(String(s.IpLocation_str))}` : ""}
                     </span>
                   ) : null}
                   <span className="chip"><i>{t("data")}</i>{formatBytes(Number(s.PacketSize_u64))}</span>
@@ -294,7 +296,7 @@ export function SessionsTable({
                       void onKill(s);
                     }}
                   >
-                    Kill
+                    {t("Kill")}
                   </button>
                 )}
               </div>

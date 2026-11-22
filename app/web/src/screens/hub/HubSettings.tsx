@@ -1,6 +1,6 @@
 "use client";
 
-import { t } from "../../lib/i18n";
+import { t, useI18n } from "../../lib/i18n";
 import { useCallback, useState } from "react";
 import { CheckRow, ConfirmSheet, Empty, ErrorAlert, Field, LoadingBlock, SectionTitle, usePoll } from "../../components/bits";
 import { QuotaCard } from "../../components/QuotaCard";
@@ -17,6 +17,7 @@ import { IconTrash } from "../../ui/Icon";
  * integers -- with the raw honesty that implies.
  */
 export function HubSettings({ hub, onChanged }: { hub: string; onChanged: () => void }) {
+  useI18n();
   return (
     <div className="hub-settings">
       <div className="hub-settings-pair">

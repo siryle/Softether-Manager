@@ -291,7 +291,7 @@ func (a *App) wgLivenessTick(ctx context.Context) {
 	nowUTC := time.Now().UTC()
 	a.pruneWGTracker(nowUTC)
 
-	servers := query(a.db, `SELECT ServerID FROM Server WHERE IsEnabled=1`)
+	servers := query(a.db, `SELECT ServerID FROM Server WHERE IsEnabled=1 AND EncryptedPassword!=''`)
 	if len(servers) == 0 {
 		return
 	}
@@ -313,7 +313,7 @@ func (a *App) wgLivenessTick(ctx context.Context) {
 			defer cancel()
 			hubs := list(a.rpc(sCtx, "EnumHub", nil)["HubList"])
 			for _, h := range hubs {
-				if !boolean(h["Online_bool"]) {
+				if !boolean(h["Online_bool"]) || (h["NumSessions_u32"] != nil && integer(h["NumSessions_u32"]) == 0) {
 					continue
 				}
 				hub := str(h["HubName_str"])

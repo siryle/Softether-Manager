@@ -1,6 +1,6 @@
 "use client";
 
-import { t } from "../../lib/i18n";
+import { t, useI18n } from "../../lib/i18n";
 import { useCallback, useState } from "react";
 import { ConfirmSheet, Empty, ErrorAlert, Field, LoadingBlock, SectionTitle, usePoll } from "../../components/bits";
 import { PolicyEditor, extractPolicy } from "../../components/PolicyEditor";
@@ -15,6 +15,7 @@ import { Sheet } from "../../ui/Sheet";
  * from their own page; here the group itself is managed.
  */
 export function HubGroups({ hub }: { hub: string }) {
+  useI18n();
   const [groups, setGroups] = useState<Wire[] | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);

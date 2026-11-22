@@ -2057,6 +2057,110 @@ const zhCN: Record<string, string> = {
   "{users} users · {hubs} HUB": "{users} 用户 · {hubs} HUB",
   "WireGuard idle timeout (seconds)": "WireGuard 断连超时清理（秒）",
   "Clears disconnected WireGuard ghost sessions after this many seconds with no client packets (0 disables).": "WireGuard 客户端无入站数据包超过此时长后自动清理残留在线会话并标记下线（填 0 关闭）。",
+  "no hubs": "暂无虚拟 HUB",
+  "LAN / Private": "局域网/内网",
+  "{n} sessions": "{n} 次会话",
+  "WireGuard peer inactive timeout": "WireGuard 对端超时断开",
+  "Disconnected by administrator": "已被管理员断开",
+  "The VPN session has been deleted.": "VPN 会话已被终止",
+  "Connection has been disconnected.": "连接已断开",
+  "User requested disconnect": "用户主动断开",
+  "Columns: name, realname, note, group, auth_type, password, password_hash, expires. CSV supports password or anonymous authentication. Existing users are skipped.":
+    "支持列：name、realname、note、group、auth_type、password、password_hash、expires。CSV 支持密码或匿名认证，已存在的用户将自动跳过。",
+};
+
+/**
+ * Clean English display overrides:
+ * 1) Maps Chinese GeoIP/ISP strings back to English when English UI is active.
+ * 2) Normalizes lowercase standalone UI labels/empty states to consistent Title/Sentence case
+ *    without altering internal translation keys or breaking mid-sentence fragments.
+ */
+const enUS: Record<string, string> = {
+  // GeoIP & ISP bidirectional localization
+  "局域网/内网": "LAN / Private",
+  "中国电信": "China Telecom",
+  "中国联通": "China Unicom",
+  "中国移动": "China Mobile",
+  "中国铁通": "China Tietong",
+  "中国广电": "China Broadnet",
+  "中国教育网": "CERNET",
+  "阿里云": "Alibaba Cloud",
+  "腾讯云": "Tencent Cloud",
+  "百度云": "Baidu Cloud",
+  "华为云": "Huawei Cloud",
+  "金山云": "Kingsoft Cloud",
+  "京东云": "JD Cloud",
+  "微软云": "Microsoft Azure",
+  "亚马逊云": "AWS",
+  "谷歌云": "Google Cloud",
+
+  // Consistent capitalization for standalone English UI labels, headings & statuses
+  "never": "Never",
+  "just now": "Just now",
+  "client IP": "Client IP",
+  "virtual IP": "Virtual IP",
+  "client host": "Client Host",
+  "last comm": "Last Comm",
+  "last login": "Last Login",
+  "lifetime traffic": "Lifetime Traffic",
+  "since server start": "Since server start",
+  "since the server started": "Since server start",
+  "half connection": "Half-duplex",
+  "server default": "Server default",
+  "default hub": "Default Hub",
+  "management address": "Management Address",
+  "state": "State",
+  "total": "Total",
+  "online": "Online",
+  "offline": "Offline",
+  "connected": "Connected",
+  "connecting": "Connecting",
+  "disconnected": "Disconnected",
+  "still connected": "Still connected",
+  "not connected": "Not connected",
+  "not listening": "Not listening",
+  "listening": "Listening",
+  "enabled": "Enabled",
+  "disabled": "Disabled",
+  "on": "On",
+  "off": "Off",
+  "idle": "Idle",
+  "busy": "Busy",
+  "pending": "Pending",
+  "running": "Running",
+  "succeeded": "Succeeded",
+  "failed": "Failed",
+  "canceled": "Canceled",
+  "expired": "Expired",
+  "denied": "Denied",
+  "probing": "Probing",
+  "error": "Error",
+  "loading": "Loading…",
+  "loading usage": "Loading usage…",
+  "loading samples": "Loading samples…",
+  "loading session history": "Loading session history…",
+  "asking the hub": "Loading hub status…",
+  "no listeners": "No listeners",
+  "no hubs": "No hubs",
+  "no online clients": "No online clients",
+  "no logins recorded yet": "No logins recorded yet",
+  "no users yet": "No users yet",
+  "nothing matches": "Nothing matches",
+  "not connected to SoftEther yet": "Not connected to SoftEther yet",
+  "not connected right now": "Not connected right now",
+  "version unknown": "Version unknown",
+  "← dashboard": "← Dashboard",
+  "real-time bandwidth and traffic history": "Real-time bandwidth and traffic history",
+  "server, hub security and packet logs": "Server, hub security and packet logs",
+  "every RPC method, callable raw": "Every RPC method, callable raw",
+  "listeners, certificate, bridges…": "Listeners, certificate, bridges…",
+  "ways into this server": "Ways into this server",
+  "where users, sessions and access control live": "Where users, sessions and access control live",
+  "accounts on the server": "Accounts on the server",
+  "across all hubs": "Across all hubs",
+  "user, host, IP, region…": "User, host, IP, region…",
+  "name, hub, group, note…": "Name, hub, group, note…",
+  "name, group, note…": "Name, group, note…",
 };
 
 interface I18nApi {
@@ -2065,30 +2169,6 @@ interface I18nApi {
   toggleLang: () => void;
   t: (key: string, params?: Record<string, string | number>) => string;
 }
-
-const I18nContext = createContext<I18nApi>({
-  lang: "zh-CN",
-  setLang: () => {},
-  toggleLang: () => {},
-  t: (key, params) => formatText(key, params),
-});
-
-let currentLang: Lang = "zh-CN";
-
-function formatText(text: string, params?: Record<string, string | number>): string {
-  if (!params) return text;
-  return Object.entries(params).reduce((res, [k, v]) => res.replaceAll(`{${k}}`, String(v)), text);
-}
-
-export function translate(text: string, params?: Record<string, string | number>): string {
-  if (currentLang === "en") {
-    return formatText(text, params);
-  }
-  const translated = zhCN[text] || text;
-  return formatText(translated, params);
-}
-
-export const t = translate;
 
 function getInitialLang(): Lang {
   if (typeof window === "undefined") return "zh-CN";
@@ -2101,12 +2181,46 @@ function getInitialLang(): Lang {
   return "zh-CN";
 }
 
+let currentLang: Lang = getInitialLang();
+if (typeof document !== "undefined") {
+  document.documentElement.lang = currentLang;
+}
+
+export function getLang(): Lang {
+  return currentLang;
+}
+
+const I18nContext = createContext<I18nApi>({
+  lang: currentLang,
+  setLang: () => {},
+  toggleLang: () => {},
+  t: (key, params) => translate(key, params),
+});
+
+function formatText(text: string, params?: Record<string, string | number>): string {
+  if (!params) return text;
+  return Object.entries(params).reduce((res, [k, v]) => res.replaceAll(`{${k}}`, String(v)), text);
+}
+
+function resolveText(lang: Lang, key: string, params?: Record<string, string | number>): string {
+  const translated = lang === "en" ? enUS[key] || key : zhCN[key] || key;
+  return formatText(translated, params);
+}
+
+export function translate(text: string, params?: Record<string, string | number>): string {
+  return resolveText(currentLang, text, params);
+}
+
+export const t = translate;
+
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>(getInitialLang);
+  // Keep module-level language synchronously aligned during render for non-hook helpers (util.ts).
+  currentLang = lang;
 
   const setLang = useCallback((nextLang: Lang) => {
-    setLangState(nextLang);
     currentLang = nextLang;
+    setLangState(nextLang);
     try {
       localStorage.setItem(STORAGE_KEY, nextLang);
       document.documentElement.lang = nextLang;
@@ -2129,10 +2243,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }, [lang]);
 
   const tFunc = useCallback(
-    (key: string, params?: Record<string, string | number>) => {
-      if (lang === "en") return formatText(key, params);
-      return formatText(zhCN[key] || key, params);
-    },
+    (key: string, params?: Record<string, string | number>) => resolveText(lang, key, params),
     [lang]
   );
 

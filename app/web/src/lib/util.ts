@@ -13,7 +13,7 @@ export function formatBytes(n: number | undefined | null): string {
 }
 
 export function formatRate(bytesPerSecond: number): string {
-  return `${formatBytes(bytesPerSecond * 8 >= 0 ? bytesPerSecond : 0)}/s`;
+  return `${formatBytes(bytesPerSecond >= 0 ? bytesPerSecond : 0)}/s`;
 }
 
 export function formatCount(n: number | undefined | null): string {
@@ -37,9 +37,9 @@ export function formatDuration(seconds: number): string {
 
 /** SoftEther's zero dates mean "never"; render them as such. */
 export function formatDate(iso: string | null | undefined): string {
-  if (!iso) return "never";
+  if (!iso) return t("never");
   const d = new Date(iso);
-  if (!isFinite(d.getTime()) || d.getFullYear() < 1990) return "never";
+  if (!isFinite(d.getTime()) || d.getFullYear() < 1990) return t("never");
   const lang = typeof document !== "undefined" ? document.documentElement.lang || undefined : undefined;
   return d.toLocaleString(lang, {
     year: "numeric",
@@ -68,9 +68,9 @@ export function formatDateTime(iso: string | null | undefined): string {
 }
 
 export function timeAgo(iso: string | null | undefined): string {
-  if (!iso) return "never";
+  if (!iso) return t("never");
   const then = new Date(iso).getTime();
-  if (!isFinite(then) || new Date(iso).getFullYear() < 1990) return "never";
+  if (!isFinite(then) || new Date(iso).getFullYear() < 1990) return t("never");
   const s = Math.max(0, (Date.now() - then) / 1000);
   if (s < 60) return t("just now");
   if (s < 3600) return t("{n}m ago", { n: Math.floor(s / 60) });
@@ -126,9 +126,16 @@ export function formatIPLocation(location?: unknown, isp?: unknown): string {
     const s = String(v ?? "").trim();
     return /^[-—]+$/.test(s) ? "" : s;
   };
-  // The ISP comes from GeoIP in English; t() maps the common names to Chinese and
-  // leaves anything unknown untouched.
-  return [clean(location), t(clean(isp))].filter(Boolean).join(" ");
+  const loc = clean(location);
+  const net = clean(isp);
+  return [loc ? t(loc) : "", net ? t(net) : ""].filter(Boolean).join(" ");
+}
+
+/** Localizes common SoftEther / WireGuard disconnect causes while keeping raw details intact. */
+export function formatDisconnectReason(reason?: unknown): string {
+  const s = String(reason ?? "").trim();
+  if (!s) return "";
+  return t(s);
 }
 
 /** True when a GeoIP location + ISP pair has anything worth rendering. */
