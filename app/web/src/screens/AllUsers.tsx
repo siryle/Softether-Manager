@@ -306,7 +306,7 @@ export function AllUsers() {
                               <span className="tmono" style={{ color: "var(--text-faint)" }}>—</span>
                             )}
                           </td>
-                          <td><span className="chip chip--brand">{String(u.HubName_str)}</span></td>
+                          <td><span className="chip chip--brand chip--sm">{String(u.HubName_str)}</span></td>
                           <td><UserStatePill user={u} /></td>
                           <td className="tmono">{String(u.GroupName_str || "—")}</td>
                           <td>{AUTH_TYPES[Number(u.AuthType_u32)] ? t(AUTH_TYPES[Number(u.AuthType_u32)]) : "?"}</td>
@@ -396,7 +396,7 @@ export function AllUsers() {
                       <UserStatePill user={u} />
                     </div>
                     <div className="spec">
-                      <span className="chip chip--brand">{String(u.HubName_str)}</span>
+                      <span className="chip chip--brand chip--sm">{String(u.HubName_str)}</span>
                       <span className="chip"><i>{t("group")}</i>{String(u.GroupName_str || "—")}</span>
                       <span className="chip"><i>{t("data")}</i>{formatBytes(bytes.send + bytes.recv)}</span>
                       <span className="chip"><i>{t("seen")}</i>{timeAgo(u.LastLoginTime_dt as string)}</span>

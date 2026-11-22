@@ -217,7 +217,6 @@ export function SessionUsageSheet({ hub, row, onClose }: { hub: string; row: Wir
   const duration = endedAt ? (endedAt - started) / 1000 : (Date.now() - started) / 1000;
   const proto = String(row.protocol || usage?.session?.protocol || "");
   const clientIp = String(row.client_ip || usage?.session?.client_ip || "");
-  const clientPort = Number(row.client_port || usage?.session?.client_port || 0);
   const serverPort = Number(row.server_port || usage?.session?.server_port || 0);
   const disconnectReason = String(row.disconnect_reason || usage?.session?.disconnect_reason || "");
   const downBytes = Number(row.download_bytes ?? usage?.session?.download_bytes ?? 0);
@@ -245,7 +244,7 @@ export function SessionUsageSheet({ hub, row, onClose }: { hub: string; row: Wir
               <div>
                 <div className="micro">{t("client IP")}</div>
                 <div className="mono" style={{ fontSize: "var(--t-data)" }}>
-                  {clientIp ? (clientPort > 0 ? `${clientIp}:${clientPort}` : clientIp) : "—"}
+                  {clientIp || "—"}
                 </div>
               </div>
               <div>

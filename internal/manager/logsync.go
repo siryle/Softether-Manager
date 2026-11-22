@@ -14,21 +14,26 @@ import (
 )
 
 var (
-	reLogTimestamp  = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})(?:\.\d+)?\s+(.*)$`)
-	reLogConnStart  = regexp.MustCompile(`Connection "([^"]+)".*?(?:IP address[^0-9a-fA-F:]*|from\s+)([0-9a-fA-F:.]+).*?(?:port(?:\s+number)?(?:\s+is)?[:\s]+)(\d+)`)
-	reLogConnAuth   = regexp.MustCompile(`Connection "([^"]+)".*?(?:User authentication succeeded\.?\s*User name:\s*"([^"]+)"|Successfully authenticated as user "([^"]+)"|Authenticated as "([^"]+)")`)
-	reLogSessCreate = regexp.MustCompile(`Connection "([^"]+)".*?session "([^"]+)" has been created`)
-	reLogSessStart  = regexp.MustCompile(`Session "([^"]+)".*?(?:has been (?:started|established)|logged in)`)
-	reLogSessEnd    = regexp.MustCompile(`Session "([^"]+)": The session has been terminated\.(.*)`)
-	reLogConnTerm   = regexp.MustCompile(`Connection "([^"]+)" terminated by the cause "([^"]+)"(?:\s*\(code\s*(\d+)\))?`)
-	reLogOutBytes   = regexp.MustCompile(`Total outgoing data size:\s*(\d+)\s*bytes`)
-	reLogInBytes    = regexp.MustCompile(`Total incoming data size:\s*(\d+)\s*bytes`)
-	reLogPackets    = regexp.MustCompile(`Total (?:outgoing|incoming) (?:unicast|broadcast) packets:\s*(\d+)\s*packets`)
-	reLogClientIP   = regexp.MustCompile(`(?:IP address(?:\s+of the client)?(?:\s+is)?[:\s]+)([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+|[0-9a-fA-F:]+:[0-9a-fA-F:]+)`)
-	reLogPort       = regexp.MustCompile(`[Pp]ort(?:\s+number)?(?:\s+is)?[:\s]+(\d+)`)
-	reLogProto      = regexp.MustCompile(`Physical protocol:\s*"([^"]+)"`)
-	reLogProduct    = regexp.MustCompile(`Client product name:\s*"([^"]+)"`)
-	reLogSecFile    = regexp.MustCompile(`(?i)(?:^|/)security_log/([^/]+)/sec_(\d{8})\.log$`)
+	reLogTimestamp   = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})(?:\.\d+)?\s+(.*)$`)
+	reLogConnStart   = regexp.MustCompile(`Connection "([^"]+)".*?(?:IP address[^0-9a-fA-F:]*|from\s+)([0-9a-fA-F:.]+).*?(?:port(?:\s+number)?(?:\s+is)?[:\s]+)(\d+)`)
+	reLogSSLStart    = regexp.MustCompile(`SSL communication for connection "([^"]+)"`)
+	reLogConnAuth    = regexp.MustCompile(`Connection "([^"]+)".*?(?:User authentication succeeded\.?\s*User name:\s*"([^"]+)"|Successfully authenticated as user "([^"]+)"|Authenticated as "([^"]+)")`)
+	reLogSessCreate  = regexp.MustCompile(`(?i)Connection "([^"]+)".*?new session "([^"]+)" has been created`)
+	reLogSessStart   = regexp.MustCompile(`Session "([^"]+)".*?(?:has been (?:started|established)|logged in)`)
+	reLogSessDetails = regexp.MustCompile(`Session "([^"]+)":.*?(?:VPN Client details|Client product name|Physical(?:\s+underlying)?\s+protocol)`)
+	reLogSessDHCP    = regexp.MustCompile(`Session "([^"]+)":.*DHCP.*?(?:IP address|assigned)[:\s]+([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)`)
+	reLogDHCPHost    = regexp.MustCompile(`Host name:\s*"([^"]+)"`)
+	reLogSessEnd     = regexp.MustCompile(`Session "([^"]+)": The session has been terminated\.(.*)`)
+	reLogConnTerm    = regexp.MustCompile(`Connection "([^"]+)" terminated by the cause "([^"]+)"(?:\s*\(code\s*(\d+)\))?`)
+	reLogConnRef     = regexp.MustCompile(`Connection "([^"]+)"`)
+	reLogOutBytes    = regexp.MustCompile(`Total outgoing data size:\s*(\d+)\s*bytes`)
+	reLogInBytes     = regexp.MustCompile(`Total incoming data size:\s*(\d+)\s*bytes`)
+	reLogPackets     = regexp.MustCompile(`Total (?:outgoing|incoming) (?:unicast|broadcast) packets:\s*(\d+)\s*packets`)
+	reLogClientIP    = regexp.MustCompile(`(?:IP address(?:\s+of the client)?(?:\s+is)?[:\s]+)([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+|[0-9a-fA-F:]+:[0-9a-fA-F:]+)`)
+	reLogPort        = regexp.MustCompile(`[Pp]ort(?:\s+number)?(?:\s+is)?[:\s]+(\d+)`)
+	reLogProto       = regexp.MustCompile(`Physical(?:\s+underlying)?\s+protocol:\s*"?([^",)]+)"?`)
+	reLogProduct     = regexp.MustCompile(`Client product name:\s*"([^"]+)"`)
+	reLogSecFile     = regexp.MustCompile(`(?i)(?:^|/)security_log/([^/]+)/sec_(\d{8})\.log$`)
 )
 
 type logConnMeta struct {
@@ -45,6 +50,8 @@ type parsedLogSession struct {
 	sessionName      string
 	username         string
 	clientIP         string
+	virtualIP        string
+	clientHost       string
 	clientPort       int64
 	protocol         string
 	startedAt        time.Time
@@ -121,6 +128,21 @@ func parseSecurityLogEvents(hub, text string, loc *time.Location) []parsedLogSes
 			if p, err := strconv.ParseInt(m[3], 10, 64); err == nil && p > 0 && p <= 65535 {
 				c.clientPort = p
 			}
+			protoSrc := M{"ClientPort": c.clientPort}
+			if pm := reLogProto.FindStringSubmatch(body); len(pm) == 2 {
+				protoSrc["UnderlayProtocol_str"] = pm[1]
+			}
+			if prm := reLogProduct.FindStringSubmatch(body); len(prm) == 2 {
+				protoSrc["ClientProductName_str"] = prm[1]
+			}
+			if p := detectSessionProtocol(protoSrc, nil); p != "" {
+				c.protocol = preferProtocol(c.protocol, p)
+			}
+			continue
+		}
+		if m := reLogSSLStart.FindStringSubmatch(body); len(m) == 2 {
+			c := ensureConn(m[1], at)
+			c.protocol = preferProtocol(c.protocol, "SoftEther SSL-VPN")
 			continue
 		}
 		if m := reLogConnAuth.FindStringSubmatch(body); len(m) == 5 {
@@ -148,28 +170,64 @@ func parseSecurityLogEvents(hub, text string, loc *time.Location) []parsedLogSes
 					c.clientPort = p
 				}
 			}
-			protoSrc := M{"Name_str": sn}
+			protoSrc := M{"Name_str": sn, "ClientPort": c.clientPort}
 			if pm := reLogProto.FindStringSubmatch(body); len(pm) == 2 {
-				protoSrc["UnderlayProtocol_str"] = pm[1]
+				protoSrc["UnderlayProtocol_str"] = strings.TrimSpace(pm[1])
 			}
 			if prm := reLogProduct.FindStringSubmatch(body); len(prm) == 2 {
-				protoSrc["ClientProductName_str"] = prm[1]
+				protoSrc["ClientProductName_str"] = strings.TrimSpace(prm[1])
 			}
 			if p := detectSessionProtocol(protoSrc, nil); p != "" {
-				c.protocol = p
+				c.protocol = preferProtocol(c.protocol, p)
 			}
 			user := c.user
 			if user == "" {
 				user = inferUsernameFromSessionName(sn)
 			}
 			openSessions[sn] = &parsedLogSession{
-				hub:        hub,
+				hub:         hub,
 				sessionName: sn,
-				username:   user,
-				clientIP:   c.clientIP,
-				clientPort: c.clientPort,
-				protocol:   c.protocol,
-				startedAt:  at,
+				username:    user,
+				clientIP:    c.clientIP,
+				clientPort:  c.clientPort,
+				protocol:    c.protocol,
+				startedAt:   at,
+			}
+			continue
+		}
+		if m := reLogSessDetails.FindStringSubmatch(body); len(m) == 2 {
+			sn := m[1]
+			protoSrc := M{"Name_str": sn}
+			if pm := reLogProto.FindStringSubmatch(body); len(pm) == 2 {
+				protoSrc["UnderlayProtocol_str"] = strings.TrimSpace(pm[1])
+			}
+			if prm := reLogProduct.FindStringSubmatch(body); len(prm) == 2 {
+				protoSrc["ClientProductName_str"] = strings.TrimSpace(prm[1])
+			}
+			if p := detectSessionProtocol(protoSrc, nil); p != "" {
+				if sess := openSessions[sn]; sess != nil {
+					sess.protocol = preferProtocol(sess.protocol, p)
+				}
+				if cid := sessToConn[sn]; cid != "" && conns[cid] != nil {
+					conns[cid].protocol = preferProtocol(conns[cid].protocol, p)
+				}
+			}
+			continue
+		}
+		if m := reLogSessDHCP.FindStringSubmatch(body); len(m) == 3 {
+			sn, vip := m[1], m[2]
+			if sess := openSessions[sn]; sess != nil {
+				if sess.virtualIP == "" {
+					sess.virtualIP = vip
+				}
+				if sess.clientHost == "" {
+					if hm := reLogDHCPHost.FindStringSubmatch(body); len(hm) == 2 {
+						h := strings.TrimSpace(hm[1])
+						if h != "" && !isIP(h) {
+							sess.clientHost = h
+						}
+					}
+				}
 			}
 			continue
 		}
@@ -195,6 +253,9 @@ func parseSecurityLogEvents(hub, text string, loc *time.Location) []parsedLogSes
 					if p, err := strconv.ParseInt(pm[1], 10, 64); err == nil && p > 0 && p <= 65535 {
 						cport = p
 					}
+				}
+				if p := detectSessionProtocol(M{"Name_str": sn, "ClientPort": cport}, nil); p != "" {
+					proto = preferProtocol(proto, p)
 				}
 				openSessions[sn] = &parsedLogSession{
 					hub:         hub,
@@ -270,6 +331,9 @@ func parseSecurityLogEvents(hub, text string, loc *time.Location) []parsedLogSes
 			if sess.username == "" {
 				sess.username = inferUsernameFromSessionName(sn)
 			}
+			if p := detectSessionProtocol(M{"Name_str": sn, "ClientPort": sess.clientPort}, nil); p != "" {
+				sess.protocol = preferProtocol(sess.protocol, p)
+			}
 			if !isClientSessionRPC(M{"Username_str": sess.username, "Name_str": sn}) || sess.username == "" {
 				continue
 			}
@@ -287,6 +351,23 @@ func parseSecurityLogEvents(hub, text string, loc *time.Location) []parsedLogSes
 				}
 			}
 			completed = append(completed, *sess)
+			continue
+		}
+		// Catch any other Connection "CID-..." line carrying protocol/product info (e.g., L2TP/IPsec, SSTP, OpenVPN).
+		if cm := reLogConnRef.FindStringSubmatch(body); len(cm) == 2 {
+			protoSrc := M{}
+			if pm := reLogProto.FindStringSubmatch(body); len(pm) == 2 {
+				protoSrc["UnderlayProtocol_str"] = strings.TrimSpace(pm[1])
+			}
+			if prm := reLogProduct.FindStringSubmatch(body); len(prm) == 2 {
+				protoSrc["ClientProductName_str"] = strings.TrimSpace(prm[1])
+			}
+			if len(protoSrc) > 0 {
+				if p := detectSessionProtocol(protoSrc, nil); p != "" {
+					c := ensureConn(cm[1], at)
+					c.protocol = preferProtocol(c.protocol, p)
+				}
+			}
 		}
 	}
 	return completed
@@ -459,12 +540,12 @@ func (a *App) applyLogSessionEvents(ctx context.Context, serverID int64, hub, fi
 			     SessionKey LIKE 'sess:' || ? || '@%'
 			     OR SessionKey=?
 			     OR (EndedDate IS NULL AND COALESCE(NULLIF(StartedTs,0), unixepoch(StartedDate)) <= ? AND ABS(COALESCE(NULLIF(StartedTs,0), unixepoch(StartedDate)) - ?) <= 120)
-			     OR (EndedDate IS NOT NULL AND ABS(COALESCE(NULLIF(StartedTs,0), unixepoch(StartedDate)) - ?) <= 15 AND ABS(COALESCE(EndedTs, unixepoch(EndedDate)) - ?) <= 90)
+			     OR (EndedDate IS NOT NULL AND ABS(COALESCE(NULLIF(StartedTs,0), unixepoch(StartedDate)) - ?) <= 120 AND ABS(COALESCE(EndedTs, unixepoch(EndedDate)) - ?) <= 360 AND (ClientIP='' OR ?='' OR ClientIP=?))
 			   )
 			 ORDER BY (EndedDate IS NOT NULL) ASC, ABS(COALESCE(NULLIF(StartedTs,0), unixepoch(StartedDate)) - ?) ASC LIMIT 1`,
 			serverID, hub, ev.username, ev.sessionName,
 			"log:"+ev.sessionName+"@"+ev.startedAt.UTC().Format("20060102T150405.000Z"),
-			endedTs, startedTs, startedTs, endedTs, startedTs,
+			endedTs, startedTs, startedTs, endedTs, ev.clientIP, ev.clientIP, startedTs,
 		).Scan(&existingID, &existingEnded, &existingDown, &existingUp, &existingTotal)
 
 		if err == nil && existingID > 0 {
@@ -479,8 +560,10 @@ func (a *App) applyLogSessionEvents(ctx context.Context, serverID int64, hub, fi
 				   DownloadBytes=?, UploadBytes=?, BytesTotal=?,
 				   PacketsTotal=MAX(PacketsTotal, ?),
 				   ClientIP=CASE WHEN ClientIP='' THEN ? ELSE ClientIP END,
+				   VirtualIP=CASE WHEN VirtualIP='' THEN ? ELSE VirtualIP END,
+				   ClientHostname=CASE WHEN ClientHostname='' THEN ? ELSE ClientHostname END,
 				   ClientPort=CASE WHEN ClientPort=0 THEN ? ELSE ClientPort END,
-				   Protocol=CASE WHEN Protocol='' THEN ? ELSE Protocol END,
+				   Protocol=CASE WHEN ? != '' AND (Protocol='' OR Protocol='SoftEther SSL-VPN') THEN ? ELSE Protocol END,
 				   DisconnectReason=CASE WHEN ? != '' THEN ? ELSE DisconnectReason END,
 				   RealName=CASE WHEN RealName='' THEN ? ELSE RealName END,
 				   Note=CASE WHEN Note='' THEN ? ELSE Note END,
@@ -490,7 +573,7 @@ func (a *App) applyLogSessionEvents(ctx context.Context, serverID int64, hub, fi
 				 WHERE VpnSessionSampleID=?`,
 				endedISO, endedISO, endedTs, endedTs, endedISO, endedISO,
 				newDown, newUp, newTotal, ev.packetsTotal,
-				ev.clientIP, ev.clientPort, ev.protocol, ev.disconnectReason, ev.disconnectReason,
+				ev.clientIP, ev.virtualIP, ev.clientHost, ev.clientPort, ev.protocol, ev.protocol, ev.disconnectReason, ev.disconnectReason,
 				realName, note, geo.Location, geo.ISP, geo.Full, existingID,
 			)
 			if err != nil {
@@ -523,9 +606,12 @@ func (a *App) applyLogSessionEvents(ctx context.Context, serverID int64, hub, fi
 			   PacketsTotal=MAX(VpnSessionSample.PacketsTotal, excluded.PacketsTotal),
 			   DownloadBytes=MAX(VpnSessionSample.DownloadBytes, excluded.DownloadBytes),
 			   UploadBytes=MAX(VpnSessionSample.UploadBytes, excluded.UploadBytes),
+			   VirtualIP=CASE WHEN VpnSessionSample.VirtualIP='' THEN excluded.VirtualIP ELSE VpnSessionSample.VirtualIP END,
+			   ClientHostname=CASE WHEN VpnSessionSample.ClientHostname='' THEN excluded.ClientHostname ELSE VpnSessionSample.ClientHostname END,
+			   Protocol=CASE WHEN excluded.Protocol!='' AND (VpnSessionSample.Protocol='' OR VpnSessionSample.Protocol='SoftEther SSL-VPN') THEN excluded.Protocol ELSE VpnSessionSample.Protocol END,
 			   DisconnectReason=CASE WHEN excluded.DisconnectReason!='' THEN excluded.DisconnectReason ELSE VpnSessionSample.DisconnectReason END
 			 RETURNING VpnSessionSampleID`,
-			serverID, hub, ev.username, logKey, ev.clientIP, "", "", startedISO, endedISO, endedISO,
+			serverID, hub, ev.username, logKey, ev.clientIP, ev.virtualIP, ev.clientHost, startedISO, endedISO, endedISO,
 			totalBytes, ev.packetsTotal, ev.downBytes, ev.upBytes, startedTs, endedTs,
 			realName, note, geo.Location, geo.ISP, geo.Full, ev.protocol, ev.disconnectReason, ev.clientPort,
 		).Scan(&insertedID)

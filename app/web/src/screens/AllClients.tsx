@@ -22,13 +22,23 @@ import { cleanHost, EndpointCell, SessionSheet } from "./hub/HubSessions";
 
 function clientProtocol(s: Wire): string {
   if (s.Protocol_str) return String(s.Protocol_str);
-  const raw = `${s.UnderlayProtocol_str || ""} ${s.ClientProductName_str || ""} ${s.Name_str || ""}`.toLowerCase();
-  if (raw.includes("wireguard") || raw.includes("sid-wg-")) return "WireGuard";
-  if (raw.includes("openvpn") || raw.includes("sid-ovpn")) return "OpenVPN";
-  if (raw.includes("l2tp") || raw.includes("ipsec")) return "L2TP/IPsec";
+  const raw = `${s.UnderlayProtocol_str || ""} ${s.ClientProductName_str || ""} ${s.ClientOsName_str || ""} ${s.Name_str || ""} ${s.Hostname_str || ""}`.toLowerCase();
+  const sPort = Number(s.ServerPort_u32 || s.ServerPort2_u32 || 0);
+  const cPort = Number(s.ClientPort_u32 || 0);
+  if (raw.includes("wireguard") || raw.includes("sid-wg-") || raw.includes("-[wg]-") || raw.includes("[wg]")) return "WireGuard";
+  if (raw.includes("openvpn") || raw.includes("sid-ovpn") || raw.includes("-[ovpn") || raw.includes("[ovpn")) return "OpenVPN";
+  if (raw.includes("l2tp")) return "L2TP/IPsec";
+  if (raw.includes("etherip")) return "EtherIP/IPsec";
+  if (raw.includes("ikev2")) return "IKEv2/IPsec";
+  if (raw.includes("ipsec") || raw.includes("isakmp") || /(^|[^a-z0-9])ppp([^a-z0-9]|$)/.test(raw)) return "L2TP/IPsec";
   if (raw.includes("sstp")) return "MS-SSTP";
-  if (raw.includes("rudp")) return "SoftEther RUDP";
-  if (raw.includes("ssl") || raw.includes("tls") || raw.includes("softether")) return "SoftEther SSL-VPN";
+  if (raw.includes("rudp") || raw.includes("udp acceleration")) return "SoftEther RUDP";
+  if (sPort === 1701 || sPort === 500 || sPort === 4500 || cPort === 1701) return "L2TP/IPsec";
+  if (sPort === 51820) return "WireGuard";
+  if (sPort === 1194) return "OpenVPN";
+  if (raw.includes("ssl") || raw.includes("tls") || raw.includes("softether") || raw.includes("standard tcp/ip") || raw.includes("tcp/ip")) {
+    return "SoftEther SSL-VPN";
+  }
   return "";
 }
 
@@ -357,9 +367,8 @@ export function AllClients() {
                             <div className="viz-stack">
                               <Link
                                 to={`/hub/${seg(hub)}`}
-                                className="chip mono"
+                                className="chip chip--sm mono"
                                 onClick={(e) => e.stopPropagation()}
-                                style={{ fontWeight: 600 }}
                               >
                                 {hub}
                               </Link>
@@ -437,8 +446,8 @@ export function AllClients() {
                       {s.Realname_utf ? (
                         <span style={{ fontSize: "12px", color: "var(--muted)" }}>({String(s.Realname_utf)})</span>
                       ) : null}
-                      <span className="chip mono" style={{ fontSize: "10px", marginLeft: 4 }}>{hub}</span>
-                      {proto && <span className="chip mono" style={{ fontSize: "10px" }}>{proto}</span>}
+                      <span className="chip chip--sm mono" style={{ marginLeft: 4 }}>{hub}</span>
+                      {proto && <span className="chip chip--sm mono">{proto}</span>}
                     </div>
                     {s.Note_utf ? (
                       <div className="tsub truncate" style={{ fontSize: "12px", color: "var(--muted)", marginBottom: 4 }}>

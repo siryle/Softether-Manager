@@ -53,11 +53,14 @@ export function TrafficChart({
   usage,
   emptyLabel,
   defaultMode = "vol",
+  height = H,
 }: {
   usage: Usage;
   emptyLabel?: string;
   defaultMode?: ChartMode;
+  height?: number;
 }) {
+  const chartH = Math.max(140, height);
   const [hover, setHover] = useState<number | null>(null);
   const [width, setWidth] = useState(720);
   const [mode, setMode] = useState<ChartMode>(defaultMode);
@@ -127,11 +130,12 @@ export function TrafficChart({
     const padRight = hasSessions && showSessions ? 42 : PAD_BASE.right;
     const padLeft = mode === "rate" ? 72 : PAD_BASE.left;
     const innerW = Math.max(40, width - padLeft - padRight);
-    const innerH = H - PAD_BASE.top - PAD_BASE.bottom;
+    const innerH = chartH - PAD_BASE.top - PAD_BASE.bottom;
 
     const valOf = (p: PlotPoint, key: "send" | "recv") => (mode === "rate" ? p[key] / intervalSec : p[key]);
 
-    let maxVal = 0;
+    let yMax = 0;
+    let peakVal = 0;
     let sumVal = 0;
     let peakPoint: PlotPoint = points[0];
     let maxSess = 0;
@@ -139,14 +143,16 @@ export function TrafficChart({
       const r = showRecv ? valOf(p, "recv") : 0;
       const s = showSend ? valOf(p, "send") : 0;
       const top = Math.max(r, s);
-      if (top > maxVal) {
-        maxVal = top;
+      if (top > yMax) yMax = top;
+      const combined = r + s;
+      if (combined > peakVal) {
+        peakVal = combined;
         peakPoint = p;
       }
-      sumVal += r + s;
+      sumVal += combined;
       if (p.sessions !== undefined && p.sessions > maxSess) maxSess = p.sessions;
     }
-    const yCap = Math.max(mode === "rate" ? 128 : 1, maxVal);
+    const yCap = yMax > 0 ? yMax * 1.15 : mode === "rate" ? 128 : 1;
     const avgVal = sumVal / Math.max(1, points.length);
     const sessCap = Math.max(1, Math.ceil(maxSess * 1.15));
 
@@ -202,11 +208,11 @@ export function TrafficChart({
       gapSpans,
       hasSessions,
       maxSess,
-      peakVal: maxVal,
+      peakVal,
       peakPoint,
       avgVal,
     };
-  }, [usage, width, mode, showRecv, showSend, showSessions, intervalSec]);
+  }, [usage, width, chartH, mode, showRecv, showSend, showSessions, intervalSec]);
 
   if (!model) {
     return (
@@ -319,9 +325,9 @@ export function TrafficChart({
 
       <div className="chart__stage">
         <svg
-          viewBox={`0 0 ${width} ${H}`}
+          viewBox={`0 0 ${width} ${chartH}`}
           width={width}
-          height={H}
+          height={chartH}
           className="chart__svg"
           role="img"
           aria-label={t("Traffic over the last {hours} hours: {down} downloaded, {up} uploaded.", {
@@ -387,7 +393,7 @@ export function TrafficChart({
             <text
               key={f}
               x={model.padLeft + model.innerW * f}
-              y={H - 7}
+              y={chartH - 7}
               className="chart__tick"
               textAnchor={f === 0 ? "start" : f === 1 ? "end" : "middle"}
             >

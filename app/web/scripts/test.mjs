@@ -419,6 +419,26 @@ test("TrafficChart supports rate mode and concurrent session overlay", () => {
   const tree = TrafficChart({ usage, defaultMode: "rate" });
   assert.ok(find(tree, node => node.type === "path" && node.props.stroke === "var(--warn)"));
   assert.ok(find(tree, node => node.type === "text" && typeof node.props.children === "string" && node.props.children.includes("bps")));
+
+  // Low bitrate steady traffic: Peak must be >= Avg (both measure combined RX+TX) and Y-axis must not jump to 1.0 Kbps.
+  const lowUsage = chartUsage(24, [
+    { ...point(-10, 2175, 9675), sessions: 1 }, // ~58 bps send + ~258 bps recv = ~316 bps
+    { ...point(-5, 2175, 9675), sessions: 1 },
+    { ...point(0, 2175, 9675), sessions: 1 },
+  ]);
+  const lowTree = TrafficChart({ usage: lowUsage, defaultMode: "rate" });
+  const statNode = find(lowTree, node => node.props?.className?.includes("chart__stat"));
+  const statNums = [];
+  (function collect(n) {
+    if (!n) return;
+    if (n.type === "b" && typeof n.props?.children === "string") statNums.push(n.props.children);
+    for (const c of [].concat(n.props?.children ?? [])) if (c && typeof c === "object") collect(c);
+  })(statNode);
+  assert.equal(statNums.length, 2);
+  assert.equal(statNums[0], "316 bps");
+  assert.equal(statNums[1], "316 bps");
+  const kbpsTick = find(lowTree, node => node.type === "text" && node.props.children === "1.0 Kbps");
+  assert.equal(kbpsTick, null);
 });
 
 test("serverAnalytics and sessionReportAnalytics encode filters and use server scope", async () => {

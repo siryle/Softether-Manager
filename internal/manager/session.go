@@ -66,37 +66,140 @@ func extractSessionPorts(st M) (int64, int64) {
 	return serverPort, clientPort
 }
 
+// protocolSpecificity ranks protocol labels so specific VPN protocols take precedence over generic ones.
+func protocolSpecificity(proto string) int {
+	p := strings.TrimSpace(proto)
+	if p == "" {
+		return 0
+	}
+	switch p {
+	case "WireGuard", "OpenVPN", "L2TP/IPsec", "IKEv2/IPsec", "EtherIP/IPsec", "MS-SSTP", "SoftEther RUDP", "SoftEther UDP":
+		return 2
+	default:
+		return 1
+	}
+}
+
+func preferProtocol(current, candidate string) string {
+	if protocolSpecificity(candidate) > protocolSpecificity(current) {
+		return strings.TrimSpace(candidate)
+	}
+	return strings.TrimSpace(current)
+}
+
+func hasProtocolWord(s, word string) bool {
+	if s == "" || word == "" {
+		return false
+	}
+	idx := 0
+	for {
+		pos := strings.Index(s[idx:], word)
+		if pos < 0 {
+			return false
+		}
+		start := idx + pos
+		end := start + len(word)
+		leftOK := start == 0 || !((s[start-1] >= 'a' && s[start-1] <= 'z') || (s[start-1] >= '0' && s[start-1] <= '9'))
+		rightOK := end == len(s) || !((s[end] >= 'a' && s[end] <= 'z') || (s[end] >= '0' && s[end] <= '9'))
+		if leftOK && rightOK {
+			return true
+		}
+		idx = start + 1
+	}
+}
+
 // detectSessionProtocol infers a concise VPN protocol label from SoftEther session fields.
 func detectSessionProtocol(s, status M) string {
 	var parts []string
+	var serverPort, clientPort int64
+	var cipher string
+	var underlay string
+	var udpAccel, rudp bool
+
 	for _, m := range []M{status, s} {
 		if m == nil {
 			continue
 		}
-		for _, k := range []string{"UnderlayProtocol_str", "ClientProductName_str", "Name_str", "Username_str"} {
+		for _, k := range []string{
+			"UnderlayProtocol_str",
+			"ClientProductName_str",
+			"ClientOsName_str",
+			"ClientOsProductId_str",
+			"Name_str",
+			"SessionName_str",
+			"Hostname_str",
+			"SessionKey",
+		} {
 			if v := strings.TrimSpace(str(m[k])); v != "" {
 				parts = append(parts, strings.ToLower(v))
 			}
 		}
+		if sp, cp := extractSessionPorts(m); sp > 0 || cp > 0 {
+			if serverPort == 0 && sp > 0 {
+				serverPort = sp
+			}
+			if clientPort == 0 && cp > 0 {
+				clientPort = cp
+			}
+		}
+		if serverPort == 0 {
+			if sp := integer(m["ServerPort"]); sp > 0 && sp <= 65535 {
+				serverPort = sp
+			}
+		}
+		if clientPort == 0 {
+			if cp := integer(m["ClientPort"]); cp > 0 && cp <= 65535 {
+				clientPort = cp
+			}
+		}
+		if cipher == "" {
+			cipher = strings.TrimSpace(str(m["CipherName_str"]))
+		}
+		if underlay == "" {
+			underlay = strings.TrimSpace(str(m["UnderlayProtocol_str"]))
+		}
+		if boolean(m["IsUsingUdpAcceleration_bool"]) {
+			udpAccel = true
+		}
+		if boolean(m["IsRUDPSession_bool"]) {
+			rudp = true
+		}
 	}
 	joined := strings.Join(parts, " ")
 	switch {
-	case strings.Contains(joined, "wireguard") || strings.Contains(joined, "sid-wg-"):
+	case strings.Contains(joined, "wireguard") || strings.Contains(joined, "sid-wg-") || strings.Contains(joined, "-[wg]-") || strings.Contains(joined, "[wg]"):
 		return "WireGuard"
-	case strings.Contains(joined, "openvpn") || strings.Contains(joined, "sid-ovpn-") || strings.Contains(joined, "sid-openvpn"):
+	case strings.Contains(joined, "openvpn") || strings.Contains(joined, "sid-ovpn") || strings.Contains(joined, "-[ovpn") || strings.Contains(joined, "[ovpn"):
 		return "OpenVPN"
-	case strings.Contains(joined, "l2tp") || strings.Contains(joined, "ipsec") || strings.Contains(joined, "sid-l2tp"):
+	case strings.Contains(joined, "l2tp"):
 		return "L2TP/IPsec"
-	case strings.Contains(joined, "sstp") || strings.Contains(joined, "sid-sstp"):
+	case strings.Contains(joined, "etherip"):
+		return "EtherIP/IPsec"
+	case strings.Contains(joined, "ikev2"):
+		return "IKEv2/IPsec"
+	case strings.Contains(joined, "ipsec") || strings.Contains(joined, "isakmp") || hasProtocolWord(joined, "ppp"):
+		return "L2TP/IPsec"
+	case strings.Contains(joined, "sstp"):
 		return "MS-SSTP"
-	case strings.Contains(joined, "rudp") || strings.Contains(joined, "udp acceleration"):
+	case strings.Contains(joined, "rudp") || strings.Contains(joined, "udp acceleration") || rudp:
 		return "SoftEther RUDP"
-	case status != nil && boolean(status["IsUsingUdpAcceleration_bool"]):
+	case udpAccel:
 		return "SoftEther UDP"
-	case strings.Contains(joined, "ssl") || strings.Contains(joined, "tls") || strings.Contains(joined, "softether"):
+	case serverPort == 1701 || serverPort == 500 || serverPort == 4500 || clientPort == 1701:
+		return "L2TP/IPsec"
+	case serverPort == 51820:
+		return "WireGuard"
+	case serverPort == 1194:
+		return "OpenVPN"
+	case strings.Contains(joined, "ssl") || strings.Contains(joined, "tls") || strings.Contains(joined, "softether") ||
+		strings.Contains(joined, "standard tcp/ip") || strings.Contains(joined, "tcp/ip") ||
+		strings.Contains(joined, "vpn over icmp") || strings.Contains(joined, "vpn over dns") ||
+		strings.Contains(joined, "vpn client") || strings.Contains(joined, "vpn bridge"):
 		return "SoftEther SSL-VPN"
-	case status != nil && strings.TrimSpace(str(status["UnderlayProtocol_str"])) != "":
-		return strings.TrimSpace(str(status["UnderlayProtocol_str"]))
+	case status != nil && cipher != "" && !strings.EqualFold(cipher, "none") && !strings.EqualFold(cipher, "plain"):
+		return "SoftEther SSL-VPN"
+	case status != nil && underlay != "":
+		return underlay
 	default:
 		return ""
 	}
@@ -293,6 +396,8 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 			}
 			if res.protocol != "" {
 				s["Protocol_str"] = res.protocol
+			} else if p := detectSessionProtocol(s, nil); p != "" {
+				s["Protocol_str"] = p
 			}
 			if res.clientHost != "" {
 				realHost = res.clientHost
@@ -301,6 +406,9 @@ func (a *App) enrichSessions(ctx context.Context, hub string, sessions []M) []M 
 				realHost = firstDHCPHost(sessionIPs[sessName], ipToDhcpHost, remoteHost)
 			}
 		} else {
+			if p := detectSessionProtocol(s, nil); p != "" {
+				s["Protocol_str"] = p
+			}
 			realHost = firstDHCPHost(sessionIPs[sessName], ipToDhcpHost, remoteHost)
 		}
 

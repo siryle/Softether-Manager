@@ -408,15 +408,33 @@ func initSchema(db *sql.DB) error {
 		return err
 	}
 
-	// Backfill integer Unix timestamps on migrated rows when missing.
+	// Backfill integer Unix timestamps and obvious SessionKey/ServerPort protocols on migrated rows when missing.
 	for _, stmt := range []string{
 		`UPDATE HubTrafficSample SET SampledTs=COALESCE(unixepoch(SampledDate), 0) WHERE SampledTs=0 AND SampledDate!=''`,
 		`UPDATE UserTrafficSample SET SampledTs=COALESCE(unixepoch(SampledDate), 0) WHERE SampledTs=0 AND SampledDate!=''`,
 		`UPDATE VpnSessionSample SET StartedTs=COALESCE(unixepoch(StartedDate), 0) WHERE StartedTs=0 AND StartedDate!=''`,
 		`UPDATE VpnSessionSample SET EndedTs=unixepoch(EndedDate) WHERE EndedDate IS NOT NULL AND EndedDate!='' AND EndedTs IS NULL`,
 		`UPDATE VpnSessionTrafficSample SET SampledTs=COALESCE(unixepoch(SampledDate), 0) WHERE SampledTs=0 AND SampledDate!=''`,
+		`UPDATE VpnSessionSample SET Protocol='WireGuard' WHERE Protocol='' AND (LOWER(SessionKey) LIKE '%wireguard%' OR LOWER(SessionKey) LIKE '%sid-wg-%' OR LOWER(SessionKey) LIKE '%[wg]%' OR ServerPort=51820)`,
+		`UPDATE VpnSessionSample SET Protocol='OpenVPN' WHERE Protocol='' AND (LOWER(SessionKey) LIKE '%openvpn%' OR LOWER(SessionKey) LIKE '%[ovpn%' OR LOWER(SessionKey) LIKE '%sid-ovpn%' OR ServerPort=1194)`,
+		`UPDATE VpnSessionSample SET Protocol='L2TP/IPsec' WHERE Protocol='' AND (LOWER(SessionKey) LIKE '%l2tp%' OR LOWER(SessionKey) LIKE '%ipsec%' OR LOWER(SessionKey) LIKE '%[ppp]%' OR ServerPort IN (1701, 500, 4500) OR ClientPort=1701)`,
+		`UPDATE VpnSessionSample SET Protocol='EtherIP/IPsec' WHERE Protocol='' AND LOWER(SessionKey) LIKE '%etherip%'`,
+		`UPDATE VpnSessionSample SET Protocol='IKEv2/IPsec' WHERE Protocol='' AND LOWER(SessionKey) LIKE '%ikev2%'`,
+		`UPDATE VpnSessionSample SET Protocol='MS-SSTP' WHERE Protocol='' AND LOWER(SessionKey) LIKE '%sstp%'`,
 	} {
 		if _, err = tx.Exec(stmt); err != nil {
+			return err
+		}
+	}
+
+	// One-time cursor reset after upgrading the security_log protocol parser so historical L2TP/IPsec/SSL-VPN sessions get backfilled cleanly.
+	var protoParserVer string
+	_ = tx.QueryRow(`SELECT SettingValue FROM Setting WHERE SettingKey='_log_sync_proto_v2'`).Scan(&protoParserVer)
+	if protoParserVer == "" {
+		if _, err = tx.Exec(`UPDATE LogSyncCursor SET ByteOffset=0`); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(`INSERT INTO Setting(SettingKey,SettingValue,UpdatedDate) VALUES('_log_sync_proto_v2','"1"',?) ON CONFLICT(SettingKey) DO UPDATE SET SettingValue='"1"',UpdatedDate=excluded.UpdatedDate`, now()); err != nil {
 			return err
 		}
 	}

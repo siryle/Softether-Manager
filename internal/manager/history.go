@@ -1121,7 +1121,7 @@ func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string)
 				key = fallbackSessionKey(sessName, username, started)
 			}
 			packetSize := integer(s["PacketSize_u64"])
-			if prev, ok := openByKey[key]; ok && packetSize == prev.bytesTotal && (prev.down+prev.up == packetSize || packetSize == 0) && (prev.down+prev.up > 0 || prev.clientHost != "" || prev.protocol != "" || prev.serverPort > 0 || prev.clientPort > 0) {
+			if prev, ok := openByKey[key]; ok && packetSize == prev.bytesTotal && (prev.down+prev.up == packetSize || packetSize == 0) && prev.protocol != "" {
 				// Traffic and identity are unchanged since last poll: reuse last known counters without an RPC.
 				mu.Lock()
 				details[sessName] = sessDetail{
@@ -1280,7 +1280,7 @@ func (a *App) sampleHubSessions(ctx context.Context, serverID int64, hub string)
 		  IpLocation=CASE WHEN excluded.IpLocation != '' THEN excluded.IpLocation ELSE VpnSessionSample.IpLocation END,
 		  IpISP=CASE WHEN excluded.IpISP != '' THEN excluded.IpISP ELSE VpnSessionSample.IpISP END,
 		  IpFull=CASE WHEN excluded.IpFull != '' THEN excluded.IpFull ELSE VpnSessionSample.IpFull END,
-		  Protocol=CASE WHEN excluded.Protocol != '' THEN excluded.Protocol ELSE VpnSessionSample.Protocol END,
+		  Protocol=CASE WHEN excluded.Protocol != '' AND (VpnSessionSample.Protocol = '' OR VpnSessionSample.Protocol = 'SoftEther SSL-VPN') THEN excluded.Protocol ELSE VpnSessionSample.Protocol END,
 		  ServerPort=CASE WHEN excluded.ServerPort > 0 THEN excluded.ServerPort ELSE VpnSessionSample.ServerPort END,
 		  ClientPort=CASE WHEN excluded.ClientPort > 0 THEN excluded.ClientPort ELSE VpnSessionSample.ClientPort END
 		RETURNING VpnSessionSampleID`)

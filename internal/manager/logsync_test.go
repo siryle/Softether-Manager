@@ -223,4 +223,64 @@ func TestSecurityLogSyncBackfillsShortSessionsAndExactTermination(t *testing.T) 
 	if bob == nil || str(bob["client_ip"]) != "198.51.100.55" || integer(bob["client_port"]) != 51234 || str(bob["protocol"]) != "OpenVPN" || integer(bob["download_bytes"]) != 12000 || integer(bob["upload_bytes"]) != 3400 {
 		t.Fatalf("bob short session was not backfilled cleanly from security log: %v", bob)
 	}
+	if str(alice["protocol"]) != "SoftEther SSL-VPN" {
+		t.Fatalf("expected alice Standard TCP/IP session to resolve as SoftEther SSL-VPN, got %q", str(alice["protocol"]))
+	}
+}
+
+func TestDetectSessionProtocolAndLogParsingForL2TPIPsec(t *testing.T) {
+	cases := []struct {
+		name   string
+		s      M
+		status M
+		want   string
+	}{
+		{"l2tp tag", M{"Name_str": "SID-SEAN-[L2TP]-12"}, nil, "L2TP/IPsec"},
+		{"l2tp3 tag", M{"Name_str": "SID-SEAN-[L2TP3]-4"}, nil, "L2TP/IPsec"},
+		{"l2tp underlying", nil, M{"UnderlayProtocol_str": "Legacy Protocol - L2TPv2 over IPsec"}, "L2TP/IPsec"},
+		{"ppp product", nil, M{"ClientProductName_str": "PPP Client"}, "L2TP/IPsec"},
+		{"ipsec port 4500", nil, M{"ServerPort2_u32": 4500}, "L2TP/IPsec"},
+		{"l2tp port 1701", M{"ClientPort": 1701}, nil, "L2TP/IPsec"},
+		{"ikev2", nil, M{"UnderlayProtocol_str": "IKEv2 / IPsec"}, "IKEv2/IPsec"},
+		{"etherip", M{"Name_str": "SID-SEAN-[ETHERIP]-1"}, nil, "EtherIP/IPsec"},
+		{"sstp", M{"Name_str": "SID-SEAN-[SSTP]-2"}, nil, "MS-SSTP"},
+		{"wireguard bracket", M{"Name_str": "SID-SEAN-[WG]-7"}, nil, "WireGuard"},
+		{"openvpn l3", M{"Name_str": "SID-SEAN-[OPENVPN_L3]-3"}, nil, "OpenVPN"},
+		{"standard tcpip", nil, M{"UnderlayProtocol_str": "Standard TCP/IP (IPv4)"}, "SoftEther SSL-VPN"},
+		{"tls cipher fallback", nil, M{"CipherName_str": "TLS_AES_256_GCM_SHA384"}, "SoftEther SSL-VPN"},
+		{"username does not false match", M{"Username_str": "ppptest", "Name_str": "SID-PPPTEST-1"}, nil, ""},
+	}
+	for _, tc := range cases {
+		if got := detectSessionProtocol(tc.s, tc.status); got != tc.want {
+			t.Errorf("%s: detectSessionProtocol() = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+
+	// Real SoftEther security_log wording: "Physical underlying protocol:", "VPN Client details:", and DHCP assignment.
+	logText := strings.Join([]string{
+		`2026-11-19 10:30:13.000 Connection "CID-10": The IP address of the client is 221.224.210.178, and the port number is 1701.`,
+		`2026-11-19 10:30:13.100 Connection "CID-10": User authentication succeeded. User name: "sean".`,
+		`2026-11-19 10:30:13.200 Connection "CID-10": The new session "SID-SEAN-[L2TP]-9" has been created. (IP address: 221.224.210.178, Port number: 1701, Physical underlying protocol: "Legacy Protocol - L2TPv2 over IPsec")`,
+		`2026-11-19 10:30:14.000 Session "SID-SEAN-[L2TP]-9": The DHCP Server has assigned the IP address 192.168.30.10 to the client (Host name: "Sean-iPhone").`,
+		`2026-11-19 11:23:27.000 Session "SID-SEAN-[L2TP]-9": The session has been terminated. Total outgoing data size: 2420000 bytes, Total incoming data size: 6530000 bytes.`,
+		`2026-11-19 14:01:15.000 SSL communication for connection "CID-11" has been started.`,
+		`2026-11-19 14:01:15.100 Connection "CID-11": The IP address of the client is 221.224.210.178, and the port number is 54321.`,
+		`2026-11-19 14:01:15.200 Connection "CID-11": User authentication succeeded. User name: "sean".`,
+		`2026-11-19 14:01:15.300 Connection "CID-11": The new session "SID-SEAN-11" has been created. (IP address: 221.224.210.178, Port number: 54321, Physical underlying protocol: "Standard TCP/IP (IPv4)")`,
+		`2026-11-19 14:01:15.400 Session "SID-SEAN-11": VPN Client details: (Client product name: "Microsoft SSTP VPN Client", Client version: 100)`,
+		`2026-11-19 14:03:17.000 Session "SID-SEAN-11": The session has been terminated. Total outgoing data size: 160000 bytes, Total incoming data size: 774000 bytes.`,
+		"",
+	}, "\n")
+
+	events := parseSecurityLogEvents("DEFAULT", logText, time.UTC)
+	if len(events) != 2 {
+		t.Fatalf("expected 2 parsed events, got %d: %+v", len(events), events)
+	}
+	if events[0].protocol != "L2TP/IPsec" || events[0].virtualIP != "192.168.30.10" || events[0].clientHost != "Sean-iPhone" {
+		t.Fatalf("event 0 mismatch: %+v", events[0])
+	}
+	// Specific MS-SSTP from "VPN Client details" must upgrade generic SoftEther SSL-VPN from SSL/Standard TCP/IP.
+	if events[1].protocol != "MS-SSTP" {
+		t.Fatalf("event 1 expected MS-SSTP upgrade from VPN Client details, got %q", events[1].protocol)
+	}
 }

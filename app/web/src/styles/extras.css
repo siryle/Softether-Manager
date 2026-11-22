@@ -1495,6 +1495,9 @@
 }
 
 /* ── Visualization primitives (Dashboard, Live Clients, Audit, UserDetail) ─ */
+.dash-host-card .spark {
+  height: 24px;
+}
 .tscroll:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;

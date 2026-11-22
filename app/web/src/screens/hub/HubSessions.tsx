@@ -340,7 +340,7 @@ export function EndpointCell({
       ) : null}
       {wan ? (
         <div className="endpoint__row">
-          <span className={lan ? "endpoint__wan" : "endpoint__wan--solo"}>{wan}</span>
+          <span className="endpoint__wan">{wan}</span>
           {loc ? <span className="endpoint__loc">{loc}</span> : null}
         </div>
       ) : null}

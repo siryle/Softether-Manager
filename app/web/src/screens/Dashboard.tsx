@@ -360,7 +360,7 @@ export function Dashboard() {
 
       {/* ── 3. Middle 12-Col Band: Telemetry (8) + Host Diagnostics (4) ─ */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
-        <div className="lg:col-span-8 panel-card panel-card--split">
+        <div className="lg:col-span-8 panel-card flex flex-col">
           <div className="panel-card__h">
             <div>
               <h2 className="panel-card__t">{t("Throughput Telemetry")}</h2>
@@ -377,11 +377,12 @@ export function Dashboard() {
               <RangeSeg hours={trafficHours} onChange={setTrafficHours} />
             </div>
           </div>
-          <div style={{ paddingTop: 4 }}>
+          <div className="flex-1" style={{ paddingTop: 4 }}>
             {serverUsage ? (
               <TrafficChart
                 usage={serverUsage}
                 defaultMode="rate"
+                height={260}
                 emptyLabel={t("No server-wide traffic recorded in this time window yet.")}
               />
             ) : (
@@ -390,7 +391,7 @@ export function Dashboard() {
           </div>
         </div>
 
-        <div className="lg:col-span-4 panel-card panel-card--split">
+        <div className="lg:col-span-4 panel-card panel-card--split dash-host-card">
           <div>
             <div className="panel-card__h">
               <div>
@@ -549,7 +550,7 @@ export function Dashboard() {
                       <span className="viz-rank-item__who">
                         <strong className="mono">{u.username}</strong>
                         {u.real_name && <span className="text-muted">{u.real_name}</span>}
-                        <span className="chip mono">{u.hub}</span>
+                        <span className="chip chip--sm mono">{u.hub}</span>
                       </span>
                       <span className="viz-rank-item__val mono">
                         <b>{formatBytes(u.total_bytes)}</b>
@@ -592,7 +593,7 @@ export function Dashboard() {
                     <div className="viz-quota-item__head">
                       <span className="viz-rank-item__who">
                         <strong className="mono">{q.subject === "hub" ? `HUB: ${q.hub}` : q.username}</strong>
-                        {q.subject === "user" && <span className="chip mono">{q.hub}</span>}
+                        {q.subject === "user" && <span className="chip chip--sm mono">{q.hub}</span>}
                         <QuotaStatePill quota={q} />
                       </span>
                       <span className="mono micro">

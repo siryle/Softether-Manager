@@ -45,7 +45,6 @@ function rowInfo(h: Wire) {
   const started = new Date(String(h.started_date)).getTime();
   const endedAt = h.ended_date ? new Date(String(h.ended_date)).getTime() : null;
   const clientIp = String(h.client_ip || "");
-  const clientPort = Number(h.client_port) || 0;
   return {
     rowHub: String(h.hub || ""),
     username: String(h.username || ""),
@@ -53,7 +52,7 @@ function rowInfo(h: Wire) {
     note: String(h.note || h.Note_utf || ""),
     protocol: String(h.protocol || ""),
     disconnectReason: String(h.disconnect_reason || ""),
-    clientIpWithPort: clientIp && clientPort > 0 ? `${clientIp}:${clientPort}` : clientIp,
+    clientIp,
     duration: endedAt ? (endedAt - started) / 1000 : (Date.now() - started) / 1000,
     v4: filterIpv4(h.virtual_ip),
     location: hasIPLocation(h.ip_location, h.ip_isp) ? formatIPLocation(h.ip_location, h.ip_isp) : "",
@@ -313,7 +312,7 @@ export function AuditReport() {
       note,
       protocol: proto,
       disconnectReason,
-      clientIpWithPort,
+      clientIp,
       duration,
       v4,
       location,
@@ -343,7 +342,7 @@ export function AuditReport() {
               {rowHub && (
                 <Link
                   to={`/hub/${seg(rowHub)}`}
-                  className="chip mono"
+                  className="chip chip--sm mono"
                   onClick={(e) => e.stopPropagation()}
                 >
                   {rowHub}
@@ -369,7 +368,7 @@ export function AuditReport() {
         </td>
         <td>
           {proto ? (
-            <span className="chip mono">{proto}</span>
+            <span className="chip chip--sm mono">{proto}</span>
           ) : (
             <span className="tmono" style={{ color: "var(--text-faint)" }}>—</span>
           )}
@@ -400,7 +399,7 @@ export function AuditReport() {
         </td>
         <td className="tmono">{formatDuration(duration)}</td>
         <td className="tmono">
-          <EndpointCell virtualIp={v4} clientIp={clientIpWithPort} location={location} host={host} />
+          <EndpointCell virtualIp={v4} clientIp={clientIp} location={location} host={host} />
         </td>
         <td className="tmono">
           <div>{formatBytes(Number(h.bytes_total))}</div>
@@ -413,7 +412,7 @@ export function AuditReport() {
   };
 
   const mobileRow = (h: Wire, history = false) => {
-    const { rowHub, username, realName, note, protocol: proto, disconnectReason, clientIpWithPort, duration, v4, location } =
+    const { rowHub, username, realName, note, protocol: proto, disconnectReason, clientIp, duration, v4, location } =
       rowInfo(h);
     const abnormal = isAbnormalDisconnect(disconnectReason);
     return (
@@ -427,8 +426,8 @@ export function AuditReport() {
           <div className="row__name">
             <span className="mono truncate">{username || "—"}</span>
             {realName ? <span style={{ fontSize: "12px", color: "var(--muted)" }}>({realName})</span> : null}
-            {rowHub && <span className="chip mono" style={{ fontSize: "10px" }}>{rowHub}</span>}
-            {proto && <span className="chip mono" style={{ fontSize: "10px" }}>{proto}</span>}
+            {rowHub && <span className="chip chip--sm mono">{rowHub}</span>}
+            {proto && <span className="chip chip--sm mono">{proto}</span>}
             {h.ended_date ? (
               <span className="chip">{formatDuration(duration)}</span>
             ) : (
@@ -452,7 +451,7 @@ export function AuditReport() {
           </div>
 
           <div className="spec">
-            {clientIpWithPort ? <span className="chip mono">{clientIpWithPort}</span> : null}
+            {clientIp ? <span className="chip mono">{clientIp}</span> : null}
             {location ? (
               <span className="chip" style={{ color: "var(--accent)", borderColor: "var(--accent-line)" }}>
                 {location}
