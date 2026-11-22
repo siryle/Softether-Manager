@@ -439,6 +439,26 @@ func initSchema(db *sql.DB) error {
 		}
 	}
 
+	// One-time cleanup of future-dated / mis-cased log:% rows written before log timezone calibration,
+	// followed by a clean re-sync of recent security logs.
+	var tzSyncVer string
+	_ = tx.QueryRow(`SELECT SettingValue FROM Setting WHERE SettingKey='_log_sync_tz_v3'`).Scan(&tzSyncVer)
+	if tzSyncVer == "" {
+		for _, stmt := range []string{
+			`DELETE FROM VpnSessionTrafficSample WHERE VpnSessionSampleID IN (SELECT VpnSessionSampleID FROM VpnSessionSample WHERE SessionKey LIKE 'log:%' AND (StartedTs > unixepoch('now') + 300 OR COALESCE(EndedTs, 0) > unixepoch('now') + 300 OR (ClientIP='' AND StartedTs = COALESCE(EndedTs, 0))))`,
+			`DELETE FROM VpnSessionSample WHERE SessionKey LIKE 'log:%' AND (StartedTs > unixepoch('now') + 300 OR COALESCE(EndedTs, 0) > unixepoch('now') + 300 OR (ClientIP='' AND StartedTs = COALESCE(EndedTs, 0)))`,
+			`UPDATE VpnSessionSample SET UserName = COALESCE((SELECT s2.UserName FROM VpnSessionSample s2 WHERE s2.ServerID = VpnSessionSample.ServerID AND s2.HubName = VpnSessionSample.HubName AND s2.UserName = VpnSessionSample.UserName COLLATE NOCASE AND s2.UserName != UPPER(s2.UserName) LIMIT 1), UserName) WHERE SessionKey LIKE 'log:%' AND UserName = UPPER(UserName)`,
+			`UPDATE LogSyncCursor SET ByteOffset=0`,
+		} {
+			if _, err = tx.Exec(stmt); err != nil {
+				return err
+			}
+		}
+		if _, err = tx.Exec(`INSERT INTO Setting(SettingKey,SettingValue,UpdatedDate) VALUES('_log_sync_tz_v3','"1"',?) ON CONFLICT(SettingKey) DO UPDATE SET SettingValue='"1"',UpdatedDate=excluded.UpdatedDate`, now()); err != nil {
+			return err
+		}
+	}
+
 	return tx.Commit()
 }
 

@@ -147,7 +147,7 @@ export function AuditReport() {
     }
     const byKey = new Map<string, SessionGroup>();
     for (const item of displayItems) {
-      const key = `${String(item.hub || "")}\u0000${String(item.username || "")}`;
+      const key = `${String(item.hub || "")}\u0000${String(item.username || "").trim().toLowerCase()}`;
       const group = byKey.get(key);
       if (group) group.earlier.push(item);
       else byKey.set(key, { key, latest: item, earlier: [] });
@@ -339,15 +339,6 @@ export function AuditReport() {
               ) : (
                 <span className="tmono">—</span>
               )}
-              {rowHub && (
-                <Link
-                  to={`/hub/${seg(rowHub)}`}
-                  className="chip chip--sm mono"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {rowHub}
-                </Link>
-              )}
               {group.earlier.length > 0 && expandButton(group, "audit-expand")}
             </div>
           ) : (
@@ -367,11 +358,24 @@ export function AuditReport() {
           )}
         </td>
         <td>
-          {proto ? (
-            <span className="chip chip--sm mono">{proto}</span>
-          ) : (
-            <span className="tmono" style={{ color: "var(--text-faint)" }}>—</span>
-          )}
+          <div className="viz-stack">
+            {rowHub ? (
+              <Link
+                to={`/hub/${seg(rowHub)}`}
+                className="chip chip--sm mono"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {rowHub}
+              </Link>
+            ) : (
+              <span className="tmono" style={{ color: "var(--text-faint)" }}>—</span>
+            )}
+            {proto && (
+              <span className="micro mono" style={{ color: "var(--text-muted)" }}>
+                {proto}
+              </span>
+            )}
+          </div>
         </td>
         <td className="tmono" title={timeAgo(String(h.started_date))}>
           <div>{formatDateTime(String(h.started_date))}</div>
@@ -903,7 +907,7 @@ export function AuditReport() {
                     <tr>
                       <th scope="col">{t("User")}</th>
                       <th scope="col">{t("Real name")}</th>
-                      <th scope="col">{t("Protocol")}</th>
+                      <th scope="col">{t("Virtual HUB")}</th>
                       <th scope="col">{t("Connected at")}</th>
                       <th scope="col">{t("Disconnected at")}</th>
                       <th scope="col">{t("Duration")}</th>

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -14,26 +15,27 @@ import (
 )
 
 var (
-	reLogTimestamp   = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})(?:\.\d+)?\s+(.*)$`)
-	reLogConnStart   = regexp.MustCompile(`Connection "([^"]+)".*?(?:IP address[^0-9a-fA-F:]*|from\s+)([0-9a-fA-F:.]+).*?(?:port(?:\s+number)?(?:\s+is)?[:\s]+)(\d+)`)
-	reLogSSLStart    = regexp.MustCompile(`SSL communication for connection "([^"]+)"`)
-	reLogConnAuth    = regexp.MustCompile(`Connection "([^"]+)".*?(?:User authentication succeeded\.?\s*User name:\s*"([^"]+)"|Successfully authenticated as user "([^"]+)"|Authenticated as "([^"]+)")`)
-	reLogSessCreate  = regexp.MustCompile(`(?i)Connection "([^"]+)".*?new session "([^"]+)" has been created`)
-	reLogSessStart   = regexp.MustCompile(`Session "([^"]+)".*?(?:has been (?:started|established)|logged in)`)
-	reLogSessDetails = regexp.MustCompile(`Session "([^"]+)":.*?(?:VPN Client details|Client product name|Physical(?:\s+underlying)?\s+protocol)`)
-	reLogSessDHCP    = regexp.MustCompile(`Session "([^"]+)":.*DHCP.*?(?:IP address|assigned)[:\s]+([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)`)
-	reLogDHCPHost    = regexp.MustCompile(`Host name:\s*"([^"]+)"`)
-	reLogSessEnd     = regexp.MustCompile(`Session "([^"]+)": The session has been terminated\.(.*)`)
-	reLogConnTerm    = regexp.MustCompile(`Connection "([^"]+)" terminated by the cause "([^"]+)"(?:\s*\(code\s*(\d+)\))?`)
-	reLogConnRef     = regexp.MustCompile(`Connection "([^"]+)"`)
-	reLogOutBytes    = regexp.MustCompile(`Total outgoing data size:\s*(\d+)\s*bytes`)
-	reLogInBytes     = regexp.MustCompile(`Total incoming data size:\s*(\d+)\s*bytes`)
-	reLogPackets     = regexp.MustCompile(`Total (?:outgoing|incoming) (?:unicast|broadcast) packets:\s*(\d+)\s*packets`)
-	reLogClientIP    = regexp.MustCompile(`(?:IP address(?:\s+of the client)?(?:\s+is)?[:\s]+)([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+|[0-9a-fA-F:]+:[0-9a-fA-F:]+)`)
-	reLogPort        = regexp.MustCompile(`[Pp]ort(?:\s+number)?(?:\s+is)?[:\s]+(\d+)`)
-	reLogProto       = regexp.MustCompile(`Physical(?:\s+underlying)?\s+protocol:\s*"?([^",)]+)"?`)
-	reLogProduct     = regexp.MustCompile(`Client product name:\s*"([^"]+)"`)
-	reLogSecFile     = regexp.MustCompile(`(?i)(?:^|/)security_log/([^/]+)/sec_(\d{8})\.log$`)
+	reLogTimestamp     = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})(?:\.\d+)?\s+(.*)$`)
+	reLogConnStart     = regexp.MustCompile(`Connection "([^"]+)".*?(?:IP address[^0-9a-fA-F:]*|from\s+)([0-9a-fA-F:.]+).*?(?:port(?:\s+number)?(?:\s+is)?[:\s]+)(\d+)`)
+	reLogSSLStart      = regexp.MustCompile(`SSL communication for connection "([^"]+)"`)
+	reLogConnAuth      = regexp.MustCompile(`Connection "([^"]+)".*?(?:User authentication succeeded\.?\s*User name:\s*"([^"]+)"|Successfully authenticated as user "([^"]+)"|Authenticated as "([^"]+)")`)
+	reLogSessCreate    = regexp.MustCompile(`(?i)Connection "([^"]+)".*?new session "([^"]+)" has been created`)
+	reLogSessCreateAlt = regexp.MustCompile(`(?i)Session "([^"]+)".*?has been created`)
+	reLogSessStart     = regexp.MustCompile(`Session "([^"]+)".*?(?:has been (?:started|established)|logged in)`)
+	reLogSessDetails   = regexp.MustCompile(`Session "([^"]+)":.*?(?:VPN Client details|Client product name|Physical(?:\s+underlying)?\s+protocol)`)
+	reLogSessDHCP      = regexp.MustCompile(`Session "([^"]+)":.*DHCP.*?(?:IP address|assigned)[:\s]+([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)`)
+	reLogDHCPHost      = regexp.MustCompile(`Host name:\s*"([^"]+)"`)
+	reLogSessEnd       = regexp.MustCompile(`Session "([^"]+)": The session has been terminated\.(.*)`)
+	reLogConnTerm      = regexp.MustCompile(`Connection "([^"]+)" terminated by the cause "([^"]+)"(?:\s*\(code\s*(\d+)\))?`)
+	reLogConnRef       = regexp.MustCompile(`Connection "([^"]+)"`)
+	reLogOutBytes      = regexp.MustCompile(`Total outgoing data size:\s*(\d+)\s*bytes`)
+	reLogInBytes       = regexp.MustCompile(`Total incoming data size:\s*(\d+)\s*bytes`)
+	reLogPackets       = regexp.MustCompile(`Total (?:outgoing|incoming) (?:unicast|broadcast) packets:\s*(\d+)\s*packets`)
+	reLogClientIP      = regexp.MustCompile(`(?:IP address(?:\s+of the client)?(?:\s+is)?[:\s]+)([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+|[0-9a-fA-F:]+:[0-9a-fA-F:]+)`)
+	reLogPort          = regexp.MustCompile(`[Pp]ort(?:\s+number)?(?:\s+is)?[:\s]+(\d+)`)
+	reLogProto         = regexp.MustCompile(`Physical(?:\s+underlying)?\s+protocol:\s*"?([^",)]+)"?`)
+	reLogProduct       = regexp.MustCompile(`Client product name:\s*"([^"]+)"`)
+	reLogSecFile       = regexp.MustCompile(`(?i)(?:^|/)security_log/([^/]+)/sec_(\d{8})\.log$`)
 )
 
 type logConnMeta struct {
@@ -54,6 +56,7 @@ type parsedLogSession struct {
 	clientHost       string
 	clientPort       int64
 	protocol         string
+	hasStart         bool
 	startedAt        time.Time
 	endedAt          time.Time
 	downBytes        int64
@@ -191,6 +194,39 @@ func parseSecurityLogEvents(hub, text string, loc *time.Location) []parsedLogSes
 				clientIP:    c.clientIP,
 				clientPort:  c.clientPort,
 				protocol:    c.protocol,
+				hasStart:    true,
+				startedAt:   at,
+			}
+			continue
+		}
+		if m := reLogSessCreateAlt.FindStringSubmatch(body); len(m) == 2 {
+			sn := m[1]
+			var cip string
+			var cport int64
+			if ipm := reLogClientIP.FindStringSubmatch(body); len(ipm) == 2 && isIP(ipm[1]) {
+				cip = cleanIP(ipm[1])
+			}
+			if pm := reLogPort.FindStringSubmatch(body); len(pm) == 2 {
+				if p, err := strconv.ParseInt(pm[1], 10, 64); err == nil && p > 0 && p <= 65535 {
+					cport = p
+				}
+			}
+			protoSrc := M{"Name_str": sn, "ClientPort": cport}
+			if pm := reLogProto.FindStringSubmatch(body); len(pm) == 2 {
+				protoSrc["UnderlayProtocol_str"] = strings.TrimSpace(pm[1])
+			}
+			if prm := reLogProduct.FindStringSubmatch(body); len(prm) == 2 {
+				protoSrc["ClientProductName_str"] = strings.TrimSpace(prm[1])
+			}
+			proto := detectSessionProtocol(protoSrc, nil)
+			openSessions[sn] = &parsedLogSession{
+				hub:         hub,
+				sessionName: sn,
+				username:    inferUsernameFromSessionName(sn),
+				clientIP:    cip,
+				clientPort:  cport,
+				protocol:    proto,
+				hasStart:    true,
 				startedAt:   at,
 			}
 			continue
@@ -264,6 +300,7 @@ func parseSecurityLogEvents(hub, text string, loc *time.Location) []parsedLogSes
 					clientIP:    cip,
 					clientPort:  cport,
 					protocol:    proto,
+					hasStart:    true,
 					startedAt:   at,
 				}
 			}
@@ -341,9 +378,10 @@ func parseSecurityLogEvents(hub, text string, loc *time.Location) []parsedLogSes
 			if sess.startedAt.IsZero() || sess.endedAt.Before(sess.startedAt) {
 				sess.startedAt = sess.endedAt
 			}
-			// SoftEther server outgoing = client download; incoming = client upload.
-			sess.downBytes = outBytes
-			sess.upBytes = inBytes
+			// In SoftEther security_log, "Total outgoing data size" is client->server (upload)
+			// and "Total incoming data size" is server->client (download).
+			sess.downBytes = inBytes
+			sess.upBytes = outBytes
 			sess.packetsTotal = pkts
 			if sess.disconnectReason == "" {
 				if cid := sessToConn[sn]; cid != "" && conns[cid] != nil && conns[cid].cause != "" {
@@ -373,12 +411,63 @@ func parseSecurityLogEvents(hub, text string, loc *time.Location) []parsedLogSes
 	return completed
 }
 
+func lastLogWallTimeUTC(text string) time.Time {
+	lines := strings.Split(text, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		m := reLogTimestamp.FindStringSubmatch(strings.TrimSpace(lines[i]))
+		if len(m) == 3 {
+			if t, err := time.Parse("2006-01-02 15:04:05", m[1]); err == nil {
+				return t.UTC()
+			}
+		}
+	}
+	return time.Time{}
+}
+
+// inferLogLocation determines the timezone SoftEther used when writing local
+// timestamps into security_log files. SoftEther's RPC timestamps (UpdatedTime_dt,
+// CurrentTime_dt) are UTC, while security_log files use the SoftEther host's local
+// timezone. Comparing the final log line against EnumLogFile.UpdatedTime_dt
+// calibrates the exact offset even when the panel runs in a UTC Docker container.
+func inferLogLocation(text string, fileUpdatedUTC, nowUTC time.Time, atEOF bool, fallback *time.Location) *time.Location {
+	lastWall := lastLogWallTimeUTC(text)
+	if atEOF && !lastWall.IsZero() && !fileUpdatedUTC.IsZero() {
+		diff := lastWall.Sub(fileUpdatedUTC)
+		roundedSec := int(math.Round(diff.Seconds()/900.0)) * 900
+		if math.Abs(diff.Seconds()-float64(roundedSec)) <= 300 && roundedSec >= -12*3600 && roundedSec <= 14*3600 {
+			return time.FixedZone("SE", roundedSec)
+		}
+	}
+	if fallback != nil {
+		if lastWall.IsZero() {
+			return fallback
+		}
+		_, off := time.Now().In(fallback).Zone()
+		if !lastWall.Add(-time.Duration(off) * time.Second).After(nowUTC.Add(5 * time.Minute)) {
+			return fallback
+		}
+	}
+	if !lastWall.IsZero() && lastWall.After(nowUTC.Add(2*time.Minute)) {
+		// Parsing as UTC puts the log in the future -> the SoftEther host is ahead of UTC.
+		_, localOff := nowUTC.In(time.Local).Zone()
+		if localOff > 0 && !lastWall.Add(-time.Duration(localOff)*time.Second).After(nowUTC.Add(2*time.Minute)) {
+			return time.Local
+		}
+		hoursAhead := int(math.Ceil(lastWall.Sub(nowUTC).Hours()))
+		if hoursAhead >= 1 && hoursAhead <= 14 {
+			return time.FixedZone("SE", hoursAhead*3600)
+		}
+	}
+	return time.UTC
+}
+
 func (a *App) syncSessionLogs(ctx context.Context, serverID int64) {
 	if !boolean(a.setting("session_log_sync_enabled")) {
 		return
 	}
 	var logList []M
-	var loc *time.Location
+	var calibratedLoc *time.Location
+	serverNowUTC := time.Now().UTC()
 	func() {
 		defer func() { _ = recover() }()
 		out := a.rpc(ctx, "EnumLogFile", nil)
@@ -394,18 +483,22 @@ func (a *App) syncSessionLogs(ctx context.Context, serverID int64) {
 		defer func() { _ = recover() }()
 		st := a.rpc(ctx, "GetServerStatus", nil)
 		if t := parseTime(str(st["CurrentTime_dt"])); !t.IsZero() {
-			loc = t.Location()
+			serverNowUTC = t.UTC()
+			if _, off := t.Zone(); off != 0 {
+				calibratedLoc = t.Location()
+			}
 		}
 	}()
 
 	retentionDays := max(int64(1), integer(a.setting("session_history_retention_days")))
-	cutoffDay := time.Now().UTC().AddDate(0, 0, -int(retentionDays+1)).Format("20060102")
+	cutoffDay := serverNowUTC.AddDate(0, 0, -int(retentionDays+1)).Format("20060102")
 
 	type logFileTarget struct {
 		path       string
 		serverName string
 		hub        string
 		size       int64
+		updatedAt  time.Time
 	}
 	var targets []logFileTarget
 	for _, entry := range logList {
@@ -421,17 +514,21 @@ func (a *App) syncSessionLogs(ctx context.Context, serverID int64) {
 		if size <= 0 {
 			size = integer(entry["FileSize_u32"])
 		}
+		updatedAt := parseValidSoftEtherTime(str(entry["UpdatedTime_dt"]))
 		targets = append(targets, logFileTarget{
 			path:       path,
 			serverName: str(entry["ServerName_str"]),
 			hub:        m[1],
 			size:       size,
+			updatedAt:  updatedAt,
 		})
 	}
 	if len(targets) == 0 {
 		return
 	}
-	sort.Slice(targets, func(i, j int) bool { return targets[i].path < targets[j].path })
+	// Process newest files first so timezone calibration from UpdatedTime_dt is immediately
+	// available for older files as well.
+	sort.Slice(targets, func(i, j int) bool { return targets[i].path > targets[j].path })
 
 	// Load existing cursors in one query.
 	cursors := map[string]int64{}
@@ -456,6 +553,7 @@ func (a *App) syncSessionLogs(ctx context.Context, serverID int64) {
 		startOffset := offset
 		readOffset := offset
 		const maxChunksPerTick = 32
+		reachedEOF := false
 		for chunk := 0; chunk < maxChunksPerTick; chunk++ {
 			p := M{"FilePath_str": target.path}
 			if readOffset > 0 {
@@ -476,11 +574,13 @@ func (a *App) syncSessionLogs(ctx context.Context, serverID int64) {
 				}
 			}()
 			if !ok || len(raw) == 0 {
+				reachedEOF = true
 				break
 			}
 			buf.Write(raw)
 			readOffset += int64(len(raw))
 			if target.size > 0 && readOffset >= target.size {
+				reachedEOF = true
 				break
 			}
 		}
@@ -493,12 +593,16 @@ func (a *App) syncSessionLogs(ctx context.Context, serverID int64) {
 		completeText := chunkText[:lastNL+1]
 		newOffset := startOffset + int64(lastNL+1)
 
+		loc := inferLogLocation(completeText, target.updatedAt, serverNowUTC, reachedEOF, calibratedLoc)
+		if loc != nil && loc != time.UTC {
+			calibratedLoc = loc
+		}
 		events := parseSecurityLogEvents(target.hub, completeText, loc)
-		a.applyLogSessionEvents(ctx, serverID, target.hub, target.path, newOffset, target.size, series, events)
+		a.applyLogSessionEvents(ctx, serverID, target.hub, target.path, newOffset, target.size, series, serverNowUTC, events)
 	}
 }
 
-func (a *App) applyLogSessionEvents(ctx context.Context, serverID int64, hub, filePath string, newOffset, fileSize int64, series bool, events []parsedLogSession) {
+func (a *App) applyLogSessionEvents(ctx context.Context, serverID int64, hub, filePath string, newOffset, fileSize int64, series bool, nowUTC time.Time, events []parsedLogSession) {
 	var ips []string
 	for _, ev := range events {
 		if ev.clientIP != "" {
@@ -519,7 +623,37 @@ func (a *App) applyLogSessionEvents(ctx context.Context, serverID int64, hub, fi
 	}
 	defer tx.Rollback()
 
+	canonicalNames := map[string]string{}
+	resolveUsername := func(raw string) string {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			return ""
+		}
+		low := strings.ToLower(trimmed)
+		if u, ok := cachedMeta.users[low]; ok && u.name != "" {
+			return u.name
+		}
+		if name, ok := canonicalNames[low]; ok {
+			return name
+		}
+		var dbName string
+		if err := tx.QueryRow(
+			`SELECT UserName FROM VpnSessionSample WHERE ServerID=? AND HubName=? AND UserName=? COLLATE NOCASE ORDER BY (UserName != UPPER(UserName)) DESC, VpnSessionSampleID DESC LIMIT 1`,
+			serverID, hub, trimmed,
+		).Scan(&dbName); err == nil && strings.TrimSpace(dbName) != "" {
+			canonicalNames[low] = strings.TrimSpace(dbName)
+			return canonicalNames[low]
+		}
+		canonicalNames[low] = trimmed
+		return trimmed
+	}
+
+	futureCutoff := nowUTC.Add(5 * time.Minute)
 	for _, ev := range events {
+		if ev.startedAt.After(futureCutoff) || ev.endedAt.After(futureCutoff) {
+			continue
+		}
+		ev.username = resolveUsername(ev.username)
 		startedISO := ev.startedAt.UTC().Format(time.RFC3339Nano)
 		endedISO := ev.endedAt.UTC().Format(time.RFC3339Nano)
 		startedTs := ev.startedAt.Unix()
@@ -533,29 +667,49 @@ func (a *App) applyLogSessionEvents(ctx context.Context, serverID int64, hub, fi
 
 		var existingID, existingDown, existingUp, existingTotal int64
 		var existingEnded sql.NullString
-		err := tx.QueryRow(
-			`SELECT VpnSessionSampleID,EndedDate,DownloadBytes,UploadBytes,BytesTotal FROM VpnSessionSample
-			 WHERE ServerID=? AND HubName=? AND UserName=? COLLATE NOCASE
-			   AND (
-			     SessionKey LIKE 'sess:' || ? || '@%'
-			     OR SessionKey=?
-			     OR (EndedDate IS NULL AND COALESCE(NULLIF(StartedTs,0), unixepoch(StartedDate)) <= ? AND ABS(COALESCE(NULLIF(StartedTs,0), unixepoch(StartedDate)) - ?) <= 120)
-			     OR (EndedDate IS NOT NULL AND ABS(COALESCE(NULLIF(StartedTs,0), unixepoch(StartedDate)) - ?) <= 120 AND ABS(COALESCE(EndedTs, unixepoch(EndedDate)) - ?) <= 360 AND (ClientIP='' OR ?='' OR ClientIP=?))
-			   )
-			 ORDER BY (EndedDate IS NOT NULL) ASC, ABS(COALESCE(NULLIF(StartedTs,0), unixepoch(StartedDate)) - ?) ASC LIMIT 1`,
-			serverID, hub, ev.username, ev.sessionName,
-			"log:"+ev.sessionName+"@"+ev.startedAt.UTC().Format("20060102T150405.000Z"),
-			endedTs, startedTs, startedTs, endedTs, ev.clientIP, ev.clientIP, startedTs,
-		).Scan(&existingID, &existingEnded, &existingDown, &existingUp, &existingTotal)
+		var matchErr error
+		if ev.hasStart {
+			matchErr = tx.QueryRow(
+				`SELECT VpnSessionSampleID,EndedDate,DownloadBytes,UploadBytes,BytesTotal FROM VpnSessionSample
+				 WHERE ServerID=? AND HubName=? AND UserName=? COLLATE NOCASE
+				   AND (
+				     SessionKey LIKE 'sess:' || ? || '@%'
+				     OR SessionKey=?
+				     OR (EndedDate IS NULL AND COALESCE(NULLIF(StartedTs,0), unixepoch(StartedDate)) <= ? AND ABS(COALESCE(NULLIF(StartedTs,0), unixepoch(StartedDate)) - ?) <= 120)
+				     OR (EndedDate IS NOT NULL AND ABS(COALESCE(NULLIF(StartedTs,0), unixepoch(StartedDate)) - ?) <= 120 AND ABS(COALESCE(EndedTs, unixepoch(EndedDate)) - ?) <= 360 AND (ClientIP='' OR ?='' OR ClientIP=?))
+				   )
+				 ORDER BY (EndedDate IS NOT NULL) ASC, ABS(COALESCE(NULLIF(StartedTs,0), unixepoch(StartedDate)) - ?) ASC LIMIT 1`,
+				serverID, hub, ev.username, ev.sessionName,
+				"log:"+ev.sessionName+"@"+ev.startedAt.UTC().Format("20060102T150405.000Z"),
+				endedTs, startedTs, startedTs, endedTs, ev.clientIP, ev.clientIP, startedTs,
+			).Scan(&existingID, &existingEnded, &existingDown, &existingUp, &existingTotal)
+		} else {
+			// End-only termination log event (e.g. WireGuard where session start didn't match a Connection line):
+			// match by session name or recent end time so we enrich the polled row instead of inserting a 0s duplicate.
+			matchErr = tx.QueryRow(
+				`SELECT VpnSessionSampleID,EndedDate,DownloadBytes,UploadBytes,BytesTotal FROM VpnSessionSample
+				 WHERE ServerID=? AND HubName=? AND UserName=? COLLATE NOCASE
+				   AND (
+				     SessionKey LIKE 'sess:' || ? || '@%'
+				     OR SessionKey=?
+				     OR (EndedDate IS NULL AND COALESCE(NULLIF(StartedTs,0), unixepoch(StartedDate)) <= ? + 30 AND (ClientIP='' OR ?='' OR ClientIP=?))
+				     OR (EndedDate IS NOT NULL AND COALESCE(NULLIF(StartedTs,0), unixepoch(StartedDate)) <= ? + 30 AND ABS(COALESCE(EndedTs, unixepoch(EndedDate)) - ?) <= 360 AND (ClientIP='' OR ?='' OR ClientIP=?))
+				   )
+				 ORDER BY (EndedDate IS NOT NULL) ASC, ABS(COALESCE(EndedTs, unixepoch(COALESCE(EndedDate, LastSeenDate))) - ?) ASC LIMIT 1`,
+				serverID, hub, ev.username, ev.sessionName,
+				"log:"+ev.sessionName+"@"+ev.startedAt.UTC().Format("20060102T150405.000Z"),
+				endedTs, ev.clientIP, ev.clientIP, endedTs, endedTs, ev.clientIP, ev.clientIP, endedTs,
+			).Scan(&existingID, &existingEnded, &existingDown, &existingUp, &existingTotal)
+		}
 
-		if err == nil && existingID > 0 {
+		if matchErr == nil && existingID > 0 {
 			newDown := max(existingDown, ev.downBytes)
 			newUp := max(existingUp, ev.upBytes)
 			newTotal := max(existingTotal, max(totalBytes, newDown+newUp))
 			_, err = tx.Exec(
 				`UPDATE VpnSessionSample SET
-				   EndedDate=CASE WHEN EndedDate IS NULL OR julianday(?)>=julianday(EndedDate) THEN ? ELSE EndedDate END,
-				   EndedTs=CASE WHEN EndedTs IS NULL OR ?>=EndedTs THEN ? ELSE EndedTs END,
+				   EndedDate=CASE WHEN EndedDate IS NULL OR (DisconnectReason != 'WireGuard peer inactive timeout' AND julianday(?)>=julianday(EndedDate)) THEN ? ELSE EndedDate END,
+				   EndedTs=CASE WHEN EndedTs IS NULL OR (DisconnectReason != 'WireGuard peer inactive timeout' AND ?>=EndedTs) THEN ? ELSE EndedTs END,
 				   LastSeenDate=CASE WHEN julianday(?)>julianday(LastSeenDate) THEN ? ELSE LastSeenDate END,
 				   DownloadBytes=?, UploadBytes=?, BytesTotal=?,
 				   PacketsTotal=MAX(PacketsTotal, ?),
@@ -564,7 +718,7 @@ func (a *App) applyLogSessionEvents(ctx context.Context, serverID int64, hub, fi
 				   ClientHostname=CASE WHEN ClientHostname='' THEN ? ELSE ClientHostname END,
 				   ClientPort=CASE WHEN ClientPort=0 THEN ? ELSE ClientPort END,
 				   Protocol=CASE WHEN ? != '' AND (Protocol='' OR Protocol='SoftEther SSL-VPN') THEN ? ELSE Protocol END,
-				   DisconnectReason=CASE WHEN ? != '' THEN ? ELSE DisconnectReason END,
+				   DisconnectReason=CASE WHEN ? != '' AND DisconnectReason='' THEN ? ELSE DisconnectReason END,
 				   RealName=CASE WHEN RealName='' THEN ? ELSE RealName END,
 				   Note=CASE WHEN Note='' THEN ? ELSE Note END,
 				   IpLocation=CASE WHEN IpLocation='' THEN ? ELSE IpLocation END,

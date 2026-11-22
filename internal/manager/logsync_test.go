@@ -179,12 +179,12 @@ func TestSecurityLogSyncBackfillsShortSessionsAndExactTermination(t *testing.T) 
 		fmt.Sprintf(`%s Connection "CID-1": The IP address of the client is 192.168.1.10, and the port number is 41000.`, fmtLogTs(tStart)),
 		fmt.Sprintf(`%s Connection "CID-1": User authentication succeeded. User name: "alice"`, fmtLogTs(tStart)),
 		fmt.Sprintf(`%s Connection "CID-1": A new session "SID-ALICE-1" has been created. (IP address: 192.168.1.10, Port number: 41000, Physical protocol: "Standard TCP/IP (IPv4)")`, fmtLogTs(tStart)),
-		fmt.Sprintf(`%s Session "SID-ALICE-1": The session has been terminated. The statistical information is as follows: Total outgoing data size: 1800 bytes, Total incoming data size: 900 bytes, Total outgoing unicast packets: 12 packets, Total incoming unicast packets: 8 packets.`, fmtLogTs(tExactEnd)),
+		fmt.Sprintf(`%s Session "SID-ALICE-1": The session has been terminated. The statistical information is as follows: Total outgoing data size: 900 bytes, Total incoming data size: 1800 bytes, Total outgoing unicast packets: 12 packets, Total incoming unicast packets: 8 packets.`, fmtLogTs(tExactEnd)),
 		fmt.Sprintf(`%s Connection "CID-1" terminated by the cause "The VPN session has been deleted." (code 11).`, fmtLogTs(tExactEnd)),
 		fmt.Sprintf(`%s Connection "CID-2": Connection started from 198.51.100.55 (port 51234).`, fmtLogTs(tBobStart)),
 		fmt.Sprintf(`%s Connection "CID-2": Successfully authenticated as user "bob"`, fmtLogTs(tBobStart)),
 		fmt.Sprintf(`%s Connection "CID-2": A new session "SID-BOB-2" has been created. (IP address: 198.51.100.55, Port number: 51234, Physical protocol: "OpenVPN")`, fmtLogTs(tBobStart)),
-		fmt.Sprintf(`%s Session "SID-BOB-2": The session has been terminated. The statistical information is as follows: Total outgoing data size: 12000 bytes, Total incoming data size: 3400 bytes.`, fmtLogTs(tBobEnd)),
+		fmt.Sprintf(`%s Session "SID-BOB-2": The session has been terminated. The statistical information is as follows: Total outgoing data size: 3400 bytes, Total incoming data size: 12000 bytes.`, fmtLogTs(tBobEnd)),
 		fmt.Sprintf(`%s Connection "CID-2" terminated by the cause "No error." (code 0).`, fmtLogTs(tBobEnd)),
 		fmt.Sprintf(`%s Session "SID-SECURENAT-1": The session has been terminated. The statistical information is as follows: Total outgoing data size: 99999 bytes, Total incoming data size: 99999 bytes.`, fmtLogTs(tBobEnd)),
 		"",
@@ -282,5 +282,74 @@ func TestDetectSessionProtocolAndLogParsingForL2TPIPsec(t *testing.T) {
 	// Specific MS-SSTP from "VPN Client details" must upgrade generic SoftEther SSL-VPN from SSL/Standard TCP/IP.
 	if events[1].protocol != "MS-SSTP" {
 		t.Fatalf("event 1 expected MS-SSTP upgrade from VPN Client details, got %q", events[1].protocol)
+	}
+}
+
+func TestSecurityLogTimezoneCalibrationCanonicalUserAndEndOnlyMerge(t *testing.T) {
+	a := testApp(t)
+	token := admin(t, a)
+	ctx := context.Background()
+
+	cst := time.FixedZone("CST", 8*3600)
+	nowUTC := time.Now().UTC().Truncate(time.Second)
+	pollStart := nowUTC.Add(-5 * time.Minute)
+	pollEnd := pollStart.Add(2*time.Minute + 12*time.Second)
+	logEndUTC := pollEnd.Add(47 * time.Second) // SoftEther terminates WG ~47s after poll saw it end
+
+	// Seed the real polled WireGuard session for lowercase "sean".
+	execute(a.db, `INSERT INTO VpnSessionSample(ServerID,HubName,UserName,SessionKey,ClientIP,VirtualIP,StartedDate,EndedDate,LastSeenDate,BytesTotal,DownloadBytes,UploadBytes,StartedTs,EndedTs,Protocol,DisconnectReason)
+		VALUES(1,'DEFAULT','sean','wg-real-uid','112.86.92.109','192.168.30.2',?,?,?,198000,68000,130000,?,?,'WireGuard','WireGuard peer inactive timeout')`,
+		pollStart.Format(time.RFC3339), pollEnd.Format(time.RFC3339), pollEnd.Format(time.RFC3339), pollStart.Unix(), pollEnd.Unix())
+
+	// SoftEther writes CST (+08:00) wall time into security_log while EnumLogFile.UpdatedTime_dt is UTC.
+	// Also test an end-only WireGuard termination line with uppercase SID-SEAN-[WIREGUARD]-1.
+	logDay := logEndUTC.In(cst).Format("20060102")
+	logPath := fmt.Sprintf("security_log/DEFAULT/sec_%s.log", logDay)
+	logBuf := fmt.Sprintf(
+		"%s Session \"SID-SEAN-[WIREGUARD]-1\": The session has been terminated. Total outgoing data size: 133000 bytes, Total incoming data size: 68500 bytes.\n",
+		logEndUTC.In(cst).Format("2006-01-02 15:04:05.000"),
+	)
+
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req M
+		check(json.NewDecoder(r.Body).Decode(&req))
+		switch req["method"] {
+		case "GetServerStatus":
+			writeJSON(w, 200, M{"id": req["id"], "result": M{"CurrentTime_dt": nowUTC.Format(time.RFC3339)}})
+		case "EnumLogFile":
+			writeJSON(w, 200, M{"id": req["id"], "result": M{"LogFiles": []M{{
+				"FilePath_str":   logPath,
+				"ServerName_str": "vpn1",
+				"FileSize_u64":   len(logBuf),
+				"UpdatedTime_dt": logEndUTC.Format(time.RFC3339),
+			}}}})
+		case "ReadLogFile":
+			p := object(req["params"])
+			off := int(integer(p["Offset_u32"]))
+			if off > len(logBuf) {
+				off = len(logBuf)
+			}
+			writeJSON(w, 200, M{"id": req["id"], "result": M{
+				"Buffer_bin": base64.StdEncoding.EncodeToString([]byte(logBuf[off:])),
+			}})
+		default:
+			writeJSON(w, 200, M{"id": req["id"], "result": M{}})
+		}
+	}))
+	defer srv.Close()
+	connectAuditServer(t, a, srv, 1)
+
+	a.syncSessionLogs(ctx, 1)
+
+	code, body, _ := call(t, a, "GET", "/api/v1/server/session-history", nil, token)
+	if code != 200 {
+		t.Fatalf("session-history status=%d body=%v", code, body)
+	}
+	items := list(body["items"])
+	if len(items) != 1 {
+		t.Fatalf("expected end-only CST WireGuard log to merge into existing polled session without duplicate/future row, got %d items: %v", len(items), items)
+	}
+	if str(items[0]["username"]) != "sean" || integer(items[0]["download_bytes"]) != 68500 || integer(items[0]["upload_bytes"]) != 133000 {
+		t.Fatalf("expected merged canonical lowercase sean with calibrated down/up bytes, got %v", items[0])
 	}
 }

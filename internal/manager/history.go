@@ -75,6 +75,7 @@ func (a *App) enrichSessionRowsGeo(ctx context.Context, rows []M, offlineOnly ..
 }
 
 type userMetaEntry struct {
+	name     string
 	realName string
 	note     string
 }
@@ -93,9 +94,11 @@ func userMetaCacheKey(serverID int64, hub string) string {
 func (a *App) updateUserMetaCache(serverID int64, hub string, users []M) map[string]userMetaEntry {
 	entries := make(map[string]userMetaEntry, len(users))
 	for _, u := range users {
-		name := strings.ToLower(strings.TrimSpace(str(u["Name_str"])))
+		rawName := strings.TrimSpace(str(u["Name_str"]))
+		name := strings.ToLower(rawName)
 		if name != "" {
 			entries[name] = userMetaEntry{
+				name:     rawName,
 				realName: str(u["Realname_utf"]),
 				note:     str(u["Note_utf"]),
 			}
