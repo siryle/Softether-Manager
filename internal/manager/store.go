@@ -459,6 +459,53 @@ func initSchema(db *sql.DB) error {
 		}
 	}
 
+	// One-time rebuild of hub traffic history/rollups from per-user samples so existing DBs drop
+	// legacy GetHubStatus Local Bridge / SecureNAT double-counting and LAN noise immediately.
+	var clientScopeVer string
+	_ = tx.QueryRow(`SELECT SettingValue FROM Setting WHERE SettingKey='_traffic_client_scope_v1'`).Scan(&clientScopeVer)
+	if clientScopeVer == "" {
+		for _, stmt := range []string{
+			`UPDATE HubTrafficSample SET SendBytes=0, RecvBytes=0, DeltaSendBytes=0, DeltaRecvBytes=0`,
+			`UPDATE HubTrafficSample
+			 SET SendBytes=agg.s, RecvBytes=agg.r, DeltaSendBytes=agg.ds, DeltaRecvBytes=agg.dr, HasDelta=agg.hd
+			 FROM (
+			     SELECT ServerID, HubName, SampledTs,
+			            SUM(SendBytes) AS s,
+			            SUM(RecvBytes) AS r,
+			            SUM(CASE WHEN HasDelta=1 THEN DeltaSendBytes ELSE 0 END) AS ds,
+			            SUM(CASE WHEN HasDelta=1 THEN DeltaRecvBytes ELSE 0 END) AS dr,
+			            MAX(HasDelta) AS hd
+			     FROM UserTrafficSample
+			     WHERE SampledTs > 0
+			     GROUP BY ServerID, HubName, SampledTs
+			 ) AS agg
+			 WHERE HubTrafficSample.ServerID=agg.ServerID AND HubTrafficSample.HubName=agg.HubName AND HubTrafficSample.SampledTs=agg.SampledTs`,
+			`UPDATE TrafficRollupHourly SET SendBytes=0, RecvBytes=0 WHERE SubjectType='hub'`,
+			`UPDATE TrafficRollupHourly
+			 SET SendBytes=agg.s, RecvBytes=agg.r
+			 FROM (
+			     SELECT ServerID, HubName, BucketTs, SUM(SendBytes) AS s, SUM(RecvBytes) AS r
+			     FROM TrafficRollupHourly
+			     WHERE SubjectType='user'
+			     GROUP BY ServerID, HubName, BucketTs
+			 ) AS agg
+			 WHERE TrafficRollupHourly.ServerID=agg.ServerID AND TrafficRollupHourly.SubjectType='hub' AND TrafficRollupHourly.HubName=agg.HubName AND TrafficRollupHourly.BucketTs=agg.BucketTs`,
+			`INSERT OR IGNORE INTO TrafficRollupHourly(ServerID,SubjectType,HubName,UserKey,UserName,BucketTs,SendBytes,RecvBytes,MaxSessions,SampleCount)
+			 SELECT ServerID,'hub',HubName,'','',BucketTs,SUM(SendBytes),SUM(RecvBytes),0,MAX(SampleCount)
+			 FROM TrafficRollupHourly
+			 WHERE SubjectType='user'
+			 GROUP BY ServerID, HubName, BucketTs`,
+			`DELETE FROM TrafficCursor WHERE SubjectType='hub'`,
+		} {
+			if _, err = tx.Exec(stmt); err != nil {
+				return err
+			}
+		}
+		if _, err = tx.Exec(`INSERT INTO Setting(SettingKey,SettingValue,UpdatedDate) VALUES('_traffic_client_scope_v1','"1"',?) ON CONFLICT(SettingKey) DO UPDATE SET SettingValue='"1"',UpdatedDate=excluded.UpdatedDate`, now()); err != nil {
+			return err
+		}
+	}
+
 	return tx.Commit()
 }
 

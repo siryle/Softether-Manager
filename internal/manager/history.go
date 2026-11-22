@@ -644,7 +644,7 @@ func computeTrafficSampleDelta(prev trafficCursorState, hasPrev bool, send, recv
 		}
 		return send - prev.lastSend, recv - prev.lastRecv, true, nextCursor, true
 	}
-	// Counter dropped (e.g. SoftEther service restart or transient zero read).
+	// Counter dropped (e.g. SoftEther service restart, persisted-config rollback, or transient zero read).
 	if send == 0 && recv == 0 {
 		if serverStartTime != "" && prev.serverStartTime != "" && serverStartTime == prev.serverStartTime {
 			// Server did not restart: ignore suspicious zero glitch without clobbering cursor.
@@ -653,8 +653,16 @@ func computeTrafficSampleDelta(prev trafficCursorState, hasPrev bool, send, recv
 		return 0, 0, true, nextCursor, true
 	}
 	restarted := serverStartTime != "" && prev.serverStartTime != "" && serverStartTime != prev.serverStartTime
-	if restarted || send+recv <= maxSingleIntervalBytesPerSec*elapsed {
+	// A fresh post-reset counter must drop in every non-zero direction, stay below half of the prior
+	// lifetime total (filtering unclean-reboot config rollbacks), and obey the single-interval cap.
+	bothDropped := (prev.lastSend == 0 || send < prev.lastSend) && (prev.lastRecv == 0 || recv < prev.lastRecv)
+	freshFromZero := bothDropped && send+recv < (prev.lastSend+prev.lastRecv)/2 && send+recv <= maxSingleIntervalBytesPerSec*elapsed
+	if freshFromZero {
 		return send, recv, true, nextCursor, true
+	}
+	if restarted {
+		// Re-baseline after a persisted-config rollback on restart without inventing a full-counter spike.
+		return 0, 0, false, nextCursor, true
 	}
 	return 0, 0, false, prev, false
 }
@@ -690,8 +698,8 @@ func (a *App) sampleTraffic(ctx context.Context) {
 
 			type hubSampleRow struct {
 				hub             string
-				send, recv      int64
 				sessions, users int64
+				validUsers      int
 			}
 			type userSampleRow struct {
 				hub, name  string
@@ -720,7 +728,7 @@ func (a *App) sampleTraffic(ctx context.Context) {
 						}
 					}()
 					var status M
-					var users []M
+					var enumUserOut M
 					var hubWG sync.WaitGroup
 					hubWG.Add(2)
 					go func() {
@@ -731,29 +739,17 @@ func (a *App) sampleTraffic(ctx context.Context) {
 					go func() {
 						defer hubWG.Done()
 						defer func() { _ = recover() }()
-						users = list(a.rpc(serverCtx, "EnumUser", M{"HubName_str": hub})["UserList"])
+						enumUserOut = a.rpc(serverCtx, "EnumUser", M{"HubName_str": hub})
 					}()
 					hubWG.Wait()
 
-					if status != nil {
-						if send, recv, valid := sampledTraffic(status, ""); valid {
-							sessCount := integer(status["NumSessions_u32"])
-							if sessCount > 0 {
-								if clientCount, ok := a.countHubClientSessions(serverCtx, hub); ok {
-									sessCount = clientCount
-								}
-							}
-							hubSamples = append(hubSamples, hubSampleRow{
-								hub:      hub,
-								send:     send,
-								recv:     recv,
-								sessions: sessCount,
-								users:    integer(status["NumUsers_u32"]),
-							})
-						} else {
-							log.Printf("traffic sample %d/%s: missing or invalid hub counters", sid, hub)
-						}
+					rawUsers, hasUserList := enumUserOut["UserList"]
+					if !hasUserList {
+						log.Printf("traffic sample %d/%s: missing EnumUser list", sid, hub)
+						return
 					}
+					users := list(rawUsers)
+					validUsers := 0
 					if len(users) > 0 {
 						a.updateUserMetaCache(sid, hub, users)
 						for _, u := range users {
@@ -763,6 +759,7 @@ func (a *App) sampleTraffic(ctx context.Context) {
 								log.Printf("traffic sample %d/%s/%s: missing or invalid user counters", sid, hub, name)
 								continue
 							}
+							validUsers++
 							userSamples = append(userSamples, userSampleRow{
 								hub:      hub,
 								name:     name,
@@ -772,6 +769,30 @@ func (a *App) sampleTraffic(ctx context.Context) {
 							})
 						}
 					}
+					if len(users) > 0 && validUsers == 0 {
+						log.Printf("traffic sample %d/%s: no valid user counters", sid, hub)
+						return
+					}
+
+					var sessCount int64
+					numUsers := int64(len(users))
+					if status != nil {
+						sessCount = integer(status["NumSessions_u32"])
+						if sessCount > 0 {
+							if clientCount, ok := a.countHubClientSessions(serverCtx, hub); ok {
+								sessCount = clientCount
+							}
+						}
+						if status["NumUsers_u32"] != nil {
+							numUsers = integer(status["NumUsers_u32"])
+						}
+					}
+					hubSamples = append(hubSamples, hubSampleRow{
+						hub:        hub,
+						sessions:   sessCount,
+						users:      numUsers,
+						validUsers: validUsers,
+					})
 				}()
 			}
 			if len(hubSamples) == 0 && len(userSamples) == 0 {
@@ -811,31 +832,13 @@ func (a *App) sampleTraffic(ctx context.Context) {
 			check(err)
 			defer rollupStmt.Close()
 
-			if len(hubSamples) > 0 {
-				hubStmt, err := tx.Prepare(`INSERT INTO HubTrafficSample(ServerID,HubName,SendBytes,RecvBytes,NumSessions,NumUsers,SampledDate,SampledTs,DeltaSendBytes,DeltaRecvBytes,HasDelta) VALUES(?,?,?,?,?,?,?,?,?,?,?)`)
-				check(err)
-				defer hubStmt.Close()
-				for _, hs := range hubSamples {
-					cKey := "hub\x00" + hs.hub + "\x00"
-					prev, hasPrev := cursors[cKey]
-					dSend, dRecv, hasDelta, nextC, upd := computeTrafficSampleDelta(prev, hasPrev, hs.send, hs.recv, stampTs, serverStartTime)
-					hasDeltaInt := 0
-					if hasDelta {
-						hasDeltaInt = 1
-					}
-					_, err = hubStmt.Exec(sid, hs.hub, hs.send, hs.recv, hs.sessions, hs.users, stamp, stampTs, dSend, dRecv, hasDeltaInt)
-					check(err)
-					if upd {
-						cursors[cKey] = nextC
-						_, err = cursorStmt.Exec(sid, "hub", hs.hub, "", nextC.lastSend, nextC.lastRecv, nextC.serverStartTime, nextC.lastSampledTs)
-						check(err)
-					}
-					if hasDelta {
-						_, err = rollupStmt.Exec(sid, "hub", hs.hub, "", "", bucketTs, dSend, dRecv, hs.sessions)
-						check(err)
-					}
-				}
+			type hubUserAgg struct {
+				totalSend, totalRecv int64
+				deltaSend, deltaRecv int64
+				hasDelta             bool
 			}
+			hubAgg := make(map[string]*hubUserAgg, len(hubSamples))
+
 			if len(userSamples) > 0 {
 				userStmt, err := tx.Prepare(`INSERT INTO UserTrafficSample(ServerID,HubName,UserName,SendBytes,RecvBytes,NumLogin,SampledDate,SampledTs,DeltaSendBytes,DeltaRecvBytes,HasDelta) VALUES(?,?,?,?,?,?,?,?,?,?,?)`)
 				check(err)
@@ -858,6 +861,45 @@ func (a *App) sampleTraffic(ctx context.Context) {
 					}
 					if hasDelta {
 						_, err = rollupStmt.Exec(sid, "user", us.hub, uKey, us.name, bucketTs, dSend, dRecv, 0)
+						check(err)
+					}
+					agg := hubAgg[us.hub]
+					if agg == nil {
+						agg = &hubUserAgg{}
+						hubAgg[us.hub] = agg
+					}
+					agg.totalSend += us.send
+					agg.totalRecv += us.recv
+					if hasDelta {
+						agg.deltaSend += dSend
+						agg.deltaRecv += dRecv
+						agg.hasDelta = true
+					}
+				}
+			}
+
+			// Aggregate hub traffic from per-user deltas so Local Bridge / SecureNAT / LAN frames are excluded
+			// and adding or deleting users never causes a false hub counter drop.
+			if len(hubSamples) > 0 {
+				hubStmt, err := tx.Prepare(`INSERT INTO HubTrafficSample(ServerID,HubName,SendBytes,RecvBytes,NumSessions,NumUsers,SampledDate,SampledTs,DeltaSendBytes,DeltaRecvBytes,HasDelta) VALUES(?,?,?,?,?,?,?,?,?,?,?)`)
+				check(err)
+				defer hubStmt.Close()
+				for _, hs := range hubSamples {
+					agg := hubAgg[hs.hub]
+					var totalSend, totalRecv, dSend, dRecv int64
+					hasDelta := hs.validUsers == 0
+					if agg != nil {
+						totalSend, totalRecv = agg.totalSend, agg.totalRecv
+						dSend, dRecv, hasDelta = agg.deltaSend, agg.deltaRecv, agg.hasDelta
+					}
+					hasDeltaInt := 0
+					if hasDelta {
+						hasDeltaInt = 1
+					}
+					_, err = hubStmt.Exec(sid, hs.hub, totalSend, totalRecv, hs.sessions, hs.users, stamp, stampTs, dSend, dRecv, hasDeltaInt)
+					check(err)
+					if hasDelta {
+						_, err = rollupStmt.Exec(sid, "hub", hs.hub, "", "", bucketTs, dSend, dRecv, hs.sessions)
 						check(err)
 					}
 				}

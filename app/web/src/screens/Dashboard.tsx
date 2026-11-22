@@ -179,8 +179,14 @@ export function Dashboard() {
 
   const activeSessions = Number(status?.ClientSessionsTotal_u32 ?? status?.NumSessionsTotal_u32) || 0;
   const totalUsers = Number(status?.NumUsers_u32) || 0;
-  const rxTotal = (Number(status?.["Recv.UnicastBytes_u64"]) || 0) + (Number(status?.["Recv.BroadcastBytes_u64"]) || 0);
-  const txTotal = (Number(status?.["Send.UnicastBytes_u64"]) || 0) + (Number(status?.["Send.BroadcastBytes_u64"]) || 0);
+  const rxTotal =
+    status?.ClientRecvBytes_u64 !== undefined
+      ? Number(status.ClientRecvBytes_u64) || 0
+      : (Number(status?.["Recv.UnicastBytes_u64"]) || 0) + (Number(status?.["Recv.BroadcastBytes_u64"]) || 0);
+  const txTotal =
+    status?.ClientSendBytes_u64 !== undefined
+      ? Number(status.ClientSendBytes_u64) || 0
+      : (Number(status?.["Send.UnicastBytes_u64"]) || 0) + (Number(status?.["Send.BroadcastBytes_u64"]) || 0);
   const sessionsUrl = "/clients";
 
   const net = resources && resources.available !== false ? (resources.network as Wire | undefined) : undefined;
@@ -353,31 +359,27 @@ export function Dashboard() {
 
         <div className="stat-card">
           <div className="stat-card__l flex items-center justify-between flex-wrap gap-2">
-            <span>{t("Cumulative inbound (RX)")}</span>
+            <span>{t("Cumulative download (RX)")}</span>
             {net && <span className="stat-card__badge stat-card__badge--rx">↓ {formatBytes(netRx)}/s</span>}
           </div>
           <div className="stat-card__v">{formatBytes(rxTotal)}</div>
           <div className="stat-card__s">
             {serverUsage && serverUsage.total_recv > 0
               ? t("Window: {size}", { size: formatBytes(serverUsage.total_recv) })
-              : uptimeSeconds
-                ? t("Since {duration} ago", { duration: formatDuration(uptimeSeconds) })
-                : t("since server start")}
+              : t("Across all VPN users")}
           </div>
         </div>
 
         <div className="stat-card">
           <div className="stat-card__l flex items-center justify-between flex-wrap gap-2">
-            <span>{t("Cumulative outbound (TX)")}</span>
+            <span>{t("Cumulative upload (TX)")}</span>
             {net && <span className="stat-card__badge stat-card__badge--tx">↑ {formatBytes(netTx)}/s</span>}
           </div>
           <div className="stat-card__v">{formatBytes(txTotal)}</div>
           <div className="stat-card__s">
             {serverUsage && serverUsage.total_send > 0
               ? t("Window: {size}", { size: formatBytes(serverUsage.total_send) })
-              : uptimeSeconds
-                ? t("Since {duration} ago", { duration: formatDuration(uptimeSeconds) })
-                : t("since server start")}
+              : t("Across all VPN users")}
           </div>
         </div>
       </div>

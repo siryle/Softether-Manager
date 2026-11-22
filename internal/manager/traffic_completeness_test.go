@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -96,18 +97,152 @@ func TestSampleTrafficPreservesPostRestartAndDowntimeGapTotalsAndRollup(t *testi
 	mu.Unlock()
 	a.sampleTraffic(ctx)
 
-	// Expected totals:
-	// Hub: (5k + 10k + 3k + 2k) = 20,000 send; (6k + 14k + 4k + 3k) = 27,000 recv
-	// User: (1k + 4k + 1.5k + 1k) = 7,500 send; (2k + 6k + 2.5k + 1.5k) = 12,000 recv
+	// Expected totals (hub/server traffic aggregates real VPN users, excluding inflated GetHubStatus Local Bridge/SecureNAT counters):
+	// User & Server: (1k + 4k + 1.5k + 1k) = 7,500 send; (2k + 6k + 2.5k + 1.5k) = 12,000 recv
 	for _, hours := range []string{"24", "168"} {
 		code, out, _ := call(t, a, "GET", "/api/v1/server/traffic?hours="+hours, nil, token)
-		if code != 200 || integer(out["total_send"]) != 20_000 || integer(out["total_recv"]) != 27_000 {
+		if code != 200 || integer(out["total_send"]) != 7_500 || integer(out["total_recv"]) != 12_000 {
 			t.Fatalf("server traffic (%sh) mismatch: code=%d out=%v", hours, code, out)
+		}
+		code, out, _ = call(t, a, "GET", "/api/v1/hubs/DEFAULT/traffic?hours="+hours, nil, token)
+		if code != 200 || integer(out["total_send"]) != 7_500 || integer(out["total_recv"]) != 12_000 {
+			t.Fatalf("hub traffic (%sh) mismatch: code=%d out=%v", hours, code, out)
 		}
 		code, out, _ = call(t, a, "GET", "/api/v1/hubs/DEFAULT/users/alice/usage?hours="+hours, nil, token)
 		if code != 200 || integer(out["total_send"]) != 7_500 || integer(out["total_recv"]) != 12_000 {
 			t.Fatalf("user traffic (%sh) mismatch: code=%d out=%v", hours, code, out)
 		}
+	}
+}
+
+func TestSampleTrafficExcludesBridgeInflationHandlesUserDeleteAndRestartRollback(t *testing.T) {
+	a := testApp(t)
+	token := admin(t, a)
+	ctx := context.Background()
+
+	var mu sync.Mutex
+	startTime := "2026-11-20T00:00:00Z"
+	users := []M{
+		{"Name_str": "alice", "Ex.Send.UnicastBytes_u64": int64(5_000_000_000_000), "Ex.Recv.UnicastBytes_u64": int64(5_000_000_000_000), "NumLogin_u32": 1},
+		{"Name_str": "bob", "Ex.Send.UnicastBytes_u64": int64(5_000), "Ex.Recv.UnicastBytes_u64": int64(8_000), "NumLogin_u32": 1},
+	}
+
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req M
+		check(json.NewDecoder(r.Body).Decode(&req))
+		mu.Lock()
+		defer mu.Unlock()
+		switch req["method"] {
+		case "GetServerStatus":
+			writeJSON(w, 200, M{"id": req["id"], "result": M{"StartTime_dt": startTime, "CurrentTime_dt": time.Now().UTC().Format(time.RFC3339)}})
+		case "EnumHub":
+			writeJSON(w, 200, M{"id": req["id"], "result": M{"HubList": []M{{"HubName_str": "DEFAULT", "Online_bool": true}}}})
+		case "GetHubStatus":
+			// Inflated Local Bridge / LAN counters must never leak into server/hub usage.
+			writeJSON(w, 200, M{"id": req["id"], "result": M{
+				"Send.UnicastBytes_u64": int64(9_000_000_000_000),
+				"Recv.UnicastBytes_u64": int64(9_000_000_000_000),
+				"NumSessions_u32":       2,
+				"NumUsers_u32":          len(users),
+			}})
+		case "EnumUser":
+			writeJSON(w, 200, M{"id": req["id"], "result": M{"UserList": users}})
+		default:
+			writeJSON(w, 200, M{"id": req["id"], "result": M{}})
+		}
+	}))
+	defer srv.Close()
+	connectAuditServer(t, a, srv, 1)
+
+	// 1. Baseline observation
+	a.sampleTraffic(ctx)
+
+	// 2. Normal growth: alice +500/+1000, bob +1000/+2000 -> total +1500/+3000
+	mu.Lock()
+	users = []M{
+		{"Name_str": "alice", "Ex.Send.UnicastBytes_u64": int64(5_000_000_000_500), "Ex.Recv.UnicastBytes_u64": int64(5_000_000_001_000), "NumLogin_u32": 1},
+		{"Name_str": "bob", "Ex.Send.UnicastBytes_u64": int64(6_000), "Ex.Recv.UnicastBytes_u64": int64(10_000), "NumLogin_u32": 1},
+	}
+	mu.Unlock()
+	a.sampleTraffic(ctx)
+
+	// 3. Delete bob while alice grows +300/+700 -> total must not drop or spike
+	mu.Lock()
+	users = []M{
+		{"Name_str": "alice", "Ex.Send.UnicastBytes_u64": int64(5_000_000_000_800), "Ex.Recv.UnicastBytes_u64": int64(5_000_000_001_700), "NumLogin_u32": 1},
+	}
+	mu.Unlock()
+	a.sampleTraffic(ctx)
+
+	// 4. Unclean OpenWrt reboot: StartTime_dt changes and vpn_server.config reloads slightly older 5 TB counter
+	mu.Lock()
+	startTime = "2026-11-22T06:00:00Z"
+	users = []M{
+		{"Name_str": "alice", "Ex.Send.UnicastBytes_u64": int64(5_000_000_000_200), "Ex.Recv.UnicastBytes_u64": int64(5_000_000_000_400), "NumLogin_u32": 1},
+	}
+	mu.Unlock()
+	a.sampleTraffic(ctx)
+
+	// 5. Post-reboot normal traffic: alice +400/+900 above re-baselined counter
+	mu.Lock()
+	users = []M{
+		{"Name_str": "alice", "Ex.Send.UnicastBytes_u64": int64(5_000_000_000_600), "Ex.Recv.UnicastBytes_u64": int64(5_000_000_001_300), "NumLogin_u32": 1},
+	}
+	mu.Unlock()
+	a.sampleTraffic(ctx)
+
+	// Expected: (500+1000) + 300 + 0 (rollback re-baseline) + 400 = 2,200 send
+	//           (1000+2000) + 700 + 0 (rollback re-baseline) + 900 = 4,600 recv
+	code, out, _ := call(t, a, "GET", "/api/v1/server/traffic?hours=24", nil, token)
+	if code != 200 || integer(out["total_send"]) != 2_200 || integer(out["total_recv"]) != 4_600 {
+		t.Fatalf("unexpected server traffic after delete & rollback: code=%d out=%v", code, out)
+	}
+
+	// Also verify sub-cap config rollback (500 MB -> 490 MB on restart) re-baselines without inventing +490 MB.
+	prev := trafficCursorState{lastSend: 250 << 20, lastRecv: 250 << 20, serverStartTime: "2026-11-20T00:00:00Z", lastSampledTs: 1000}
+	dS, dR, hasDelta, nextC, upd := computeTrafficSampleDelta(prev, true, 245<<20, 245<<20, 1300, "2026-11-22T06:00:00Z")
+	if hasDelta || dS != 0 || dR != 0 || !upd || nextC.lastSend != 245<<20 || nextC.lastRecv != 245<<20 {
+		t.Fatalf("expected clean re-baseline on 500MB->490MB restart rollback, got dS=%d dR=%d hasDelta=%v upd=%v next=%+v", dS, dR, hasDelta, upd, nextC)
+	}
+}
+
+func TestTrafficClientScopeMigrationRebuildsHubHistoryFromUsers(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "migrate.db")
+	db, err := openDB(dbPath)
+	if err != nil {
+		t.Fatalf("openDB: %v", err)
+	}
+	ts := time.Now().UTC().Truncate(time.Second)
+	stamp := ts.Format(time.RFC3339)
+	bucket := ts.Unix() - (ts.Unix() % 3600)
+
+	// Seed legacy GetHubStatus-polluted hub rows alongside clean user rows, then clear the migration marker.
+	execute(db, `INSERT INTO HubTrafficSample(ServerID,HubName,SendBytes,RecvBytes,NumSessions,NumUsers,SampledDate,SampledTs,DeltaSendBytes,DeltaRecvBytes,HasDelta) VALUES(1,'DEFAULT',5000000000000,5030000000000,7,2,?,?,14900000000,14800000000,1)`, stamp, ts.Unix())
+	execute(db, `INSERT INTO UserTrafficSample(ServerID,HubName,UserName,SendBytes,RecvBytes,NumLogin,SampledDate,SampledTs,DeltaSendBytes,DeltaRecvBytes,HasDelta) VALUES(1,'DEFAULT','alice',1000,4000,1,?,?,100,400,1)`, stamp, ts.Unix())
+	execute(db, `INSERT INTO UserTrafficSample(ServerID,HubName,UserName,SendBytes,RecvBytes,NumLogin,SampledDate,SampledTs,DeltaSendBytes,DeltaRecvBytes,HasDelta) VALUES(1,'DEFAULT','bob',2000,6000,1,?,?,200,600,1)`, stamp, ts.Unix())
+	execute(db, `INSERT INTO TrafficRollupHourly(ServerID,SubjectType,HubName,UserKey,UserName,BucketTs,SendBytes,RecvBytes,MaxSessions,SampleCount) VALUES(1,'hub','DEFAULT','','',?,14900000000,14800000000,7,12)`, bucket)
+	execute(db, `INSERT INTO TrafficRollupHourly(ServerID,SubjectType,HubName,UserKey,UserName,BucketTs,SendBytes,RecvBytes,MaxSessions,SampleCount) VALUES(1,'user','DEFAULT','alice','alice',?,100,400,0,12)`, bucket)
+	execute(db, `INSERT INTO TrafficRollupHourly(ServerID,SubjectType,HubName,UserKey,UserName,BucketTs,SendBytes,RecvBytes,MaxSessions,SampleCount) VALUES(1,'user','DEFAULT','bob','bob',?,200,600,0,12)`, bucket)
+	execute(db, `INSERT INTO TrafficCursor(ServerID,SubjectType,HubName,UserKey,LastSendBytes,LastRecvBytes,ServerStartTime,LastSampledTs) VALUES(1,'hub','DEFAULT','',5000000000000,5030000000000,'t0',?)`, ts.Unix())
+	execute(db, `DELETE FROM Setting WHERE SettingKey='_traffic_client_scope_v1'`)
+	check(db.Close())
+
+	migrated, err := openDB(dbPath)
+	if err != nil {
+		t.Fatalf("reopen migrated DB: %v", err)
+	}
+	defer migrated.Close()
+
+	hubRow := one(migrated, `SELECT SendBytes,RecvBytes,DeltaSendBytes,DeltaRecvBytes,HasDelta,NumSessions FROM HubTrafficSample WHERE ServerID=1 AND HubName='DEFAULT'`)
+	if integer(hubRow["SendBytes"]) != 3000 || integer(hubRow["RecvBytes"]) != 10000 || integer(hubRow["DeltaSendBytes"]) != 300 || integer(hubRow["DeltaRecvBytes"]) != 1000 || integer(hubRow["HasDelta"]) != 1 || integer(hubRow["NumSessions"]) != 7 {
+		t.Fatalf("HubTrafficSample not rebuilt cleanly: %v", hubRow)
+	}
+	rollupRow := one(migrated, `SELECT SendBytes,RecvBytes,MaxSessions FROM TrafficRollupHourly WHERE ServerID=1 AND SubjectType='hub' AND HubName='DEFAULT' AND BucketTs=?`, bucket)
+	if integer(rollupRow["SendBytes"]) != 300 || integer(rollupRow["RecvBytes"]) != 1000 || integer(rollupRow["MaxSessions"]) != 7 {
+		t.Fatalf("TrafficRollupHourly hub row not rebuilt cleanly: %v", rollupRow)
+	}
+	if cur := one(migrated, `SELECT 1 FROM TrafficCursor WHERE SubjectType='hub'`); cur != nil {
+		t.Fatalf("expected legacy hub TrafficCursor to be removed")
 	}
 }
 

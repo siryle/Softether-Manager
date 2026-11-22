@@ -148,8 +148,14 @@ function HubOverview({ hub, status }: { hub: string; status: Wire | null }) {
 
   if (!status) return <LoadingBlock label="asking the hub" />;
 
-  const recv = (Number(status["Recv.UnicastBytes_u64"]) || 0) + (Number(status["Recv.BroadcastBytes_u64"]) || 0);
-  const send = (Number(status["Send.UnicastBytes_u64"]) || 0) + (Number(status["Send.BroadcastBytes_u64"]) || 0);
+  const recv =
+    status.ClientRecvBytes_u64 !== undefined
+      ? Number(status.ClientRecvBytes_u64) || 0
+      : (Number(status["Recv.UnicastBytes_u64"]) || 0) + (Number(status["Recv.BroadcastBytes_u64"]) || 0);
+  const send =
+    status.ClientSendBytes_u64 !== undefined
+      ? Number(status.ClientSendBytes_u64) || 0
+      : (Number(status["Send.UnicastBytes_u64"]) || 0) + (Number(status["Send.BroadcastBytes_u64"]) || 0);
   const topUsers = analytics?.top_users ?? [];
   const maxUserBytes = Math.max(1, ...topUsers.map((u) => u.total_bytes));
 

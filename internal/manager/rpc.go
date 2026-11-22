@@ -360,48 +360,126 @@ func (a *App) countHubClientSessions(ctx context.Context, hub string) (count int
 	return count, true
 }
 
-func (a *App) enrichHubListClientSessions(ctx context.Context, hubs []M) (int64, bool) {
+func (a *App) sumHubUserTraffic(ctx context.Context, hub string) (send, recv int64, ok bool) {
+	if hub == "" {
+		return 0, 0, false
+	}
+	defer func() {
+		if recover() != nil {
+			send, recv, ok = 0, 0, false
+		}
+	}()
+	out := a.rpc(ctx, "EnumUser", M{"HubName_str": hub})
+	rawList, hasList := out["UserList"]
+	if !hasList {
+		return 0, 0, false
+	}
+	users := list(rawList)
+	a.updateUserMetaCache(a.serverIDFromContext(ctx), hub, users)
+	validUsers := 0
+	for _, u := range users {
+		s, r, valid := userTrafficCounters(u)
+		if !valid {
+			continue
+		}
+		validUsers++
+		send += s
+		recv += r
+	}
+	if len(users) > 0 && validUsers == 0 {
+		return 0, 0, false
+	}
+	return send, recv, true
+}
+
+func (a *App) enrichHubListStats(ctx context.Context, hubs []M, includeSessions, includeTraffic bool) (clientTotal int64, sessOK bool, totalSend, totalRecv int64, trafficOK bool) {
 	if len(hubs) == 0 {
-		return 0, true
+		return 0, true, 0, 0, true
 	}
-	type hubCount struct {
-		n  int64
-		ok bool
+	type hubJob struct {
+		name      string
+		needSess  bool
+		zeroSess  bool
+		needUsers bool
 	}
-	results := make([]hubCount, len(hubs))
+	type hubRes struct {
+		sess       int64
+		sessOK     bool
+		send, recv int64
+		trafficOK  bool
+	}
+	jobs := make([]hubJob, len(hubs))
+	results := make([]hubRes, len(hubs))
+	for i, h := range hubs {
+		name := str(h["HubName_str"])
+		raw := integer(h["NumSessions_u32"])
+		offline := h["Online_bool"] != nil && !boolean(h["Online_bool"])
+		zeroSess := name == "" || offline || (h["NumSessions_u32"] != nil && raw == 0)
+		jobs[i] = hubJob{
+			name:      name,
+			needSess:  includeSessions && !zeroSess,
+			zeroSess:  includeSessions && zeroSess,
+			needUsers: includeTraffic && name != "",
+		}
+		if jobs[i].zeroSess {
+			results[i].sessOK = true
+		}
+		if includeTraffic && name == "" {
+			results[i].trafficOK = true
+		}
+	}
 	sem := make(chan struct{}, 6)
 	var wg sync.WaitGroup
-	for i, h := range hubs {
-		hubName := str(h["HubName_str"])
-		raw := integer(h["NumSessions_u32"])
-		if hubName == "" || (h["Online_bool"] != nil && !boolean(h["Online_bool"])) || (h["NumSessions_u32"] != nil && raw == 0) {
-			h["ClientSessions_u32"] = int64(0)
-			results[i] = hubCount{n: 0, ok: true}
+	for i, job := range jobs {
+		if !job.needSess && !job.needUsers {
 			continue
 		}
 		wg.Add(1)
-		go func(idx int, name string, entry M) {
+		go func(idx int, j hubJob) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			n, ok := a.countHubClientSessions(ctx, name)
-			if ok {
-				entry["ClientSessions_u32"] = n
+			var inner sync.WaitGroup
+			if j.needSess {
+				inner.Add(1)
+				go func() {
+					defer inner.Done()
+					results[idx].sess, results[idx].sessOK = a.countHubClientSessions(ctx, j.name)
+				}()
 			}
-			results[idx] = hubCount{n: n, ok: ok}
-		}(i, hubName, h)
+			if j.needUsers {
+				inner.Add(1)
+				go func() {
+					defer inner.Done()
+					results[idx].send, results[idx].recv, results[idx].trafficOK = a.sumHubUserTraffic(ctx, j.name)
+				}()
+			}
+			inner.Wait()
+		}(i, job)
 	}
 	wg.Wait()
-	var total int64
-	allOK := true
-	for _, r := range results {
-		if !r.ok {
-			allOK = false
-			continue
+	sessOK, trafficOK = includeSessions, includeTraffic
+	for i, r := range results {
+		if includeSessions {
+			if r.sessOK {
+				hubs[i]["ClientSessions_u32"] = r.sess
+				clientTotal += r.sess
+			} else {
+				sessOK = false
+			}
 		}
-		total += r.n
+		if includeTraffic {
+			if r.trafficOK {
+				hubs[i]["ClientSendBytes_u64"] = r.send
+				hubs[i]["ClientRecvBytes_u64"] = r.recv
+				totalSend += r.send
+				totalRecv += r.recv
+			} else {
+				trafficOK = false
+			}
+		}
 	}
-	return total, allOK
+	return clientTotal, sessOK, totalSend, totalRecv, trafficOK
 }
 
 func (a *App) probeServer(ctx context.Context, countClients ...bool) (result M) {
@@ -424,15 +502,20 @@ func (a *App) probeServer(ctx context.Context, countClients ...bool) (result M) 
 		recvBytes = integer(status["RecvBytes_u64"])
 	}
 	sessions := status["NumSessionsTotal_u32"]
-	if len(countClients) > 0 && countClients[0] && integer(sessions) > 0 {
+	if len(countClients) > 0 && countClients[0] {
 		var hubs []M
 		func() {
 			defer func() { _ = recover() }()
 			hubs = list(a.rpc(ctx, "EnumHub", nil)["HubList"])
 		}()
 		if len(hubs) > 0 {
-			if clientTotal, ok := a.enrichHubListClientSessions(ctx, hubs); ok {
+			// Sum per-user counters to exclude Local Bridge / SecureNAT double-counting and LAN noise.
+			clientTotal, sessOK, uSend, uRecv, trafficOK := a.enrichHubListStats(ctx, hubs, integer(sessions) > 0, true)
+			if sessOK {
 				sessions = clientTotal
+			}
+			if trafficOK {
+				sendBytes, recvBytes = uSend, uRecv
 			}
 		}
 	}
@@ -534,13 +617,35 @@ func (a *App) registerRPCRoutes() {
 			} else if route.RPC == "GetAcList" {
 				out["version"] = accessVersion(out["ACList"])
 			} else if route.RPC == "EnumHub" {
-				a.enrichHubListClientSessions(r.Context(), list(out["HubList"]))
+				a.enrichHubListStats(r.Context(), list(out["HubList"]), true, false)
 			} else if route.RPC == "GetHubStatus" {
 				hubName := str(params["HubName_str"])
+				var hubWG sync.WaitGroup
+				var clientSess int64
+				var sessOK bool
+				var uSend, uRecv int64
+				var trafficOK bool
 				if out["NumSessions_u32"] != nil && integer(out["NumSessions_u32"]) == 0 {
 					out["ClientSessions_u32"] = int64(0)
-				} else if n, ok := a.countHubClientSessions(r.Context(), hubName); ok {
-					out["ClientSessions_u32"] = n
+				} else {
+					hubWG.Add(1)
+					go func() {
+						defer hubWG.Done()
+						clientSess, sessOK = a.countHubClientSessions(r.Context(), hubName)
+					}()
+				}
+				hubWG.Add(1)
+				go func() {
+					defer hubWG.Done()
+					uSend, uRecv, trafficOK = a.sumHubUserTraffic(r.Context(), hubName)
+				}()
+				hubWG.Wait()
+				if sessOK {
+					out["ClientSessions_u32"] = clientSess
+				}
+				if trafficOK {
+					out["ClientSendBytes_u64"] = uSend
+					out["ClientRecvBytes_u64"] = uRecv
 				}
 			}
 			if route.Audit != "" {

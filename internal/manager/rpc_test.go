@@ -373,3 +373,78 @@ func TestServerProbeReportsRealTrafficAndClientSessions(t *testing.T) {
 		t.Fatalf("expected 1 real client session (excluding SecureNAT), got %v", out["sessions"])
 	}
 }
+
+func TestOverviewHubAndProbeAggregateRealUserTraffic(t *testing.T) {
+	a := testApp(t)
+	token := admin(t, a)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req M
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		var out M
+		switch str(req["method"]) {
+		case "GetServerInfo":
+			out = M{"ServerVersionString_str": "Version 5.02 Build 5190", "ServerHostName_str": "AP", "ServerType_u32": 0}
+		case "GetServerStatus":
+			out = M{
+				"NumSessionsTotal_u32":    2,
+				"NumUsers_u32":            2,
+				"NumHubTotal_u32":         1,
+				"Send.UnicastBytes_u64":   int64(5_000_000_000_000),
+				"Recv.UnicastBytes_u64":   int64(5_030_000_000_000),
+				"StartTime_dt":            "2026-11-21T00:00:00Z",
+				"CurrentTime_dt":          "2026-11-22T08:00:00Z",
+			}
+		case "EnumHub":
+			out = M{"HubList": []M{{"HubName_str": "DEFAULT", "Online_bool": true, "NumSessions_u32": 2, "NumUsers_u32": 2}}}
+		case "GetHubStatus":
+			out = M{
+				"HubName_str":           "DEFAULT",
+				"Online_bool":           true,
+				"NumSessions_u32":       2,
+				"NumUsers_u32":          2,
+				"Send.UnicastBytes_u64": int64(5_000_000_000_000),
+				"Recv.UnicastBytes_u64": int64(5_030_000_000_000),
+			}
+		case "EnumSession":
+			out = M{"SessionList": []M{
+				{"Name_str": "SID-LOCALBRIDGE-1", "Username_str": "Local Bridge", "BridgeMode_bool": true},
+				{"Name_str": "SID-ALICE-1", "Username_str": "alice", "ClientIP_ip": "1.2.3.4"},
+			}}
+		case "EnumUser":
+			out = M{"UserList": []M{
+				{"Name_str": "alice", "Ex.Send.UnicastBytes_u64": int64(1000), "Ex.Recv.UnicastBytes_u64": int64(4000)},
+				{"Name_str": "bob", "Ex.Send.UnicastBytes_u64": int64(200), "Ex.Send.BroadcastBytes_u64": int64(50), "Ex.Recv.UnicastBytes_u64": int64(500)},
+			}}
+		default:
+			out = M{}
+		}
+		writeJSON(w, 200, M{"jsonrpc": "2.0", "id": req["id"], "result": out})
+	}))
+	defer server.Close()
+	target, _ := url.Parse(server.URL)
+	port, _ := strconv.Atoi(target.Port())
+	pwd := "vpn-secret"
+	a.saveConnection(target.Hostname(), port, &pwd, "header")
+
+	status, out, _ := call(t, a, "GET", "/api/v1/server/overview", nil, token)
+	if status != 200 {
+		t.Fatalf("overview failed: %d %v", status, out)
+	}
+	stData := object(object(out["status"])["data"])
+	if integer(stData["ClientSendBytes_u64"]) != 1250 || integer(stData["ClientRecvBytes_u64"]) != 4500 || integer(stData["ClientSessionsTotal_u32"]) != 1 {
+		t.Fatalf("overview did not aggregate real user traffic: %v", stData)
+	}
+
+	status, out, _ = call(t, a, "GET", "/api/v1/hubs/DEFAULT/status", nil, token)
+	if status != 200 || integer(out["ClientSendBytes_u64"]) != 1250 || integer(out["ClientRecvBytes_u64"]) != 4500 || integer(out["ClientSessions_u32"]) != 1 {
+		t.Fatalf("hub status did not aggregate real user traffic: %d %v", status, out)
+	}
+
+	status, out, _ = call(t, a, "POST", "/api/v1/servers/1/probe", nil, token)
+	if status != 200 || integer(out["send_bytes"]) != 1250 || integer(out["recv_bytes"]) != 4500 || integer(out["sessions"]) != 1 {
+		t.Fatalf("server probe did not aggregate real user traffic: %d %v", status, out)
+	}
+}
