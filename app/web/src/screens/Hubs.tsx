@@ -2,13 +2,14 @@
 
 import { useState } from "react";
 import { Field, LoadingBlock, PageHead } from "../components/bits";
-import { api, type Wire } from "../lib/api";
+import { QuotaStatePill, quotaKey } from "../components/QuotaCard";
+import { api, type Quota, type Wire } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { Link, seg } from "../lib/router";
 import { useServer } from "../lib/server";
 import { HUB_TYPES } from "../lib/se";
 import { useToast } from "../lib/toast";
-import { formatCount } from "../lib/util";
+import { formatBytes, formatCount } from "../lib/util";
 import { IconHub, IconPlus } from "../ui/Icon";
 import { Sheet } from "../ui/Sheet";
 
@@ -44,9 +45,18 @@ export function Hubs() {
   );
 }
 
-export function HubList({ hubs }: { hubs: Wire[] | null | undefined }) {
+export function HubList({
+  hubs,
+  hubTotals,
+  quotas,
+}: {
+  hubs: Wire[] | null | undefined;
+  hubTotals?: Map<string, { total_bytes: number; send_bytes: number; recv_bytes: number }>;
+  quotas?: Map<string, Quota>;
+}) {
   const { t } = useI18n();
   if (!hubs) return <LoadingBlock />;
+  const totalSessions = hubs.reduce((sum, h) => sum + (Number(h.NumSessions_u32) || 0), 0);
   return (
     <div className="hub-list">
       {hubs.length === 0 ? (
@@ -57,6 +67,10 @@ export function HubList({ hubs }: { hubs: Wire[] | null | undefined }) {
         hubs.map((h) => {
           const name = String(h.HubName_str ?? "");
           const online = Boolean(h.Online_bool);
+          const sess = Number(h.NumSessions_u32) || 0;
+          const sharePct = totalSessions > 0 ? Math.round((sess / totalSessions) * 100) : 0;
+          const traffic = hubTotals?.get(name);
+          const hubQuota = quotas?.get(quotaKey("hub", name));
           const hubTypeRaw = h.HubType_u32 !== undefined ? HUB_TYPES[h.HubType_u32 as number]?.split(" ")[0] : "";
           const hubTypeTranslated = hubTypeRaw ? t(hubTypeRaw) : "Standalone";
           return (
@@ -65,28 +79,41 @@ export function HubList({ hubs }: { hubs: Wire[] | null | undefined }) {
               to={`/hub/${seg(name)}`}
               className="hub-topology-row"
             >
-              <div className="flex items-center gap-3 min-w-0">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
                 <span className="hub-topology-row__icon">
                   <IconHub size={20} />
                 </span>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-mono font-semibold text-sm text-primary truncate">{name}</span>
                     <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${online ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" : "bg-slate-500/10 text-slate-400 border-slate-500/20"}`}>
                       {online ? t("Online") : t("Offline")}
                     </span>
                     <span className="text-[11px] text-muted">{hubTypeTranslated}</span>
+                    {hubQuota && <QuotaStatePill quota={hubQuota} />}
                   </div>
                   <div className="text-xs text-muted mt-1 font-mono flex items-center gap-2 flex-wrap">
                     <span>{formatCount(h.NumUsers_u32)} {t("users")}</span>
                     <span>·</span>
-                    <span>{formatCount(h.NumSessions_u32)} {t("sessions")}</span>
+                    <span>{formatCount(sess)} {t("sessions")}</span>
                     <span>·</span>
                     <span>{formatCount(h.NumMacTables_u32 ?? 1)} MAC</span>
+                    {traffic && traffic.total_bytes > 0 && (
+                      <>
+                        <span>·</span>
+                        <span className="text-primary">{formatBytes(traffic.total_bytes)}</span>
+                      </>
+                    )}
                   </div>
+                  {totalSessions > 0 && (
+                    <div className="viz-bar viz-bar--sm" style={{ marginTop: 6 }} title={`${sharePct}%`}>
+                      <div className="viz-bar__seg" style={{ width: `${Math.max(sess > 0 ? 4 : 0, sharePct)}%`, background: online ? "var(--ok)" : "var(--idle)" }} />
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="hub-topology-row__go flex items-center gap-2 shrink-0">
+                {totalSessions > 0 && <span className="mono micro text-muted">{sharePct}%</span>}
                 <span className="text-xs text-muted font-medium">
                   {t("View details →")}
                 </span>

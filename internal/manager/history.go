@@ -244,10 +244,18 @@ func buildSessionReportFilter(serverID int64, r *http.Request) (string, []any) {
 	default:
 		fail(422, "Invalid status filter.")
 	}
+	if proto := strings.TrimSpace(q.Get("protocol")); proto != "" {
+		if strings.EqualFold(proto, "unknown") {
+			clauses = append(clauses, "Protocol=''")
+		} else {
+			clauses = append(clauses, "Protocol=? COLLATE NOCASE")
+			args = append(args, proto)
+		}
+	}
 	if search := strings.TrimSpace(q.Get("q")); search != "" {
 		pat := "%" + escapeLike(search) + "%"
-		clauses = append(clauses, `(UserName LIKE ? ESCAPE '\' OR ClientIP LIKE ? ESCAPE '\' OR VirtualIP LIKE ? ESCAPE '\' OR ClientHostname LIKE ? ESCAPE '\' OR HubName LIKE ? ESCAPE '\')`)
-		args = append(args, pat, pat, pat, pat, pat)
+		clauses = append(clauses, `(UserName LIKE ? ESCAPE '\' OR RealName LIKE ? ESCAPE '\' OR Note LIKE ? ESCAPE '\' OR ClientIP LIKE ? ESCAPE '\' OR IpLocation LIKE ? ESCAPE '\' OR VirtualIP LIKE ? ESCAPE '\' OR ClientHostname LIKE ? ESCAPE '\' OR HubName LIKE ? ESCAPE '\')`)
+		args = append(args, pat, pat, pat, pat, pat, pat, pat, pat)
 	}
 	return strings.Join(clauses, " AND "), args
 }
@@ -322,11 +330,30 @@ func (a *App) registerHistory() {
 			return a.trafficUsage(a.serverIDFromContext(r.Context()), kind, r.PathValue("hub"), r.PathValue("name"), hours)
 		})
 	}
+	a.endpoint("GET /server/analytics", func(_ http.ResponseWriter, r *http.Request, _ M) any {
+		hours := queryInt(r, "hours", 24, 1, 2160)
+		hub := strings.TrimSpace(r.URL.Query().Get("hub"))
+		return a.serverAnalytics(a.serverIDFromContext(r.Context()), hub, hours)
+	})
+	a.endpoint("GET /server/session-history/analytics", func(_ http.ResponseWriter, r *http.Request, _ M) any {
+		return a.sessionReportAnalytics(a.serverIDFromContext(r.Context()), r)
+	})
 	a.endpoint("GET /server/session-history", func(_ http.ResponseWriter, r *http.Request, _ M) any {
 		serverID := a.serverIDFromContext(r.Context())
 		where, args := buildSessionReportFilter(serverID, r)
 		limit := queryInt(r, "limit", 100, 1, 500)
 		offset := queryInt(r, "offset", 0, 0, 1000000)
+
+		orderBy := `julianday(StartedDate) DESC, VpnSessionSampleID DESC`
+		switch strings.TrimSpace(r.URL.Query().Get("sort")) {
+		case "", "started":
+		case "bytes":
+			orderBy = `BytesTotal DESC, VpnSessionSampleID DESC`
+		case "duration":
+			orderBy = `(COALESCE(EndedTs, unixepoch(COALESCE(EndedDate, LastSeenDate))) - COALESCE(NULLIF(StartedTs,0), unixepoch(StartedDate))) DESC, VpnSessionSampleID DESC`
+		default:
+			fail(422, "Invalid sort parameter.")
+		}
 
 		rdb := a.readDB()
 		summary := one(rdb, `SELECT COUNT(*) total_sessions, COALESCE(SUM(CASE WHEN EndedDate IS NULL THEN 1 ELSE 0 END), 0) active_sessions, COUNT(DISTINCT LOWER(UserName)) unique_users, COALESCE(SUM(BytesTotal), 0) total_bytes, COALESCE(SUM(DownloadBytes), 0) download_bytes, COALESCE(SUM(UploadBytes), 0) upload_bytes FROM VpnSessionSample WHERE `+where, args...)
@@ -343,7 +370,7 @@ func (a *App) registerHistory() {
 		}
 
 		itemArgs := append(append([]any{}, args...), limit, offset)
-		rows := query(rdb, `SELECT VpnSessionSampleID id,HubName hub,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,LastSeenDate last_seen_date,BytesTotal bytes_total,PacketsTotal packets_total,DownloadBytes download_bytes,UploadBytes upload_bytes,RealName real_name,Note note,IpLocation ip_location,IpISP ip_isp,IpFull ip_full,Protocol protocol,DisconnectReason disconnect_reason,ServerPort server_port,ClientPort client_port FROM VpnSessionSample WHERE `+where+` ORDER BY julianday(StartedDate) DESC, VpnSessionSampleID DESC LIMIT ? OFFSET ?`, itemArgs...)
+		rows := query(rdb, `SELECT VpnSessionSampleID id,HubName hub,UserName username,ClientIP client_ip,VirtualIP virtual_ip,ClientHostname client_hostname,StartedDate started_date,EndedDate ended_date,LastSeenDate last_seen_date,BytesTotal bytes_total,PacketsTotal packets_total,DownloadBytes download_bytes,UploadBytes upload_bytes,RealName real_name,Note note,IpLocation ip_location,IpISP ip_isp,IpFull ip_full,Protocol protocol,DisconnectReason disconnect_reason,ServerPort server_port,ClientPort client_port FROM VpnSessionSample WHERE `+where+` ORDER BY `+orderBy+` LIMIT ? OFFSET ?`, itemArgs...)
 		a.enrichSessionRowsGeo(r.Context(), rows)
 		a.enrichSessionRowsUser(r.Context(), rows)
 		return M{"items": rows, "total": integer(summary["total_sessions"]), "summary": summary, "hubs": hubs}

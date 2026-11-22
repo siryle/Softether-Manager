@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ConfirmSheet,
   Empty,
@@ -82,6 +82,120 @@ export function cleanClientHost(host?: any, ip?: any): string {
   return h;
 }
 
+function localDayKey(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function LoginHeatmap({
+  history,
+  selectedDay,
+  onSelectDay,
+}: {
+  history: Wire[];
+  selectedDay: string | null;
+  onSelectDay: (day: string | null) => void;
+}) {
+  const { days, activeDays, totalLogins } = useMemo(() => {
+    const counts = new Map<string, { sessions: number; bytes: number }>();
+    for (const h of history) {
+      if (!h.started_date) continue;
+      const dt = new Date(String(h.started_date));
+      if (Number.isNaN(dt.getTime())) continue;
+      const key = localDayKey(dt);
+      const cur = counts.get(key) || { sessions: 0, bytes: 0 };
+      cur.sessions += 1;
+      cur.bytes += Number(h.bytes_total) || 0;
+      counts.set(key, cur);
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const list: { key: string; label: string; sessions: number; bytes: number }[] = [];
+    let active = 0;
+    let total = 0;
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(today.getTime() - i * 86_400_000);
+      const key = localDayKey(d);
+      const stat = counts.get(key) || { sessions: 0, bytes: 0 };
+      if (stat.sessions > 0) active += 1;
+      total += stat.sessions;
+      list.push({
+        key,
+        label: d.toLocaleDateString(undefined, { month: "numeric", day: "numeric" }),
+        sessions: stat.sessions,
+        bytes: stat.bytes,
+      });
+    }
+    return { days: list, activeDays: active, totalLogins: total };
+  }, [history]);
+
+  const maxSessions = Math.max(1, ...days.map((d) => d.sessions));
+
+  return (
+    <div className="viz-heatmap">
+      <div className="viz-heatmap__head">
+        <span className="viz-heatmap__title">
+          {t("30-day login activity")}
+          <span className="micro mono">
+            {t("{active}/30d active · {n} logins", { active: activeDays, n: totalLogins })}
+          </span>
+        </span>
+        <div className="viz-heatmap__legend">
+          {selectedDay && (
+            <button
+              type="button"
+              className="filterhubs__pill on"
+              onClick={() => onSelectDay(null)}
+              title={t("Clear day filter")}
+            >
+              {selectedDay} ×
+            </button>
+          )}
+          <span className="micro">{t("Less")}</span>
+          {[0, 1, 2, 3, 4].map((lvl) => (
+            <i key={lvl} className="viz-heatmap__swatch" data-lvl={lvl} aria-hidden="true" />
+          ))}
+          <span className="micro">{t("More")}</span>
+        </div>
+      </div>
+      <div className="viz-heatmap__cells" role="group" aria-label={t("30-day login activity")}>
+        {days.map((d) => {
+          const lvl =
+            d.sessions === 0
+              ? 0
+              : Math.min(4, Math.max(1, Math.ceil((d.sessions / maxSessions) * 4)));
+          const isSelected = selectedDay === d.key;
+          const tip =
+            d.sessions > 0
+              ? `${d.key}: ${t("{n} logins", { n: d.sessions })} · ${formatBytes(d.bytes)}`
+              : `${d.key}: ${t("No logins")}`;
+          return (
+            <button
+              key={d.key}
+              type="button"
+              className={`viz-heatmap__cell${isSelected ? " is-selected" : ""}`}
+              data-lvl={lvl}
+              title={tip}
+              aria-label={tip}
+              aria-pressed={isSelected}
+              disabled={d.sessions === 0 && !isSelected}
+              onClick={() => onSelectDay(isSelected ? null : d.key)}
+            />
+          );
+        })}
+      </div>
+      <div className="viz-heatmap__axis micro mono">
+        <span>{days[0]?.label}</span>
+        <span>{days[14]?.label}</span>
+        <span>{t("Today")}</span>
+      </div>
+    </div>
+  );
+}
+
 /**
  * One recorded session, charted. The series behind it is the sampler's
  * per-session snapshots, so the resolution is the sampling interval -- a
@@ -101,11 +215,20 @@ export function SessionUsageSheet({ hub, row, onClose }: { hub: string; row: Wir
   const started = new Date(String(row.started_date)).getTime();
   const endedAt = row.ended_date ? new Date(String(row.ended_date)).getTime() : null;
   const duration = endedAt ? (endedAt - started) / 1000 : (Date.now() - started) / 1000;
+  const proto = String(row.protocol || usage?.session?.protocol || "");
+  const clientIp = String(row.client_ip || usage?.session?.client_ip || "");
+  const clientPort = Number(row.client_port || usage?.session?.client_port || 0);
+  const serverPort = Number(row.server_port || usage?.session?.server_port || 0);
+  const disconnectReason = String(row.disconnect_reason || usage?.session?.disconnect_reason || "");
+  const downBytes = Number(row.download_bytes ?? usage?.session?.download_bytes ?? 0);
+  const upBytes = Number(row.upload_bytes ?? usage?.session?.upload_bytes ?? 0);
+  const splitSum = downBytes + upBytes;
+  const downPct = splitSum > 0 ? Math.round((downBytes / splitSum) * 100) : 0;
 
   return (
     <Sheet
       title={t("Session")}
-      subtitle={`${row.username} · ${formatDate(String(row.started_date))}`}
+      subtitle={`${row.username}${proto ? ` · ${proto}` : ""} · ${formatDate(String(row.started_date))}`}
       onClose={onClose}
       wide
       footer={<button className="btn" onClick={onClose}>{t("Close")}</button>}
@@ -121,7 +244,9 @@ export function SessionUsageSheet({ hub, row, onClose }: { hub: string; row: Wir
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "var(--s3)" }}>
               <div>
                 <div className="micro">{t("client IP")}</div>
-                <div className="mono" style={{ fontSize: "var(--t-data)" }}>{String(row.client_ip || usage?.session?.client_ip || "—")}</div>
+                <div className="mono" style={{ fontSize: "var(--t-data)" }}>
+                  {clientIp ? (clientPort > 0 ? `${clientIp}:${clientPort}` : clientIp) : "—"}
+                </div>
               </div>
               <div>
                 <div className="micro">{t("Location & ISP")}</div>
@@ -132,7 +257,7 @@ export function SessionUsageSheet({ hub, row, onClose }: { hub: string; row: Wir
               <div>
                 <div className="micro">{t("client host")}</div>
                 <div className="mono" style={{ fontSize: "var(--t-data)" }}>
-                  {cleanClientHost(row.client_hostname || usage?.session?.client_hostname, row.client_ip || usage?.session?.client_ip)}
+                  {cleanClientHost(row.client_hostname || usage?.session?.client_hostname, clientIp)}
                 </div>
               </div>
               <div>
@@ -141,6 +266,12 @@ export function SessionUsageSheet({ hub, row, onClose }: { hub: string; row: Wir
                   {(row.virtual_ip || usage?.session?.virtual_ip)
                     ? filterIpv4(row.virtual_ip || usage?.session?.virtual_ip) || "—"
                     : "—"}
+                </div>
+              </div>
+              <div>
+                <div className="micro">{t("Protocol")}</div>
+                <div className="mono" style={{ fontSize: "var(--t-data)" }}>
+                  {proto || "—"}{serverPort > 0 ? ` · :${serverPort}` : ""}
                 </div>
               </div>
               <div>
@@ -168,15 +299,31 @@ export function SessionUsageSheet({ hub, row, onClose }: { hub: string; row: Wir
               <div>
                 <div className="micro" style={{ color: "var(--ok)" }}>{t("downloaded")}</div>
                 <div className="mono" style={{ fontSize: "var(--t-data)", fontWeight: 700, color: "var(--ok)" }}>
-                  {formatBytes(Number(row.download_bytes))}
+                  {formatBytes(downBytes)} {splitSum > 0 ? `(${downPct}%)` : ""}
                 </div>
               </div>
               <div>
                 <div className="micro" style={{ color: "var(--accent-strong, #3b82f6)" }}>{t("uploaded")}</div>
                 <div className="mono" style={{ fontSize: "var(--t-data)", fontWeight: 700, color: "var(--accent-strong, #3b82f6)" }}>
-                  {formatBytes(Number(row.upload_bytes))}
+                  {formatBytes(upBytes)} {splitSum > 0 ? `(${100 - downPct}%)` : ""}
                 </div>
               </div>
+              {splitSum > 0 && (
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <div className="viz-bar">
+                    <div className="viz-bar__seg" style={{ width: `${downPct}%`, background: "var(--chart-recv)" }} />
+                    <div className="viz-bar__seg" style={{ width: `${100 - downPct}%`, background: "var(--chart-send)" }} />
+                  </div>
+                </div>
+              )}
+              {disconnectReason && (
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <div className="micro">{t("Disconnect reason")}</div>
+                  <div className="mono" style={{ fontSize: "var(--t-data)", color: !disconnectReason.toLowerCase().includes("no error") && !disconnectReason.toLowerCase().includes("code 0") ? "var(--warn)" : "var(--text-2)" }}>
+                    {disconnectReason}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -232,6 +379,7 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [openSession, setOpenSession] = useState<string | null>(null);
   const [openHistory, setOpenHistory] = useState<Wire | null>(null);
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const { guard, push } = useToast();
 
   const load = useCallback(async () => {
@@ -279,10 +427,20 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
   useEffect(() => {
     setHistory(null);
     setHistoryExhausted(false);
+    setSelectedDay(null);
     resetHistory();
   }, [hub, name, resetHistory]);
   usePoll(() => loadHistory(0), "list", [hub, name]);
-  const shownHistory = history ? history.slice(0, historyVisible) : [];
+  const filteredHistory = useMemo(() => {
+    if (!history) return [];
+    if (!selectedDay) return history;
+    return history.filter((h) => {
+      if (!h.started_date) return false;
+      const dt = new Date(String(h.started_date));
+      return !Number.isNaN(dt.getTime()) && localDayKey(dt) === selectedDay;
+    });
+  }, [history, selectedDay]);
+  const shownHistory = selectedDay ? filteredHistory : filteredHistory.slice(0, historyVisible);
 
   const savePolicy = async () => {
     if (!user || !policy || !initialPolicy.current) return;
@@ -534,7 +692,7 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
         />
       )}
 
-      <SectionTitle count={history?.length}>{t("Session history")}</SectionTitle>
+      <SectionTitle count={selectedDay ? filteredHistory.length : history?.length}>{t("Session history")}</SectionTitle>
       {history === null ? (
         <LoadingBlock />
       ) : history.length === 0 ? (
@@ -543,7 +701,8 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
         </Empty>
       ) : (
         <div className="card tcard">
-          <div className="tscroll">
+          <LoginHeatmap history={history} selectedDay={selectedDay} onSelectDay={setSelectedDay} />
+          <div className="tscroll" tabIndex={0} role="region" aria-label={t("Session history")}>
             <table className="dtable">
               <thead>
                 <tr>
@@ -561,10 +720,25 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
                   const duration = endedAt ? (endedAt - started) / 1000 : (Date.now() - started) / 1000;
                   const v4 = filterIpv4(h.virtual_ip);
                   const host = cleanClientHost(h.client_hostname, h.client_ip);
+                  const proto = String(h.protocol || "").trim();
+                  const reason = String(h.disconnect_reason || "").trim();
+                  const abnormal = Boolean(reason && !/normal|client|closed by user|graceful/i.test(reason));
                   return (
                     <tr key={String(h.id)} className="clickable" onClick={() => setOpenHistory(h)}>
-                      <td className="tmono">{formatDate(String(h.started_date))}</td>
-                      <td className="tmono">{h.ended_date ? formatDate(String(h.ended_date)) : <Pill kind="ok" label="connected" />}</td>
+                      <td className="tmono">
+                        <div>{formatDate(String(h.started_date))}</div>
+                        {proto && <div className="micro">{proto}</div>}
+                      </td>
+                      <td className="tmono">
+                        <div>
+                          {h.ended_date ? formatDate(String(h.ended_date)) : <Pill kind="ok" label="connected" />}
+                        </div>
+                        {reason && (
+                          <div className={abnormal ? "micro viz-text-warn" : "micro"} title={reason}>
+                            {reason}
+                          </div>
+                        )}
+                      </td>
                       <td className="tmono">{formatDuration(duration)}</td>
                       <td className="tmono">
                         <EndpointCell
@@ -583,14 +757,16 @@ export function UserDetail({ hub, name }: { hub: string; name: string }) {
               </tbody>
             </table>
           </div>
-          <MoreRows
-            shown={shownHistory.length}
-            loaded={history.length}
-            exhausted={historyExhausted}
-            noun="logins"
-            onReveal={revealHistory}
-            onLoad={() => loadHistory(Number(history[history.length - 1].id))}
-          />
+          {!selectedDay && (
+            <MoreRows
+              shown={shownHistory.length}
+              loaded={history.length}
+              exhausted={historyExhausted}
+              noun="logins"
+              onReveal={revealHistory}
+              onLoad={() => loadHistory(Number(history[history.length - 1].id))}
+            />
+          )}
         </div>
       )}
 

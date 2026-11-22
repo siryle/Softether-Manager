@@ -406,3 +406,36 @@ test("SESSION_TYPE and isSystemSession identify system vs client sessions", () =
   assert.equal(isSystemSession({ Layer3Mode_bool: true }), true);
   assert.equal(isSystemSession({ username: "l3_switch" }), true);
 });
+
+test("TrafficChart supports rate mode and concurrent session overlay", () => {
+  const { TrafficChart } = component("../src/components/TrafficChart.tsx", "TrafficChart", [], {
+    "../lib/util": load("../src/lib/util.ts", {}, { "./i18n": { t: value => value } }),
+  });
+  const usage = chartUsage(24, [
+    { ...point(-10, 1_500_000, 3_000_000), sessions: 5 },
+    { ...point(-5, 2_000_000, 4_000_000), sessions: 12 },
+    { ...point(0, 1_000_000, 2_000_000), sessions: 8 },
+  ]);
+  const tree = TrafficChart({ usage, defaultMode: "rate" });
+  assert.ok(find(tree, node => node.type === "path" && node.props.stroke === "var(--warn)"));
+  assert.ok(find(tree, node => node.type === "text" && typeof node.props.children === "string" && node.props.children.includes("bps")));
+});
+
+test("serverAnalytics and sessionReportAnalytics encode filters and use server scope", async () => {
+  const client = backend(() => Promise.resolve("{}"));
+  await client.api.serverAnalytics(168, "OFFICE");
+  assert.equal(client.requests[0].url, "api/v1/server/analytics?hours=168&hub=OFFICE");
+  assert.equal(client.requests[0].headers["X-Server-ID"], "1");
+
+  await client.api.sessionReportAnalytics({
+    hub: "DEFAULT",
+    protocol: "WireGuard",
+    sort: "bytes",
+    tz_offset: -480,
+  });
+  assert.equal(
+    client.requests[1].url,
+    "api/v1/server/session-history/analytics?hub=DEFAULT&protocol=WireGuard&sort=bytes&tz_offset=-480",
+  );
+  assert.equal(client.requests[1].headers["X-Server-ID"], "1");
+});

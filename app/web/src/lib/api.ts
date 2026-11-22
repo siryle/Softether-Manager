@@ -254,6 +254,8 @@ export interface SessionReportQuery {
   hub?: string;
   q?: string;
   status?: "all" | "active" | "ended";
+  protocol?: string;
+  sort?: "started" | "bytes" | "duration";
   limit?: number;
   offset?: number;
 }
@@ -274,6 +276,67 @@ export interface SessionReportResponse {
   hubs: string[];
 }
 
+export interface ServerAnalytics {
+  hours: number;
+  hub: string;
+  top_users: {
+    hub: string;
+    username: string;
+    real_name: string;
+    send_bytes: number;
+    recv_bytes: number;
+    total_bytes: number;
+  }[];
+  hub_totals: {
+    hub: string;
+    send_bytes: number;
+    recv_bytes: number;
+    total_bytes: number;
+    max_sessions: number;
+  }[];
+  protocol_counts: {
+    protocol: string;
+    count: number;
+  }[];
+}
+
+export interface SessionAnalytics {
+  granularity: "hour" | "day";
+  buckets: {
+    key: string;
+    label: string;
+    sessions: number;
+    unique_users: number;
+    total_bytes: number;
+    download_bytes: number;
+    upload_bytes: number;
+  }[];
+  top_users: {
+    hub: string;
+    username: string;
+    real_name: string;
+    sessions: number;
+    total_bytes: number;
+    download_bytes: number;
+    upload_bytes: number;
+  }[];
+  top_locations: {
+    location: string;
+    sessions: number;
+    total_bytes: number;
+  }[];
+  protocols: {
+    protocol: string;
+    sessions: number;
+    total_bytes: number;
+  }[];
+  anomalies: {
+    abnormal_disconnects: number;
+    short_sessions: number;
+    concurrent_multi_ip: number;
+  };
+}
+
 function sessionReportQuery(params: SessionReportQuery & { lang?: string; tz?: string; tz_offset?: number }): string {
   const sp = new URLSearchParams();
   if (params.from) sp.set("from", params.from);
@@ -281,6 +344,8 @@ function sessionReportQuery(params: SessionReportQuery & { lang?: string; tz?: s
   if (params.hub) sp.set("hub", params.hub);
   if (params.q) sp.set("q", params.q);
   if (params.status && params.status !== "all") sp.set("status", params.status);
+  if (params.protocol) sp.set("protocol", params.protocol);
+  if (params.sort && params.sort !== "started") sp.set("sort", params.sort);
   if (params.limit !== undefined) sp.set("limit", String(params.limit));
   if (params.offset !== undefined && params.offset > 0) sp.set("offset", String(params.offset));
   if (params.lang) sp.set("lang", params.lang);
@@ -489,6 +554,8 @@ function apiMethods(request: typeof sendRequest) {
   // -- server-level SoftEther -----------------------------------------------------
   overview: () => request("GET", "/server/overview"),
   serverTraffic: (hours = 24) => request<Usage>("GET", `/server/traffic?hours=${hours}`),
+  serverAnalytics: (hours = 24, hub = "") =>
+    request<ServerAnalytics>("GET", `/server/analytics?hours=${hours}${hub ? `&hub=${encodeURIComponent(hub)}` : ""}`),
   serverInfo: () => request("GET", "/server/info"),
   serverStatus: () => request("GET", "/server/status"),
   caps: () => request("GET", "/server/caps"),
@@ -707,6 +774,8 @@ function apiMethods(request: typeof sendRequest) {
     ),
   sessionReport: (params: SessionReportQuery = {}) =>
     request<SessionReportResponse>("GET", `/server/session-history${sessionReportQuery(params)}`),
+  sessionReportAnalytics: (params: SessionReportQuery & { tz?: string; tz_offset?: number } = {}) =>
+    request<SessionAnalytics>("GET", `/server/session-history/analytics${sessionReportQuery(params)}`),
   exportSessionReport: (params: SessionReportQuery & { lang?: string; tz?: string; tz_offset?: number } = {}) =>
     request<Blob>("GET", `/server/session-history/export${sessionReportQuery(params)}`, undefined, true),
   groups: (hub: string) => request("GET", `${hubPath(hub)}/groups`),

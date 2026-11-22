@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import { LoadingBlock, PageHead, SectionTitle, usePoll } from "../components/bits";
 import { QuotaStatePill, quotaKey, useQuotaIndex } from "../components/QuotaCard";
 import { RangeSeg, TrafficChart, useTrafficUsage } from "../components/TrafficChart";
-import { api, type Wire } from "../lib/api";
+import { api, type ServerAnalytics, type Wire } from "../lib/api";
 import { HUB_TYPES } from "../lib/se";
 import { Link, navigate, seg } from "../lib/router";
 import { formatBytes, formatCount, formatDate } from "../lib/util";
@@ -138,12 +138,20 @@ export function HubDetail({ hub, tab }: { hub: string; tab: string }) {
 function HubOverview({ hub, status }: { hub: string; status: Wire | null }) {
   const { t } = useI18n();
   const [hours, setHours] = useState(24);
+  const [analytics, setAnalytics] = useState<ServerAnalytics | null>(null);
   const usage = useTrafficUsage(() => api.hubTraffic(hub, hours), "list", [hub, hours]);
+
+  const loadAnalytics = useCallback(async () => {
+    setAnalytics(await api.serverAnalytics(hours, hub).catch(() => null));
+  }, [hub, hours]);
+  usePoll(loadAnalytics, "list", [hub, hours]);
 
   if (!status) return <LoadingBlock label="asking the hub" />;
 
   const recv = (Number(status["Recv.UnicastBytes_u64"]) || 0) + (Number(status["Recv.BroadcastBytes_u64"]) || 0);
   const send = (Number(status["Send.UnicastBytes_u64"]) || 0) + (Number(status["Send.BroadcastBytes_u64"]) || 0);
+  const topUsers = analytics?.top_users ?? [];
+  const maxUserBytes = Math.max(1, ...topUsers.map((u) => u.total_bytes));
 
   return (
     <>
@@ -172,8 +180,36 @@ function HubOverview({ hub, status }: { hub: string; status: Wire | null }) {
 
       <SectionTitle actions={<RangeSeg hours={hours} onChange={setHours} />}>{t("Throughput")}</SectionTitle>
       <div className="card" style={{ padding: "var(--s4)" }}>
-        {usage ? <TrafficChart usage={usage} /> : <LoadingBlock label="loading samples" />}
+        {usage ? <TrafficChart usage={usage} defaultMode="rate" /> : <LoadingBlock label="loading samples" />}
       </div>
+
+      {topUsers.length > 0 && (
+        <>
+          <SectionTitle>{t("Top traffic users")}</SectionTitle>
+          <div className="card" style={{ padding: "var(--s4)" }}>
+            <div className="viz-rank-list">
+              {topUsers.slice(0, 6).map((u) => (
+                <Link key={u.username} to={`/hub/${seg(hub)}/user/${seg(u.username)}`} className="viz-rank-item">
+                  <div className="viz-rank-item__head">
+                    <span className="viz-rank-item__who">
+                      <strong className="mono">{u.username}</strong>
+                      {u.real_name && <span className="text-muted">{u.real_name}</span>}
+                    </span>
+                    <span className="viz-rank-item__val mono">
+                      <b>{formatBytes(u.total_bytes)}</b>
+                      <small>↓{formatBytes(u.recv_bytes)} · ↑{formatBytes(u.send_bytes)}</small>
+                    </span>
+                  </div>
+                  <div className="viz-bar">
+                    <div className="viz-bar__seg" style={{ width: `${Math.round((u.recv_bytes / maxUserBytes) * 100)}%`, background: "var(--chart-recv)" }} />
+                    <div className="viz-bar__seg" style={{ width: `${Math.round((u.send_bytes / maxUserBytes) * 100)}%`, background: "var(--chart-send)" }} />
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
       <SectionTitle>{t("Details")}</SectionTitle>
       <div className="card" style={{ padding: "var(--s4)" }}>

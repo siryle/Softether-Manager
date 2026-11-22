@@ -7,6 +7,7 @@ import { useI18n } from "../lib/i18n";
 import { navigate, useRoute } from "../lib/router";
 import { useServer } from "../lib/server";
 import { useToast } from "../lib/toast";
+import { formatBytes, formatCount, formatDuration } from "../lib/util";
 import { IconCheck, IconNode, IconPlus, IconRefresh } from "../ui/Icon";
 import { Sheet } from "../ui/Sheet";
 
@@ -60,25 +61,92 @@ export function Servers() {
   if (!servers) return <LoadingBlock label={t("Loading servers...")} />;
   const filtered = servers.filter(s => `${s.name} ${s.host}:${s.port}`.toLowerCase().includes(filter.trim().toLowerCase()));
   const checking = Object.values(checks).some(c => c.checking);
-  const online = servers.filter(s => s.is_enabled && s.configured && checks[s.id]?.online).length;
+  const onlineServers = servers.filter(s => s.is_enabled && s.configured && checks[s.id]?.online);
+  const online = onlineServers.length;
+  const fleetSessions = onlineServers.reduce((sum, s) => sum + (Number(checks[s.id]?.sessions) || 0), 0);
+  const fleetUsers = onlineServers.reduce((sum, s) => sum + (Number(checks[s.id]?.users) || 0), 0);
+  const fleetBytes = onlineServers.reduce(
+    (sum, s) => sum + (Number(checks[s.id]?.send_bytes) || 0) + (Number(checks[s.id]?.recv_bytes) || 0),
+    0,
+  );
 
   return <div className="page servers-page">
     <PageHead title={t("Servers")} sub={t("Manage multiple SoftEther servers from one panel. Each server has its own management space.")} actions={<button className="btn-primary" onClick={() => setEditing("new")}><IconPlus size={14} />{t("Add server")}</button>} />
     {error && <ErrorAlert>{error}</ErrorAlert>}
+
+    {/* Multi-Server Fleet KPI Strip */}
+    {servers.length > 0 && (
+      <div className="kpis" style={{ marginBottom: "var(--s4)" }}>
+        <div className="kpi">
+          <div className="kpi__l">{t("Online nodes")}</div>
+          <div className="kpi__v">
+            <span style={{ color: online > 0 ? "var(--ok)" : undefined }}>{online}</span> / {servers.length}
+          </div>
+          <div className="kpi__s">{t("{count} saved", { count: servers.length })}</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi__l">{t("Fleet sessions")}</div>
+          <div className="kpi__v">{formatCount(fleetSessions)}</div>
+          <div className="kpi__s">{t("Across online nodes")}</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi__l">{t("Fleet users")}</div>
+          <div className="kpi__v">{formatCount(fleetUsers)}</div>
+          <div className="kpi__s">{t("Configured accounts")}</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi__l">{t("Fleet traffic")}</div>
+          <div className="kpi__v">{formatBytes(fleetBytes)}</div>
+          <div className="kpi__s">{t("Cumulative RX + TX")}</div>
+        </div>
+      </div>
+    )}
+
     <div className="servers-toolbar">
       <input className="input servers-search" aria-label={t("Search servers")} placeholder={t("Search name or address...")} value={filter} onChange={e => setFilter(e.target.value)} />
       <div className="servers-summary"><span>{t("{count} saved", { count: servers.length })}</span><span><i className="server-dot server-dot--online" />{t("{count} online", { count: online })}</span><button className="btn btn--sm" disabled={checking} onClick={() => setCheckVersion(v => v + 1)}><IconRefresh size={13} className={checking ? "spin" : ""} />{t("Refresh status")}</button></div>
     </div>
-    {!filtered.length ? <Empty title={t("No matching servers")}>{t("Try another name or address.")}</Empty> : <div className="servers-table"><table className="dtable"><thead><tr><th>{t("Server / management address")}</th><th>{t("Connection status")}</th><th>{t("Current load")}</th><th>{t("Details")}</th><th>{t("Actions")}</th></tr></thead><tbody>{filtered.map(s => {
+    {!filtered.length ? <Empty title={t("No matching servers")}>{t("Try another name or address.")}</Empty> : <div className="servers-table" tabIndex={0} role="region" aria-label={t("Servers")}><table className="dtable"><thead><tr><th scope="col">{t("Server / management address")}</th><th scope="col">{t("Connection status")}</th><th scope="col">{t("Session load")}</th><th scope="col">{t("Users / HUB")}</th><th scope="col">{t("Traffic")}</th><th scope="col">{t("Actions")}</th></tr></thead><tbody>{filtered.map(s => {
       const active = s.id === currentServer?.id;
       const c = checks[s.id];
       const state = !s.is_enabled ? "disabled" : !s.configured ? "unconfigured" : c?.checking ? "probing" : !c ? "unknown" : c.online ? "online" : "offline";
       const label = { disabled: "Disabled", unconfigured: "Not configured", probing: "Checking...", unknown: "Not checked", online: "Online", offline: "Offline" }[state];
+      const sess = Number(c?.sessions) || 0;
+      const sharePct = fleetSessions > 0 ? Math.round((sess / fleetSessions) * 100) : 0;
+      const uptimeSec =
+        c?.started && c?.current_time
+          ? Math.max(0, (Date.parse(c.current_time) - Date.parse(c.started)) / 1000)
+          : null;
       return <tr key={s.id}>
         <td><div className="servers-name"><strong>{s.name}</strong>{active && <span className="server-tag server-tag--current">{t("Current")}</span>}{s.is_default && <span className="server-tag">{t("Default")}</span>}</div><div className="servers-address mono">{s.host}:{s.port}</div></td>
-        <td><span className={`server-state server-state--${state}`}><i className={`server-dot server-dot--${state}`} />{t(label)}</span></td>
-        <td className="mono">{state === "online" ? t("{sessions} sessions · {hubs} HUB", { sessions: c?.sessions ?? 0, hubs: c?.hubs ?? 0 }) : "—"}</td>
-        <td className="servers-detail" title={c?.error}>{state === "offline" ? c?.error : state === "online" ? c?.version : "—"}</td>
+        <td>
+          <span className={`server-state server-state--${state}`}><i className={`server-dot server-dot--${state}`} />{t(label)}</span>
+          {state === "online" && uptimeSec !== null && <div className="micro mono" style={{ marginTop: 3 }}>{formatDuration(uptimeSec)}</div>}
+          {state === "offline" && c?.error && <div className="servers-detail" title={c.error}>{c.error}</div>}
+        </td>
+        <td className="mono" style={{ minWidth: 140 }}>
+          {state === "online" ? (
+            <>
+              <div>{formatCount(sess)} {t("sessions")} {fleetSessions > 0 ? <span className="micro">({sharePct}%)</span> : null}</div>
+              {fleetSessions > 0 && (
+                <div className="viz-bar viz-bar--sm" style={{ marginTop: 5 }}>
+                  <div className="viz-bar__seg" style={{ width: `${Math.max(sess > 0 ? 5 : 0, sharePct)}%`, background: active ? "var(--ok)" : "var(--accent)" }} />
+                </div>
+              )}
+            </>
+          ) : "—"}
+        </td>
+        <td className="mono">{state === "online" ? t("{users} users · {hubs} HUB", { users: c?.users ?? 0, hubs: c?.hubs ?? 0 }) : "—"}</td>
+        <td className="mono">
+          {state === "online" && ((c?.recv_bytes ?? 0) > 0 || (c?.send_bytes ?? 0) > 0) ? (
+            <div>
+              <span style={{ color: "var(--chart-recv)" }}>↓ {formatBytes(c?.recv_bytes ?? 0)}</span>
+              <div className="tsub" style={{ color: "var(--chart-send)" }}>↑ {formatBytes(c?.send_bytes ?? 0)}</div>
+            </div>
+          ) : state === "online" ? (
+            <span className="micro">{c?.version || "—"}</span>
+          ) : "—"}
+        </td>
         <td><div className="server-actions"><button className="btn btn--sm" disabled={!s.is_enabled} onClick={() => void switchTo(s.id)}>{t(active ? "Open overview" : "Switch to server")}</button><button className="btn btn--sm" onClick={() => setEditing(s)}>{t("Edit")}</button><button className="btn btn--sm btn--ghost" disabled={active || servers.length <= 1} title={active ? t("Switch to another server before removing this connection.") : undefined} onClick={() => setRemoving(s)}>{t("Remove")}</button></div></td>
       </tr>;
     })}</tbody></table></div>}

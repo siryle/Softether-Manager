@@ -327,7 +327,7 @@ export function SortTh({
 } & ThHTMLAttributes<HTMLTableCellElement>) {
   const active = sort.key === sortKey;
   return (
-    <th {...rest} aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
+    <th scope="col" {...rest} aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : undefined}>
       <button type="button" className={`th-sort${active ? " on" : ""}`} onClick={() => onSort(sortKey)}>
         <span>{children}</span>
         <svg
