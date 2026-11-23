@@ -60,7 +60,7 @@ export function AllClients() {
   const [refreshing, setRefreshing] = useState(false);
   const inFlight = useRef(false);
   const prevBytesRef = useRef<Map<string, { bytes: number; at: number }>>(new Map());
-  const { sort, toggle } = useSort({ key: "rate", dir: "desc" });
+  const { sort, toggle } = useSort({ key: "started", dir: "desc" });
 
   const load = useCallback(async () => {
     if (inFlight.current) return;
