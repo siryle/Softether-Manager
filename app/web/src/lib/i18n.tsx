@@ -2018,6 +2018,7 @@ const zhCN: Record<string, string> = {
   "No traffic limits configured on this server.": "此服务器暂未配置流量配额。",
   "No trend buckets available.": "暂无趋势统计数据。",
   "No user traffic recorded in this time window yet.": "当前时间窗口内暂无用户流量记录。",
+  "No user traffic recorded today yet.": "今日暂无用户流量记录。",
   "Online nodes": "在线节点",
   "Past {days} days": "过去 {days} 天",
   "Past {hours} hours": "过去 {hours} 小时",

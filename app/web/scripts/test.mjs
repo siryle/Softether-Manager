@@ -447,6 +447,9 @@ test("serverAnalytics and sessionReportAnalytics encode filters and use server s
   assert.equal(client.requests[0].url, "api/v1/server/analytics?hours=168&hub=OFFICE");
   assert.equal(client.requests[0].headers["X-Server-ID"], "1");
 
+  await client.api.serverAnalytics(24, "OFFICE", "today");
+  assert.match(client.requests[1].url, /^api\/v1\/server\/analytics\?range=today&hub=OFFICE&.*tz_offset=/);
+
   await client.api.sessionReportAnalytics({
     hub: "DEFAULT",
     protocol: "WireGuard",
@@ -454,10 +457,10 @@ test("serverAnalytics and sessionReportAnalytics encode filters and use server s
     tz_offset: -480,
   });
   assert.equal(
-    client.requests[1].url,
+    client.requests[2].url,
     "api/v1/server/session-history/analytics?hub=DEFAULT&protocol=WireGuard&sort=bytes&tz_offset=-480",
   );
-  assert.equal(client.requests[1].headers["X-Server-ID"], "1");
+  assert.equal(client.requests[2].headers["X-Server-ID"], "1");
 });
 
 test("formatDate, timeAgo, formatIPLocation and formatDisconnectReason localize cleanly", () => {

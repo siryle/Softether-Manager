@@ -562,8 +562,22 @@ function apiMethods(request: typeof sendRequest) {
     return request("GET", `/server/overview?${sp.toString()}`);
   },
   serverTraffic: (hours = 24) => request<Usage>("GET", `/server/traffic?hours=${hours}`),
-  serverAnalytics: (hours = 24, hub = "") =>
-    request<ServerAnalytics>("GET", `/server/analytics?hours=${hours}${hub ? `&hub=${encodeURIComponent(hub)}` : ""}`),
+  serverAnalytics: (hours = 24, hub = "", range?: "today") => {
+    if (range === "today") {
+      const sp = new URLSearchParams({ range: "today" });
+      if (hub) sp.set("hub", hub);
+      try {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        if (tz) sp.set("tz", tz);
+      } catch {}
+      sp.set("tz_offset", String(new Date().getTimezoneOffset()));
+      return request<ServerAnalytics>("GET", `/server/analytics?${sp.toString()}`);
+    }
+    return request<ServerAnalytics>(
+      "GET",
+      `/server/analytics?hours=${hours}${hub ? `&hub=${encodeURIComponent(hub)}` : ""}`,
+    );
+  },
   serverInfo: () => request("GET", "/server/info"),
   serverStatus: () => request("GET", "/server/status"),
   caps: () => request("GET", "/server/caps"),

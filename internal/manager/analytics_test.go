@@ -53,6 +53,26 @@ func TestServerAnalyticsAndSessionReportAnalytics(t *testing.T) {
 		t.Fatalf("hub-scoped analytics failed: code=%d out=%v", code, out)
 	}
 
+	// 2b. Today-only ranking excludes yesterday's traffic even if still within 24h.
+	loc := time.FixedZone("UTC+8", 8*3600)
+	nowLocal := nowUTC.In(loc)
+	dayStart := time.Date(nowLocal.Year(), nowLocal.Month(), nowLocal.Day(), 0, 0, 0, 0, loc).UTC()
+	yesterdayBucket := dayStart.Add(-1 * time.Hour).Unix()
+	execute(a.db, `INSERT INTO TrafficRollupHourly(ServerID,SubjectType,HubName,UserKey,UserName,BucketTs,SendBytes,RecvBytes,MaxSessions,SampleCount) VALUES(1,'user','DEFAULT','yesterday_heavy','YesterdayHeavy',?,999999,999999,0,5)`, yesterdayBucket)
+	code, out, _ = call(t, a, "GET", "/api/v1/server/analytics?range=today&tz_offset=-480", nil, token)
+	if code != 200 {
+		t.Fatalf("today analytics failed: code=%d out=%v", code, out)
+	}
+	todayTop := list(out["top_users"])
+	for _, u := range todayTop {
+		if str(u["username"]) == "YesterdayHeavy" {
+			t.Fatalf("today ranking leaked yesterday traffic: %v", todayTop)
+		}
+	}
+	if len(todayTop) != 2 || str(todayTop[0]["username"]) != "Bob" {
+		t.Fatalf("unexpected today top_users: %v", todayTop)
+	}
+
 	// 3. Session report analytics
 	code, out, _ = call(t, a, "GET", "/api/v1/server/session-history/analytics?tz_offset=0", nil, token)
 	if code != 200 {

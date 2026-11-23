@@ -79,10 +79,10 @@ function presetRange(preset: Exclude<TimePreset, "all" | "custom">): { from: str
   let start: Date;
   if (preset === "today") {
     start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-  } else {
-    const hours = preset === "24h" ? 24 : preset === "7d" ? 24 * 7 : 24 * 30;
-    start = new Date(now.getTime() - hours * 3600 * 1000);
+    return { from: toLocalInputValue(start), to: "" };
   }
+  const hours = preset === "24h" ? 24 : preset === "7d" ? 24 * 7 : 24 * 30;
+  start = new Date(now.getTime() - hours * 3600 * 1000);
   return { from: toLocalInputValue(start), to: toLocalInputValue(now) };
 }
 
@@ -101,8 +101,8 @@ export function AuditReport() {
   const { t, lang } = useI18n();
   const { push } = useToast();
 
-  const [preset, setPreset] = useState<TimePreset>("all");
-  const [fromLocal, setFromLocal] = useState("");
+  const [preset, setPreset] = useState<TimePreset>("today");
+  const [fromLocal, setFromLocal] = useState(() => presetRange("today").from);
   const [toLocal, setToLocal] = useState("");
   const [hub, setHub] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");

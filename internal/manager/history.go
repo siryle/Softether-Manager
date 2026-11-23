@@ -346,7 +346,12 @@ func (a *App) registerHistory() {
 	a.endpoint("GET /server/analytics", func(_ http.ResponseWriter, r *http.Request, _ M) any {
 		hours := queryInt(r, "hours", 24, 1, 2160)
 		hub := strings.TrimSpace(r.URL.Query().Get("hub"))
-		return a.serverAnalytics(a.serverIDFromContext(r.Context()), hub, hours)
+		rangeKind := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("range")))
+		var loc *time.Location
+		if rangeKind == "today" {
+			loc = resolveExportLocation(r)
+		}
+		return a.serverAnalytics(a.serverIDFromContext(r.Context()), hub, hours, rangeKind, loc)
 	})
 	a.endpoint("GET /server/session-history/analytics", func(_ http.ResponseWriter, r *http.Request, _ M) any {
 		return a.sessionReportAnalytics(a.serverIDFromContext(r.Context()), r)

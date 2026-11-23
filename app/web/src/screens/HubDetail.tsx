@@ -142,9 +142,9 @@ function HubOverview({ hub, status }: { hub: string; status: Wire | null }) {
   const usage = useTrafficUsage(() => api.hubTraffic(hub, hours), "list", [hub, hours]);
 
   const loadAnalytics = useCallback(async () => {
-    setAnalytics(await api.serverAnalytics(hours, hub).catch(() => null));
-  }, [hub, hours]);
-  usePoll(loadAnalytics, "list", [hub, hours]);
+    setAnalytics(await api.serverAnalytics(24, hub, "today").catch(() => null));
+  }, [hub]);
+  usePoll(loadAnalytics, "list", [hub]);
 
   if (!status) return <LoadingBlock label="asking the hub" />;
 
@@ -191,7 +191,7 @@ function HubOverview({ hub, status }: { hub: string; status: Wire | null }) {
 
       {topUsers.length > 0 && (
         <>
-          <SectionTitle>{t("Top traffic users")}</SectionTitle>
+          <SectionTitle>{t("Top traffic users")} · {t("Today")}</SectionTitle>
           <div className="card" style={{ padding: "var(--s4)" }}>
             <div className="viz-rank-list">
               {topUsers.slice(0, 6).map((u) => (

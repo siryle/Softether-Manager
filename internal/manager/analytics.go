@@ -8,10 +8,20 @@ import (
 	"time"
 )
 
-func (a *App) serverAnalytics(serverID int64, hub string, hours int64) M {
+func (a *App) serverAnalytics(serverID int64, hub string, hours int64, rangeKind string, loc *time.Location) M {
 	rdb := a.readDB()
 	end := time.Now().UTC()
 	start := end.Add(-time.Duration(hours) * time.Hour)
+	useRollup := true
+	if rangeKind == "today" {
+		if loc == nil {
+			loc = time.Local
+		}
+		nowLocal := end.In(loc)
+		start = time.Date(nowLocal.Year(), nowLocal.Month(), nowLocal.Day(), 0, 0, 0, 0, loc).UTC()
+		// Only use hourly rollup when local midnight aligns cleanly to an hourly UTC bucket.
+		useRollup = start.Unix()%3600 == 0
+	}
 	startBucket := start.Unix() - (start.Unix() % 3600)
 	endTs := end.Unix()
 
@@ -25,13 +35,16 @@ func (a *App) serverAnalytics(serverID int64, hub string, hours int64) M {
 	}
 	topUsers := []M{}
 	{
-		where := `ServerID=? AND SubjectType='user' AND BucketTs>=? AND BucketTs<=?`
-		args := []any{serverID, startBucket, endTs}
-		if hub != "" {
-			where += ` AND HubName=?`
-			args = append(args, hub)
+		var rows []M
+		if useRollup {
+			where := `ServerID=? AND SubjectType='user' AND BucketTs>=? AND BucketTs<=?`
+			args := []any{serverID, startBucket, endTs}
+			if hub != "" {
+				where += ` AND HubName=?`
+				args = append(args, hub)
+			}
+			rows = query(rdb, `SELECT HubName hub, COALESCE(NULLIF(MAX(UserName),''), UserKey) username, SUM(SendBytes) send_bytes, SUM(RecvBytes) recv_bytes FROM TrafficRollupHourly WHERE `+where+` GROUP BY HubName, UserKey HAVING SUM(SendBytes)+SUM(RecvBytes)>0 ORDER BY (SUM(SendBytes)+SUM(RecvBytes)) DESC LIMIT 8`, args...)
 		}
-		rows := query(rdb, `SELECT HubName hub, COALESCE(NULLIF(MAX(UserName),''), UserKey) username, SUM(SendBytes) send_bytes, SUM(RecvBytes) recv_bytes FROM TrafficRollupHourly WHERE `+where+` GROUP BY HubName, UserKey HAVING SUM(SendBytes)+SUM(RecvBytes)>0 ORDER BY (SUM(SendBytes)+SUM(RecvBytes)) DESC LIMIT 8`, args...)
 		if len(rows) == 0 {
 			// Fallback to raw UserTrafficSample with HasDelta=1 or session totals if rollup hasn't accumulated yet.
 			rawWhere := `ServerID=? AND HasDelta=1 AND ((SampledTs>0 AND SampledTs>=? AND SampledTs<=?) OR (SampledTs=0 AND julianday(SampledDate)>=julianday(?) AND julianday(SampledDate)<=julianday(?)))`
@@ -87,13 +100,16 @@ func (a *App) serverAnalytics(serverID int64, hub string, hours int64) M {
 	// 2. Per-hub traffic totals in window.
 	hubTotals := []M{}
 	{
-		where := `ServerID=? AND SubjectType='hub' AND BucketTs>=? AND BucketTs<=?`
-		args := []any{serverID, startBucket, endTs}
-		if hub != "" {
-			where += ` AND HubName=?`
-			args = append(args, hub)
+		var rows []M
+		if useRollup {
+			where := `ServerID=? AND SubjectType='hub' AND BucketTs>=? AND BucketTs<=?`
+			args := []any{serverID, startBucket, endTs}
+			if hub != "" {
+				where += ` AND HubName=?`
+				args = append(args, hub)
+			}
+			rows = query(rdb, `SELECT HubName hub, SUM(SendBytes) send_bytes, SUM(RecvBytes) recv_bytes, MAX(MaxSessions) max_sessions FROM TrafficRollupHourly WHERE `+where+` GROUP BY HubName ORDER BY (SUM(SendBytes)+SUM(RecvBytes)) DESC`, args...)
 		}
-		rows := query(rdb, `SELECT HubName hub, SUM(SendBytes) send_bytes, SUM(RecvBytes) recv_bytes, MAX(MaxSessions) max_sessions FROM TrafficRollupHourly WHERE `+where+` GROUP BY HubName ORDER BY (SUM(SendBytes)+SUM(RecvBytes)) DESC`, args...)
 		if len(rows) == 0 {
 			rawWhere := `ServerID=? AND HasDelta=1 AND ((SampledTs>0 AND SampledTs>=? AND SampledTs<=?) OR (SampledTs=0 AND julianday(SampledDate)>=julianday(?) AND julianday(SampledDate)<=julianday(?)))`
 			rawArgs := []any{serverID, start.Unix(), endTs, start.Format(time.RFC3339Nano), end.Format(time.RFC3339Nano)}

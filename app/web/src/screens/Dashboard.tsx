@@ -67,9 +67,9 @@ export function Dashboard() {
   usePoll(loadWireGuard, "list", [health]);
 
   const loadAnalytics = useCallback(async () => {
-    if (health === "online") setAnalytics(await api.serverAnalytics(trafficHours).catch(() => null));
-  }, [health, trafficHours]);
-  usePoll(loadAnalytics, "list", [health, trafficHours]);
+    if (health === "online") setAnalytics(await api.serverAnalytics(24, "", "today").catch(() => null));
+  }, [health]);
+  usePoll(loadAnalytics, "list", [health]);
 
   const serverUsage = useTrafficUsage(
     () => (health === "online" ? api.serverTraffic(trafficHours) : Promise.resolve(null)),
@@ -557,19 +557,14 @@ export function Dashboard() {
           <div className="panel-card__h">
             <div>
               <h3 className="panel-card__t">{t("Top traffic users")}</h3>
-              <p className="panel-card__s">
-                {t(trafficHours >= 48 ? "Past {days} days" : "Past {hours} hours", {
-                  days: trafficHours / 24,
-                  hours: trafficHours,
-                })}
-              </p>
+              <p className="panel-card__s">{t("Today")}</p>
             </div>
             <Link to="/audit-report" className="btn-secondary">{t("Audit Report")}</Link>
           </div>
 
           {topUsers.length === 0 ? (
             <p className="micro" style={{ padding: "var(--s3) 0" }}>
-              {t("No user traffic recorded in this time window yet.")}
+              {t("No user traffic recorded today yet.")}
             </p>
           ) : (
             <div className="viz-rank-list">
