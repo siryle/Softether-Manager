@@ -285,7 +285,7 @@ export function Dashboard() {
     });
   }
 
-  const rangeLabel = trafficHours >= 48 ? `${trafficHours / 24}d` : `${trafficHours}h`;
+  const todayTraffic = overview?.today_traffic as { send_bytes?: number; recv_bytes?: number } | undefined;
   const topUsers = analytics?.top_users ?? [];
   const maxUserBytes = Math.max(1, ...topUsers.map((u) => u.total_bytes));
 
@@ -373,8 +373,8 @@ export function Dashboard() {
           </div>
           <div className="stat-card__v">{formatBytes(rxTotal)}</div>
           <div className="stat-card__s">
-            {serverUsage && serverUsage.total_recv > 0
-              ? t("Past {range}: {size}", { range: rangeLabel, size: formatBytes(serverUsage.total_recv) })
+            {todayTraffic
+              ? t("Today: {size}", { size: formatBytes(Number(todayTraffic.recv_bytes) || 0) })
               : t("Across all VPN users")}
           </div>
         </div>
@@ -386,8 +386,8 @@ export function Dashboard() {
           </div>
           <div className="stat-card__v">{formatBytes(txTotal)}</div>
           <div className="stat-card__s">
-            {serverUsage && serverUsage.total_send > 0
-              ? t("Past {range}: {size}", { range: rangeLabel, size: formatBytes(serverUsage.total_send) })
+            {todayTraffic
+              ? t("Today: {size}", { size: formatBytes(Number(todayTraffic.send_bytes) || 0) })
               : t("Across all VPN users")}
           </div>
         </div>

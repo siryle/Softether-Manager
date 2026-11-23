@@ -469,4 +469,25 @@ func TestOverviewHubAndProbeAggregateRealUserTraffic(t *testing.T) {
 	if status != 200 || out["ClientRecvBytesPerSec_f64"] == nil || number(out["ClientRecvBytesPerSec_f64"]) < 150 {
 		t.Fatalf("unexpected hub live VPN rate: %d %v", status, out)
 	}
+
+	// Verify today_traffic counts only samples since local midnight (excluding yesterday's samples within 24h).
+	loc := time.FixedZone("UTC+8", 8*3600)
+	nowLocal := time.Now().In(loc)
+	dayStart := time.Date(nowLocal.Year(), nowLocal.Month(), nowLocal.Day(), 0, 0, 0, 0, loc).UTC()
+	yesterdaySample := dayStart.Add(-10 * time.Minute)
+	todaySample := dayStart.Add(time.Minute)
+	if todaySample.After(time.Now().UTC()) {
+		todaySample = dayStart
+	}
+	execute(a.db, `INSERT INTO HubTrafficSample(ServerID,HubName,SendBytes,RecvBytes,SampledDate,SampledTs,DeltaSendBytes,DeltaRecvBytes,HasDelta) VALUES(1,'DEFAULT',9000,9000,?,?,9000,9000,1)`, yesterdaySample.Format(time.RFC3339), yesterdaySample.Unix())
+	execute(a.db, `INSERT INTO HubTrafficSample(ServerID,HubName,SendBytes,RecvBytes,SampledDate,SampledTs,DeltaSendBytes,DeltaRecvBytes,HasDelta) VALUES(1,'DEFAULT',9400,9800,?,?,400,800,1)`, todaySample.Format(time.RFC3339), todaySample.Unix())
+
+	status, out, _ = call(t, a, "GET", "/api/v1/server/overview?tz_offset=-480", nil, token)
+	if status != 200 {
+		t.Fatalf("overview today_traffic failed: %d %v", status, out)
+	}
+	today := object(out["today_traffic"])
+	if integer(today["send_bytes"]) != 400 || integer(today["recv_bytes"]) != 800 {
+		t.Fatalf("expected today_traffic send=400 recv=800, got %v", today)
+	}
 }

@@ -162,6 +162,21 @@ func (a *App) trafficUsage(serverID int64, kind, hub, name string, hours int64) 
 			return fast
 		}
 	}
+	return a.trafficUsageRange(serverID, kind, hub, name, start, end, hours)
+}
+
+func (a *App) serverTodayTraffic(serverID int64, loc *time.Location) (int64, int64) {
+	if loc == nil {
+		loc = time.Local
+	}
+	nowLocal := time.Now().In(loc)
+	dayStart := time.Date(nowLocal.Year(), nowLocal.Month(), nowLocal.Day(), 0, 0, 0, 0, loc).UTC()
+	end := nowLocal.UTC()
+	out := a.trafficUsageRange(serverID, "server", "", "", dayStart, end, 24)
+	return integer(out["total_send"]), integer(out["total_recv"])
+}
+
+func (a *App) trafficUsageRange(serverID int64, kind, hub, name string, start, end time.Time, hours int64) M {
 	interval := max(int64(1), integer(a.setting("sample_interval_minutes"))) * 60
 	maxGap := time.Duration(interval)*time.Second*3/2 + 30*time.Second
 	lookback := max(maxGap, 15*time.Minute)

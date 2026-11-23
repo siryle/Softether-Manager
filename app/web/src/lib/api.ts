@@ -552,7 +552,15 @@ function apiMethods(request: typeof sendRequest) {
   probeServer: (id: number) => request<Probe>("POST", `/servers/${id}/probe`),
 
   // -- server-level SoftEther -----------------------------------------------------
-  overview: () => request("GET", "/server/overview"),
+  overview: () => {
+    const sp = new URLSearchParams();
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (tz) sp.set("tz", tz);
+    } catch {}
+    sp.set("tz_offset", String(new Date().getTimezoneOffset()));
+    return request("GET", `/server/overview?${sp.toString()}`);
+  },
   serverTraffic: (hours = 24) => request<Usage>("GET", `/server/traffic?hours=${hours}`),
   serverAnalytics: (hours = 24, hub = "") =>
     request<ServerAnalytics>("GET", `/server/analytics?hours=${hours}${hub ? `&hub=${encodeURIComponent(hub)}` : ""}`),

@@ -75,7 +75,7 @@ func (a *App) registerCustomRPC() {
 	a.endpoint("GET /server/overview", func(_ http.ResponseWriter, r *http.Request, _ M) any {
 		ctx := r.Context()
 		serverID := a.serverIDFromContext(ctx)
-		return a.singleflight("overview:"+strconv.FormatInt(serverID, 10), func() any {
+		res := a.singleflight("overview:"+strconv.FormatInt(serverID, 10), func() any {
 			methods := map[string]string{"info": "GetServerInfo", "status": "GetServerStatus", "hubs": "EnumHub", "listeners": "EnumListener", "connections": "EnumConnection", "ipsec": "GetIPsecServices", "openvpn": "GetOpenVpnSstpConfig", "azure": "GetAzureStatus", "ddns": "GetDDnsClientStatus", "bridge_support": "GetBridgeSupport"}
 			out := M{}
 			var mu sync.Mutex
@@ -124,7 +124,11 @@ func (a *App) registerCustomRPC() {
 				}
 			}
 			return out
-		})
+		}).(M)
+		todaySend, todayRecv := a.serverTodayTraffic(serverID, resolveExportLocation(r))
+		wrapped := clone(res)
+		wrapped["today_traffic"] = M{"send_bytes": todaySend, "recv_bytes": todayRecv}
+		return wrapped
 	})
 	a.endpoint("PUT /server/listeners/{port}", func(w http.ResponseWriter, r *http.Request, u M) any {
 		port, err := strconv.ParseUint(r.PathValue("port"), 10, 16)
